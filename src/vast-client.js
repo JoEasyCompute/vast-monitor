@@ -40,7 +40,8 @@ function normalizeMachine(machine) {
     earn_day: numberOrNull(machine.earn_day),
     num_reports: intOrNull(machine.num_reports),
     num_recent_reports: numberOrNull(machine.num_recent_reports),
-    status: "online",
+    status: (machine.timeout && machine.timeout > 300) ? "offline" : "online",
+    public_ipaddr: machine.public_ipaddr || null,
     temp_alert_active: 0,
     idle_alert_active: 0,
     idle_since: Number(machine.current_rentals_running || 0) > 0 ? null : new Date().toISOString()

@@ -67,6 +67,7 @@ function buildFleetResponse(fleet) {
     num_recent_reports: machine.num_recent_reports,
     reports_changed: machine.reports_changed || 0,
     status: machine.status,
+    public_ipaddr: machine.public_ipaddr,
     uptime: machine.uptime
   }));
 

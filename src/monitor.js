@@ -56,7 +56,7 @@ export class FleetMonitor {
 
         onlineMachines.push({
           ...normalized,
-          last_online_at: timestamp
+          last_online_at: normalized.status === "online" ? timestamp : (previous?.last_online_at || null)
         });
 
         knownMachines.set(machine.machine_id, machine);
@@ -95,6 +95,7 @@ export class FleetMonitor {
           prev_day_reports: previous?.prev_day_reports ?? 0,
           reports_changed: 0,
           status: "offline",
+          public_ipaddr: previous?.public_ipaddr ?? null,
           last_seen_at: previous?.last_seen_at ?? null,
           last_online_at: previous?.last_online_at ?? null,
           idle_since: previous?.idle_since || timestamp,

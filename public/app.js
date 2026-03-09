@@ -119,7 +119,7 @@ function renderMachines(rows) {
       const rowClass = isLowReliability ? 'low-reliability' : '';
       
       return `
-      <tr class="${rowClass}">
+      <tr class="machine-row ${rowClass}" onclick="showMachineHistory(${row.machine_id})">
         <td class="muted">${index + 1}</td>
         <td class="muted">#${row.machine_id}</td>
         <td>${row.hostname}</td>
@@ -219,4 +219,126 @@ setInterval(() => {
 document.querySelectorAll("th[data-sort]").forEach((th) => {
   th.addEventListener("click", () => handleSort(th.dataset.sort));
 });
+
+const modalBackdrop = document.getElementById("modal-backdrop");
+const modalClose = document.getElementById("modal-close");
+const modalTitle = document.getElementById("modal-title");
+const modalStats = document.getElementById("modal-stats");
+const renterChart = document.getElementById("renter-chart");
+
+modalClose.addEventListener("click", () => {
+  modalBackdrop.classList.add("hidden");
+});
+
+window.addEventListener("click", (e) => {
+  if (e.target === modalBackdrop) {
+    modalBackdrop.classList.add("hidden");
+  }
+});
+
+window.showMachineHistory = async function (machineId) {
+  modalTitle.textContent = `Machine #${machineId} History`;
+  modalStats.textContent = "Loading...";
+  document.getElementById("modal-ip").textContent = "";
+  renterChart.innerHTML = "";
+  modalBackdrop.classList.remove("hidden");
+
+  try {
+    const response = await fetch(`/api/history?machine_id=${machineId}&hours=168`);
+    const data = await response.json();
+    
+    // Find IP from current machine data
+    const machine = currentMachinesData.find(m => m.machine_id === machineId);
+    if (machine && machine.public_ipaddr) {
+      document.getElementById("modal-ip").textContent = `IP: ${machine.public_ipaddr}`;
+    }
+    
+    if (!data.history || data.history.length === 0) {
+      modalStats.textContent = "No history available.";
+      return;
+    }
+
+    const history = data.history;
+    const current = history[history.length - 1];
+    
+    if (current.current_rentals_running > 0) {
+      let since = current.polled_at;
+      for (let i = history.length - 2; i >= 0; i--) {
+        if (history[i].current_rentals_running !== current.current_rentals_running) {
+          break;
+        }
+        since = history[i].polled_at;
+      }
+      modalStats.textContent = `${current.current_rentals_running} renter(s) since ${new Date(since).toLocaleString()}`;
+    } else {
+      modalStats.textContent = "No current renters.";
+    }
+
+    drawChart(history);
+  } catch (error) {
+    console.error(error);
+    modalStats.textContent = "Failed to load history.";
+  }
+};
+
+function drawChart(history) {
+  if (history.length < 2) return;
+
+  // Set width dynamically or fallback to 600
+  const width = renterChart.clientWidth || 600;
+  const height = 200;
+  const padding = { top: 20, right: 20, bottom: 30, left: 30 };
+
+  const minTime = new Date(history[0].polled_at).getTime();
+  const maxTime = new Date(history[history.length - 1].polled_at).getTime();
+  
+  const maxRentals = Math.max(1, ...history.map(d => d.current_rentals_running || 0));
+  
+  // Prevent division by zero if minTime === maxTime
+  const timeSpan = Math.max(1, maxTime - minTime);
+  
+  const scaleX = (time) => padding.left + ((time - minTime) / timeSpan) * (width - padding.left - padding.right);
+  const scaleY = (rentals) => height - padding.bottom - (rentals / maxRentals) * (height - padding.top - padding.bottom);
+
+  let pathData = "";
+  let areaData = "";
+
+  for (let i = 0; i < history.length; i++) {
+    const d = history[i];
+    const x = scaleX(new Date(d.polled_at).getTime());
+    const y = scaleY(d.current_rentals_running || 0);
+    
+    if (i === 0) {
+      pathData += `M ${x} ${y}`;
+      areaData += `M ${x} ${scaleY(0)} L ${x} ${y}`;
+    } else {
+      const prevY = scaleY(history[i-1].current_rentals_running || 0);
+      pathData += ` L ${x} ${prevY} L ${x} ${y}`;
+      areaData += ` L ${x} ${prevY} L ${x} ${y}`;
+    }
+  }
+
+  areaData += ` L ${scaleX(maxTime)} ${scaleY(0)} Z`;
+
+  let svgContent = `<path d="${areaData}" class="chart-area" />`;
+  svgContent += `<path d="${pathData}" class="chart-line" />`;
+  
+  // Generate a reasonable number of Y-axis ticks
+  const ticksCount = Math.min(maxRentals, 5);
+  for (let i = 0; i <= ticksCount; i++) {
+    const val = Math.round((i / ticksCount) * maxRentals);
+    const y = scaleY(val);
+    svgContent += `<g class="chart-axis">
+      <line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke-dasharray="2,2" />
+      <text x="${padding.left - 5}" y="${y + 4}" text-anchor="end">${val}</text>
+    </g>`;
+  }
+
+  svgContent += `<g class="chart-axis">
+    <text x="${padding.left}" y="${height - 5}" text-anchor="start">${new Date(minTime).toLocaleDateString()}</text>
+    <text x="${width - padding.right}" y="${height - 5}" text-anchor="end">Now</text>
+  </g>`;
+
+  renterChart.innerHTML = svgContent;
+}
 

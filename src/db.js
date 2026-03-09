@@ -119,12 +119,12 @@ export function createDatabase(dbPath) {
         machine_id, hostname, gpu_type, num_gpus, status, occupancy, occupied_gpus,
         current_rentals_running, listed_gpu_cost, reliability, gpu_max_cur_temp, earn_day,
         num_reports, num_recent_reports, prev_day_reports, reports_changed,
-        last_seen_at, last_online_at, idle_since, temp_alert_active, idle_alert_active, updated_at
+        last_seen_at, last_online_at, idle_since, temp_alert_active, idle_alert_active, updated_at, public_ipaddr
       ) VALUES (
         @machine_id, @hostname, @gpu_type, @num_gpus, @status, @occupancy, @occupied_gpus,
         @current_rentals_running, @listed_gpu_cost, @reliability, @gpu_max_cur_temp, @earn_day,
         @num_reports, @num_recent_reports, @prev_day_reports, @reports_changed,
-        @last_seen_at, @last_online_at, @idle_since, @temp_alert_active, @idle_alert_active, @updated_at
+        @last_seen_at, @last_online_at, @idle_since, @temp_alert_active, @idle_alert_active, @updated_at, @public_ipaddr
       )
       ON CONFLICT(machine_id) DO UPDATE SET
         hostname = excluded.hostname,
@@ -147,7 +147,8 @@ export function createDatabase(dbPath) {
         idle_since = excluded.idle_since,
         temp_alert_active = excluded.temp_alert_active,
         idle_alert_active = excluded.idle_alert_active,
-        updated_at = excluded.updated_at
+        updated_at = excluded.updated_at,
+        public_ipaddr = excluded.public_ipaddr
     `),
     insertSnapshot: db.prepare(`
       INSERT INTO machine_snapshots (
