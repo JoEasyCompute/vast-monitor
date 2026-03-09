@@ -209,7 +209,7 @@ export function createDatabase(dbPath) {
       statements.upsertState.run({
         ...machine,
         last_seen_at: timestamp,
-        last_online_at: machine.status === "online" ? timestamp : null,
+        last_online_at: machine.last_online_at,
         updated_at: timestamp
       });
       statements.insertSnapshot.run({ ...machine, poll_id: pollId, polled_at: timestamp });

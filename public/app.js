@@ -132,10 +132,27 @@ function renderMachines(rows) {
         <td>${renderReports(row)}</td>
         <td>${reliabilityScore == null ? "-" : `${reliabilityScore.toFixed(1)}%`}</td>
         <td>${row.uptime?.["24h"] == null ? "-" : `${row.uptime["24h"]}%`}</td>
-        <td><span class="status-pill ${row.status}">${row.status}</span></td>
+        <td><span class="status-pill ${row.status}" title="${getStatusTooltip(row)}">${row.status}</span></td>
       </tr>
     `})
     .join("");
+}
+
+function getStatusTooltip(row) {
+  if (row.status === "online") return "Online";
+  if (!row.last_online_at) return "Offline (duration unknown)";
+  
+  const diffMs = Date.now() - new Date(row.last_online_at).getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 60) return `Offline for ${diffMins} min`;
+  
+  const diffHours = Math.floor(diffMins / 60);
+  const remMins = diffMins % 60;
+  if (diffHours < 24) return `Offline for ${diffHours}h ${remMins}m`;
+  
+  const diffDays = Math.floor(diffHours / 24);
+  const remHours = diffHours % 24;
+  return `Offline for ${diffDays}d ${remHours}h`;
 }
 
 function renderHourlyEarnings(data) {

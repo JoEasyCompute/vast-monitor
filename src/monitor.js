@@ -34,7 +34,16 @@ export class FleetMonitor {
     const timestamp = new Date().toISOString();
 
     try {
-      const rawMachines = await fetchMachines(this.config.vastCliPath);
+            let rawMachines = await fetchMachines(this.config.vastCliPath);
+      
+      // Deduplicate by hostname, keeping only the highest machine_id
+      const byHostname = new Map();
+      for (const m of rawMachines) {
+        if (!byHostname.has(m.hostname) || byHostname.get(m.hostname).machine_id < m.machine_id) {
+          byHostname.set(m.hostname, m);
+        }
+      }
+      rawMachines = Array.from(byHostname.values());
       const previousStates = new Map(this.db.getCurrentFleetStatus().machines.map((machine) => [machine.machine_id, machine]));
       const knownMachines = new Map(this.db.getKnownMachines().map((machine) => [machine.machine_id, machine]));
       const onlineMachines = [];

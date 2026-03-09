@@ -51,7 +51,17 @@ export function createServer({ config, db }) {
 }
 
 function buildFleetResponse(fleet) {
-  const machines = fleet.machines.map((machine) => ({
+  // Deduplicate machines by hostname to avoid double counting old offline machine IDs
+  const byHostname = new Map();
+  for (const m of fleet.machines) {
+    const existing = byHostname.get(m.hostname);
+    if (!existing || m.machine_id > existing.machine_id) {
+      byHostname.set(m.hostname, m);
+    }
+  }
+  const uniqueMachines = Array.from(byHostname.values());
+
+  const machines = uniqueMachines.map((machine) => ({
     machine_id: machine.machine_id,
     hostname: machine.hostname,
     gpu_type: machine.gpu_type,
@@ -67,6 +77,7 @@ function buildFleetResponse(fleet) {
     num_recent_reports: machine.num_recent_reports,
     reports_changed: machine.reports_changed || 0,
     status: machine.status,
+    last_online_at: machine.last_online_at,
     public_ipaddr: machine.public_ipaddr,
     uptime: machine.uptime
   }));
