@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>vast-monitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Vast.ai fleet monitor</p>
+          <h1>vast-monitor</h1>
+          <p class="hero-copy">Live fleet health, utilisation, alerts, and uptime across your hosted GPUs.</p>
+        </div>
+        <div class="hero-meta">
+          <span id="last-updated">Loading...</span>
+        </div>
+      </header>
+
+      <main class="dashboard">
+        <section class="panel">
+          <h2>Fleet Summary</h2>
+          <div class="summary-grid" id="summary-grid"></div>
+        </section>
+
+        <section class="panel">
+          <h2>GPU Type Breakdown</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>GPU Type</th>
+                  <th>Machines</th>
+                  <th>GPUs</th>
+                  <th>Utilisation</th>
+                  <th>Avg Price</th>
+                  <th>Earnings</th>
+                </tr>
+              </thead>
+              <tbody id="breakdown-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel wide">
+          <h2>Today's Hourly Earnings</h2>
+          <div class="earnings-header">
+            <span class="earnings-total" id="earnings-total">$0.00</span>
+            <span class="muted" id="earnings-date"></span>
+          </div>
+          <div class="hourly-chart" id="hourly-chart"></div>
+        </section>
+
+        <section class="panel wide">
+          <h2>Machines</h2>
+          <div class="table-wrap machines-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th data-sort="machine_id">ID</th>
+                  <th data-sort="hostname">Hostname</th>
+                  <th data-sort="gpu_type">GPU Type</th>
+                  <th data-sort="num_gpus">GPUs</th>
+                  <th>Occupancy</th>
+                  <th data-sort="listed_gpu_cost">Price</th>
+                  <th data-sort="current_rentals_running">Rentals</th>
+                  <th data-sort="gpu_max_cur_temp">Temp</th>
+                  <th data-sort="num_reports">Reports</th>
+                  <th data-sort="reliability">Reliability</th>
+                  <th data-sort="uptime">Uptime 24h</th>
+                  <th data-sort="status">Status</th>
+                </tr>
+              </thead>
+              <tbody id="machines-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Recent Alerts</h2>
+          <div id="alerts-list" class="alerts-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+  </html>
