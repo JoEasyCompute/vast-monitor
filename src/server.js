@@ -13,12 +13,19 @@ export function createServer({ config, db }) {
 
   app.get("/api/history", (req, res) => {
     const machineId = Number(req.query.machine_id);
-    const hours = Math.max(1, Number(req.query.hours || 24));
+    const rawHours = req.query.hours == null ? 24 : Number(req.query.hours);
 
     if (!Number.isFinite(machineId)) {
       res.status(400).json({ error: "machine_id is required" });
       return;
     }
+
+    if (!Number.isFinite(rawHours) || rawHours < 1) {
+      res.status(400).json({ error: "hours must be a positive number" });
+      return;
+    }
+
+    const hours = Math.floor(rawHours);
 
     res.json({
       machine_id: machineId,
@@ -37,7 +44,13 @@ export function createServer({ config, db }) {
   });
 
   app.get("/api/alerts", (req, res) => {
-    const limit = Math.max(1, Math.min(500, Number(req.query.limit || 50)));
+    const rawLimit = req.query.limit == null ? 50 : Number(req.query.limit);
+    if (!Number.isFinite(rawLimit) || rawLimit < 1) {
+      res.status(400).json({ error: "limit must be a positive number" });
+      return;
+    }
+
+    const limit = Math.min(500, Math.floor(rawLimit));
     res.json({
       alerts: db.getRecentAlerts(limit)
     });
@@ -79,10 +92,15 @@ function buildFleetResponse(fleet) {
     status: machine.status,
     last_online_at: machine.last_online_at,
     public_ipaddr: machine.public_ipaddr,
+    host_id: machine.host_id,
+    hosting_type: machine.hosting_type,
+    is_datacenter: Boolean(machine.is_datacenter),
+    datacenter_id: machine.datacenter_id,
     uptime: machine.uptime
   }));
 
   const totalMachines = machines.length;
+  const datacenterMachines = machines.reduce((sum, machine) => sum + (machine.is_datacenter ? 1 : 0), 0);
   const totalGpus = machines.reduce((sum, machine) => sum + (machine.num_gpus || 0), 0);
   const occupiedGpus = machines.reduce((sum, machine) => sum + (machine.status === "online" ? machine.occupied_gpus || 0 : 0), 0);
   const totalDailyEarnings = machines.reduce((sum, machine) => sum + (machine.earn_day || 0), 0);
@@ -125,6 +143,7 @@ function buildFleetResponse(fleet) {
     latestPollAt: fleet.latestPollAt,
     summary: {
       totalMachines,
+      datacenterMachines,
       totalGpus,
       occupiedGpus,
       utilisationPct,

@@ -5,20 +5,35 @@ import { ConsoleAlertChannel } from "./alerts/console-alert-channel.js";
 import { FleetMonitor } from "./monitor.js";
 import { createServer } from "./server.js";
 
+console.log("[startup] Loading configuration");
 const db = createDatabase(config.dbPath);
+console.log(`[startup] Database ready at ${config.dbPath}`);
 const alertManager = new AlertManager([new ConsoleAlertChannel()]);
 const monitor = new FleetMonitor({ config, db, alertManager });
 const app = createServer({ config, db });
 
-await monitor.start();
-
-app.listen(config.port, () => {
+console.log(`[startup] Starting HTTP server on port ${config.port}`);
+const server = app.listen(config.port, () => {
   console.log(`vast-monitor listening on http://localhost:${config.port}`);
 });
 
+console.log("[startup] Starting fleet monitor");
+monitor.start()
+  .then(() => {
+    console.log("[startup] Initial fleet sync complete");
+  })
+  .catch((error) => {
+    console.error("[startup] Fleet monitor failed to start:", error);
+    process.exitCode = 1;
+    server.close();
+  });
+
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
+    console.log(`[shutdown] Received ${signal}, stopping monitor`);
     monitor.stop();
-    process.exit(0);
+    server.close(() => {
+      process.exit(0);
+    });
   });
 }

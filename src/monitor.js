@@ -10,7 +10,9 @@ export class FleetMonitor {
   }
 
   async start() {
+    console.log("[monitor] Running initial poll");
     await this.poll();
+    console.log(`[monitor] Polling every ${Math.round(this.config.pollIntervalMs / 1000)}s`);
     this.intervalHandle = setInterval(() => {
       this.poll().catch((error) => {
         console.error("Polling failed:", error);
@@ -34,7 +36,8 @@ export class FleetMonitor {
     const timestamp = new Date().toISOString();
 
     try {
-            let rawMachines = await fetchMachines(this.config.vastCliPath);
+      console.log(`[monitor] Poll started at ${timestamp}`);
+      let rawMachines = await fetchMachines(this.config);
       
       // Deduplicate by hostname, keeping only the highest machine_id
       const byHostname = new Map();
@@ -105,6 +108,10 @@ export class FleetMonitor {
           reports_changed: 0,
           status: "offline",
           public_ipaddr: previous?.public_ipaddr ?? null,
+          host_id: previous?.host_id ?? null,
+          hosting_type: previous?.hosting_type ?? null,
+          is_datacenter: previous?.is_datacenter ?? 0,
+          datacenter_id: previous?.datacenter_id ?? null,
           last_seen_at: previous?.last_seen_at ?? null,
           last_online_at: previous?.last_online_at ?? null,
           idle_since: previous?.idle_since || timestamp,

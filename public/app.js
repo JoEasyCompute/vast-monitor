@@ -80,6 +80,7 @@ function renderMachinesSorted() {
 function renderSummary(summary) {
   const items = [
     ["Total machines", summary.totalMachines],
+    ["DC Tagged", summary.datacenterMachines],
     ["Total GPUs", summary.totalGpus],
     ["Occupied GPUs", summary.occupiedGpus],
     ["Utilisation", `${summary.utilisationPct}%`],
@@ -100,7 +101,7 @@ function renderBreakdown(rows) {
   breakdownBody.innerHTML = rows
     .map((row) => `
       <tr>
-        <td>${row.gpu_type}</td>
+        <td>${escapeHtml(row.gpu_type)}</td>
         <td>${row.machines}</td>
         <td>${row.gpus}</td>
         <td><span class="util-chip ${utilClass(row.utilisation_pct)}">${row.utilisation_pct}%</span></td>
@@ -122,8 +123,9 @@ function renderMachines(rows) {
       <tr class="machine-row ${rowClass}" onclick="showMachineHistory(${row.machine_id})">
         <td class="muted">${index + 1}</td>
         <td class="muted">#${row.machine_id}</td>
-        <td>${row.hostname}</td>
-        <td>${row.gpu_type}</td>
+        <td class="dc-cell">${renderDatacenter(row)}</td>
+        <td>${escapeHtml(row.hostname)}</td>
+        <td>${escapeHtml(row.gpu_type)}</td>
         <td>${row.num_gpus}</td>
         <td>${renderOccupancy(row.occupancy)}</td>
         <td>${row.listed_gpu_cost == null ? "-" : `$${Number(row.listed_gpu_cost).toFixed(2)}`}</td>
@@ -188,8 +190,8 @@ function renderAlerts(rows) {
     .map((row) => `
       <article class="alert-item ${row.severity}">
         <div>
-          <strong>${row.hostname || "fleet"}</strong>
-          <p>${row.message}</p>
+          <strong>${escapeHtml(row.hostname || "fleet")}</strong>
+          <p>${escapeHtml(row.message)}</p>
         </div>
         <time>${new Date(row.created_at).toLocaleString()}</time>
       </article>
@@ -205,7 +207,7 @@ function renderOccupancy(occupancy) {
   return occupancy
     .split(/\s+/)
     .filter(Boolean)
-    .map((token) => `<span class="gpu-slot ${token === "D" ? "occupied" : "free"}">${token}</span>`)
+    .map((token) => `<span class="gpu-slot ${token === "D" ? "occupied" : "free"}">${escapeHtml(token)}</span>`)
     .join("");
 }
 
@@ -218,10 +220,27 @@ function renderReports(row) {
   return `<span class="report-badge">${count}</span>`;
 }
 
+function renderDatacenter(row) {
+  if (row.is_datacenter) {
+    return '<span class="dc-pill">DC</span>';
+  }
+
+  return "";
+}
+
 function utilClass(value) {
   if (value > 80) return "high";
   if (value >= 50) return "medium";
   return "low";
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 loadDashboard().catch((error) => {
@@ -358,4 +377,3 @@ function drawChart(history) {
 
   renterChart.innerHTML = svgContent;
 }
-

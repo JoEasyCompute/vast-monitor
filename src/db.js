@@ -44,8 +44,13 @@ export function createDatabase(dbPath) {
       last_seen_at TEXT,
       last_online_at TEXT,
       idle_since TEXT,
+      host_id INTEGER,
+      hosting_type INTEGER,
+      is_datacenter INTEGER NOT NULL DEFAULT 0,
+      datacenter_id INTEGER,
       temp_alert_active INTEGER NOT NULL DEFAULT 0,
       idle_alert_active INTEGER NOT NULL DEFAULT 0,
+      public_ipaddr TEXT,
       updated_at TEXT NOT NULL
     );
 
@@ -71,6 +76,10 @@ export function createDatabase(dbPath) {
       earn_day REAL,
       num_reports INTEGER NOT NULL DEFAULT 0,
       num_recent_reports REAL,
+      host_id INTEGER,
+      hosting_type INTEGER,
+      is_datacenter INTEGER NOT NULL DEFAULT 0,
+      datacenter_id INTEGER,
       status TEXT NOT NULL,
       FOREIGN KEY (poll_id) REFERENCES polls(id)
     );
@@ -101,6 +110,41 @@ export function createDatabase(dbPath) {
     );
   `);
 
+  const machineStateColumns = new Set(
+    db.prepare("PRAGMA table_info(machine_state)").all().map((column) => column.name)
+  );
+  if (!machineStateColumns.has("public_ipaddr")) {
+    db.exec("ALTER TABLE machine_state ADD COLUMN public_ipaddr TEXT");
+  }
+  if (!machineStateColumns.has("host_id")) {
+    db.exec("ALTER TABLE machine_state ADD COLUMN host_id INTEGER");
+  }
+  if (!machineStateColumns.has("hosting_type")) {
+    db.exec("ALTER TABLE machine_state ADD COLUMN hosting_type INTEGER");
+  }
+  if (!machineStateColumns.has("is_datacenter")) {
+    db.exec("ALTER TABLE machine_state ADD COLUMN is_datacenter INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!machineStateColumns.has("datacenter_id")) {
+    db.exec("ALTER TABLE machine_state ADD COLUMN datacenter_id INTEGER");
+  }
+
+  const machineSnapshotColumns = new Set(
+    db.prepare("PRAGMA table_info(machine_snapshots)").all().map((column) => column.name)
+  );
+  if (!machineSnapshotColumns.has("host_id")) {
+    db.exec("ALTER TABLE machine_snapshots ADD COLUMN host_id INTEGER");
+  }
+  if (!machineSnapshotColumns.has("hosting_type")) {
+    db.exec("ALTER TABLE machine_snapshots ADD COLUMN hosting_type INTEGER");
+  }
+  if (!machineSnapshotColumns.has("is_datacenter")) {
+    db.exec("ALTER TABLE machine_snapshots ADD COLUMN is_datacenter INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!machineSnapshotColumns.has("datacenter_id")) {
+    db.exec("ALTER TABLE machine_snapshots ADD COLUMN datacenter_id INTEGER");
+  }
+
   const statements = {
     insertPoll: db.prepare(`
       INSERT INTO polls (polled_at) VALUES (?)
@@ -119,12 +163,14 @@ export function createDatabase(dbPath) {
         machine_id, hostname, gpu_type, num_gpus, status, occupancy, occupied_gpus,
         current_rentals_running, listed_gpu_cost, reliability, gpu_max_cur_temp, earn_day,
         num_reports, num_recent_reports, prev_day_reports, reports_changed,
-        last_seen_at, last_online_at, idle_since, temp_alert_active, idle_alert_active, updated_at, public_ipaddr
+        last_seen_at, last_online_at, idle_since, host_id, hosting_type, is_datacenter, datacenter_id,
+        temp_alert_active, idle_alert_active, updated_at, public_ipaddr
       ) VALUES (
         @machine_id, @hostname, @gpu_type, @num_gpus, @status, @occupancy, @occupied_gpus,
         @current_rentals_running, @listed_gpu_cost, @reliability, @gpu_max_cur_temp, @earn_day,
         @num_reports, @num_recent_reports, @prev_day_reports, @reports_changed,
-        @last_seen_at, @last_online_at, @idle_since, @temp_alert_active, @idle_alert_active, @updated_at, @public_ipaddr
+        @last_seen_at, @last_online_at, @idle_since, @host_id, @hosting_type, @is_datacenter, @datacenter_id,
+        @temp_alert_active, @idle_alert_active, @updated_at, @public_ipaddr
       )
       ON CONFLICT(machine_id) DO UPDATE SET
         hostname = excluded.hostname,
@@ -145,6 +191,10 @@ export function createDatabase(dbPath) {
         last_seen_at = excluded.last_seen_at,
         last_online_at = excluded.last_online_at,
         idle_since = excluded.idle_since,
+        host_id = excluded.host_id,
+        hosting_type = excluded.hosting_type,
+        is_datacenter = excluded.is_datacenter,
+        datacenter_id = excluded.datacenter_id,
         temp_alert_active = excluded.temp_alert_active,
         idle_alert_active = excluded.idle_alert_active,
         updated_at = excluded.updated_at,
@@ -154,11 +204,13 @@ export function createDatabase(dbPath) {
       INSERT INTO machine_snapshots (
         poll_id, polled_at, machine_id, hostname, gpu_type, num_gpus, occupancy,
         occupied_gpus, current_rentals_running, listed_gpu_cost, reliability,
-        gpu_max_cur_temp, earn_day, num_reports, num_recent_reports, status
+        gpu_max_cur_temp, earn_day, num_reports, num_recent_reports, host_id, hosting_type,
+        is_datacenter, datacenter_id, status
       ) VALUES (
         @poll_id, @polled_at, @machine_id, @hostname, @gpu_type, @num_gpus, @occupancy,
         @occupied_gpus, @current_rentals_running, @listed_gpu_cost, @reliability,
-        @gpu_max_cur_temp, @earn_day, @num_reports, @num_recent_reports, @status
+        @gpu_max_cur_temp, @earn_day, @num_reports, @num_recent_reports, @host_id, @hosting_type,
+        @is_datacenter, @datacenter_id, @status
       )
     `),
     insertEvent: db.prepare(`

@@ -1,56 +1,188 @@
 # vast-monitor
 
-`vast-monitor` is a Node.js service for monitoring a Vast.ai GPU fleet. It polls the Vast CLI, stores fleet snapshots and state changes in SQLite, raises console alerts, and serves a dark-theme dashboard over Express.
+`vast-monitor` is a Node.js service for monitoring a Vast.ai host fleet.
+
+It polls your hosted machines from Vast, enriches them with datacenter tagging metadata, stores state and history in SQLite, emits alerts, and serves a lightweight dashboard over Express.
 
 ## Features
 
-- Polls `vast show machines --raw` on a configurable interval
-- Tracks per-machine fleet fields including hostname, GPU type, GPU count, occupancy, rentals, price, reliability, and GPU temperature
-- Detects host up/down transitions and rental start/loss events
-- Persists snapshots, events, and alerts to SQLite with `better-sqlite3`
-- Computes rolling uptime percentages for 24h, 7d, and 30d windows
-- Exposes JSON APIs and a mobile-friendly vanilla HTML dashboard
-- Uses an alert interface so Telegram or webhook channels can be added later
+- Polls `vast show machines --raw` on a schedule
+- Enriches machines with Vast datacenter metadata from the Vast API
+- Tracks current machine state, snapshots, alerts, and events in SQLite
+- Detects host up/down transitions and rental activity changes
+- Computes rolling uptime for `24h`, `7d`, and `30d`
+- Shows fleet health, utilisation, earnings, reports, and datacenter tags in a browser dashboard
+- Exposes JSON endpoints for status, history, alerts, and hourly earnings
 
-## Setup
+## Requirements
 
-1. Install dependencies:
+- Node.js 20+ recommended
+- A working Vast CLI install
+- A valid Vast API key file
 
-   ```bash
-   npm install
-   ```
+Default assumptions:
 
-2. Create your environment file:
+- Vast CLI: `~/Desktop/dev/vast/vast`
+- Vast API key: `~/.config/vastai/vast_api_key`
 
-   ```bash
-   cp .env.example .env
-   ```
+## Quick Start
 
-3. Review `.env` values:
+```bash
+npm install
+cp .env.example .env
+npm start
+```
 
-   - `POLL_INTERVAL_MS`: default `300000` (5 minutes)
-   - `VAST_CLI_PATH`: default `/Users/josephcheung/Desktop/dev/vast/vast`
-   - `ALERT_TEMP_THRESHOLD`: default `85`
-   - `ALERT_IDLE_HOURS`: default `6`
-   - `PORT`: default `3000`
-   - `DB_PATH`: default `./data/vast-monitor.db`
+Then open `http://localhost:3000`.
 
-4. Start the service:
+## Configuration
 
-   ```bash
-   npm start
-   ```
+Environment variables:
 
-5. Open `http://localhost:3000`
+- `POLL_INTERVAL_MS`: poll interval in milliseconds, default `300000`
+- `VAST_CLI_PATH`: path to the Vast CLI binary
+- `VAST_API_URL`: Vast API base URL, default `https://console.vast.ai/api/v0`
+- `VAST_API_KEY_PATH`: path to the Vast API key file
+- `ALERT_TEMP_THRESHOLD`: GPU temperature alert threshold, default `85`
+- `ALERT_IDLE_HOURS`: idle alert threshold in hours, default `6`
+- `PORT`: HTTP port, default `3000`
+- `DB_PATH`: SQLite database path, default `./data/vast-monitor.db`
+
+## Startup
+
+Startup is intentionally verbose so you can see progress during the initial poll. Typical output:
+
+```text
+[startup] Loading configuration
+[startup] Database ready at ...
+[startup] Starting HTTP server on port 3000
+[startup] Starting fleet monitor
+[monitor] Running initial poll
+[monitor] Poll started at ...
+vast-monitor listening on http://localhost:3000
+```
+
+The HTTP server starts before the initial poll finishes, so the process becomes visibly healthy earlier.
+
+## Dashboard
+
+The dashboard includes:
+
+- Fleet summary cards
+- GPU type breakdown
+- Today’s hourly earnings
+- Sortable machine table
+- Datacenter `DC` indicator column
+- Recent alerts
+- Per-machine history modal
+
+## Datacenter Tagging
+
+Vast does not expose the datacenter tag directly in the host `show machines` payload used by this app.
+
+This project derives it from Vast bundle metadata using:
+
+- `hosting_type === 1` -> machine is treated as datacenter-tagged
+- `host_id` -> stored as the datacenter ID internally
+
+In the dashboard, datacenter machines are shown with a blue `DC` pill.
 
 ## API
 
-- `GET /api/status`: current fleet summary, GPU-type breakdown, and per-machine state
-- `GET /api/history?machine_id=49697&hours=24`: historical snapshots for one machine
-- `GET /api/alerts?limit=50`: recent alert records
+### `GET /api/status`
+
+Returns:
+
+- latest poll time
+- summary metrics
+- GPU type breakdown
+- current machine list
+
+### `GET /api/history?machine_id=49697&hours=24`
+
+Returns historical snapshots for one machine.
+
+Validation:
+
+- `machine_id` must be numeric
+- `hours` must be a positive number
+
+### `GET /api/alerts?limit=50`
+
+Returns recent alerts.
+
+Validation:
+
+- `limit` must be a positive number
+- maximum `limit` is `500`
+
+### `GET /api/earnings/hourly?date=YYYY-MM-DD`
+
+Returns hourly earnings buckets for a UTC date.
+
+## Database
+
+SQLite is used through `better-sqlite3`.
+
+Main tables:
+
+- `machine_registry`
+- `machine_state`
+- `polls`
+- `machine_snapshots`
+- `events`
+- `alerts`
+
+### Automatic Schema Patching
+
+If you pull a newer version of this repo onto another machine and start it against an older database, the app patches known additive schema changes automatically on startup.
+
+Current startup migrations cover missing columns including:
+
+- `public_ipaddr`
+- `host_id`
+- `hosting_type`
+- `is_datacenter`
+- `datacenter_id`
+
+As long as the process can write to the SQLite file, an existing DB should upgrade in place.
+
+## Alerts
+
+Alerts are currently delivered to the console through the channel abstraction in [`src/alerts`](./src/alerts).
+
+That makes it easy to add Telegram, webhook, or other delivery backends later.
+
+## Repo Layout
+
+```text
+src/
+  index.js          startup
+  config.js         environment and defaults
+  vast-client.js    Vast CLI + Vast API data collection
+  monitor.js        polling loop and change detection
+  db.js             SQLite schema, queries, and migrations
+  server.js         Express API + static file server
+  alerts/           alert channel abstraction
+
+public/
+  index.html        dashboard shell
+  app.js            dashboard rendering
+  styles.css        dashboard styling
+
+data/
+  vast-monitor.db   SQLite database
+```
+
+## Troubleshooting
+
+- If startup stalls after the monitor begins polling, check that the Vast CLI path is correct and the API key file exists.
+- If datacenter pills are missing, verify the app can read `VAST_API_KEY_PATH` and reach `VAST_API_URL`.
+- If you move the repo to another machine, confirm the SQLite path in `DB_PATH` is writable.
 
 ## Notes
 
-- The monitor uses `vast show machines --raw`, which matches the host-fleet fields required by this project.
-- Console alerts are implemented through a channel interface in `src/alerts`, making it straightforward to add Telegram or webhook delivery later.
-- Uptime percentages are calculated from recorded poll snapshots, so accuracy improves as the service continues running.
+- `vast show machines --raw` is still the primary fleet source of truth.
+- Datacenter tagging requires both Vast CLI access and Vast API access.
+- Uptime accuracy improves as more polling history accumulates.
+- The frontend is static HTML/CSS/JS with no build step.
