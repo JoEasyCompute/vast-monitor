@@ -107,6 +107,7 @@ export class FleetMonitor {
           prev_day_reports: previous?.prev_day_reports ?? 0,
           reports_changed: 0,
           status: "offline",
+          error_message: previous?.error_message ?? null,
           public_ipaddr: previous?.public_ipaddr ?? null,
           host_id: previous?.host_id ?? null,
           hosting_type: previous?.hosting_type ?? null,

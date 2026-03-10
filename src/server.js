@@ -90,6 +90,7 @@ function buildFleetResponse(fleet) {
     num_recent_reports: machine.num_recent_reports,
     reports_changed: machine.reports_changed || 0,
     status: machine.status,
+    error_message: sanitizeErrorMessage(machine.error_message),
     last_online_at: machine.last_online_at,
     public_ipaddr: machine.public_ipaddr,
     host_id: machine.host_id,
@@ -153,3 +154,20 @@ function buildFleetResponse(fleet) {
     machines
   };
 }
+
+function sanitizeErrorMessage(message) {
+  const text = String(message ?? "").trim();
+  if (!text) {
+    return null;
+  }
+
+  if (IGNORED_ERROR_MESSAGES.has(text)) {
+    return null;
+  }
+
+  return text;
+}
+
+const IGNORED_ERROR_MESSAGES = new Set([
+  "Error: machine does not support VMs."
+]);

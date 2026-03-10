@@ -48,7 +48,13 @@
         </section>
 
         <section class="panel wide">
-          <h2>Today's Hourly Earnings</h2>
+          <div class="panel-title-row">
+            <h2>Hourly Earnings</h2>
+            <div class="earnings-nav">
+              <button id="earnings-prev" class="nav-button" type="button" aria-label="Previous day">&#8592;</button>
+              <button id="earnings-next" class="nav-button" type="button" aria-label="Next day">&#8594;</button>
+            </div>
+          </div>
           <div class="earnings-header">
             <span class="earnings-total" id="earnings-total">$0.00</span>
             <span class="muted" id="earnings-date"></span>
@@ -98,6 +104,7 @@
         </header>
         <div class="modal-body">
           <div id="modal-ip" class="modal-ip" style="color: var(--muted); margin-bottom: 10px; font-size: 0.95rem;"></div>
+          <div id="modal-error" class="modal-error hidden"></div>
           <div id="modal-stats" class="modal-stats"></div>
           <div class="modal-chart-wrap">
             <svg id="renter-chart" width="100%" height="200"></svg>

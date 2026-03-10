@@ -6,16 +6,19 @@ const lastUpdated = document.getElementById("last-updated");
 const hourlyChart = document.getElementById("hourly-chart");
 const earningsTotal = document.getElementById("earnings-total");
 const earningsDate = document.getElementById("earnings-date");
+const earningsPrevButton = document.getElementById("earnings-prev");
+const earningsNextButton = document.getElementById("earnings-next");
 
 let currentMachinesData = [];
 let sortCol = "hostname";
 let sortDesc = false;
+let selectedEarningsDate = todayUtcDateString();
 
 async function loadDashboard() {
   const [statusResponse, alertsResponse, earningsResponse] = await Promise.all([
     fetch("/api/status"),
     fetch("/api/alerts?limit=10"),
-    fetch("/api/earnings/hourly")
+    fetch(`/api/earnings/hourly?date=${selectedEarningsDate}`)
   ]);
 
   const status = await statusResponse.json();
@@ -117,7 +120,10 @@ function renderMachines(rows) {
     .map((row, index) => {
       const reliabilityScore = row.reliability != null ? row.reliability * 100 : null;
       const isLowReliability = reliabilityScore != null && reliabilityScore < 90;
-      const rowClass = isLowReliability ? 'low-reliability' : '';
+      const hasError = Boolean(row.error_message);
+      const rowClass = [hasError ? "machine-error" : "", isLowReliability ? "low-reliability" : ""]
+        .filter(Boolean)
+        .join(" ");
       
       return `
       <tr class="machine-row ${rowClass}" onclick="showMachineHistory(${row.machine_id})">
@@ -160,14 +166,16 @@ function getStatusTooltip(row) {
 function renderHourlyEarnings(data) {
   const currentHour = new Date().getUTCHours();
   const maxEarnings = Math.max(...data.hours.map((h) => h.earnings), 0.01);
+  const isToday = data.date === todayUtcDateString();
 
   earningsTotal.textContent = `$${data.total.toFixed(2)}`;
   earningsDate.textContent = data.date;
+  earningsNextButton.disabled = isToday;
 
   hourlyChart.innerHTML = data.hours
     .map((h) => {
       const pct = Math.max((h.earnings / maxEarnings) * 100, 0);
-      const isFuture = h.hour > currentHour;
+      const isFuture = isToday && h.hour > currentHour;
       const barClass = isFuture ? "hour-bar future" : "hour-bar";
       return `
         <div class="hour-bar-wrap">
@@ -256,10 +264,26 @@ document.querySelectorAll("th[data-sort]").forEach((th) => {
   th.addEventListener("click", () => handleSort(th.dataset.sort));
 });
 
+earningsPrevButton.addEventListener("click", () => {
+  selectedEarningsDate = shiftUtcDate(selectedEarningsDate, -1);
+  loadDashboard().catch((error) => console.error(error));
+});
+
+earningsNextButton.addEventListener("click", () => {
+  const nextDate = shiftUtcDate(selectedEarningsDate, 1);
+  if (nextDate > todayUtcDateString()) {
+    return;
+  }
+
+  selectedEarningsDate = nextDate;
+  loadDashboard().catch((error) => console.error(error));
+});
+
 const modalBackdrop = document.getElementById("modal-backdrop");
 const modalClose = document.getElementById("modal-close");
 const modalTitle = document.getElementById("modal-title");
 const modalStats = document.getElementById("modal-stats");
+const modalError = document.getElementById("modal-error");
 const renterChart = document.getElementById("renter-chart");
 
 modalClose.addEventListener("click", () => {
@@ -276,6 +300,8 @@ window.showMachineHistory = async function (machineId) {
   modalTitle.textContent = `Machine #${machineId} History`;
   modalStats.textContent = "Loading...";
   document.getElementById("modal-ip").textContent = "";
+  modalError.textContent = "";
+  modalError.classList.add("hidden");
   renterChart.innerHTML = "";
   modalBackdrop.classList.remove("hidden");
 
@@ -287,6 +313,10 @@ window.showMachineHistory = async function (machineId) {
     const machine = currentMachinesData.find(m => m.machine_id === machineId);
     if (machine && machine.public_ipaddr) {
       document.getElementById("modal-ip").textContent = `IP: ${machine.public_ipaddr}`;
+    }
+    if (machine && machine.error_message) {
+      modalError.textContent = machine.error_message;
+      modalError.classList.remove("hidden");
     }
     
     if (!data.history || data.history.length === 0) {
@@ -376,4 +406,14 @@ function drawChart(history) {
   </g>`;
 
   renterChart.innerHTML = svgContent;
+}
+
+function todayUtcDateString() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function shiftUtcDate(dateStr, days) {
+  const date = new Date(`${dateStr}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }

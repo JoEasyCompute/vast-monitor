@@ -8,6 +8,7 @@ It polls your hosted machines from Vast, enriches them with datacenter tagging m
 
 - Polls `vast show machines --raw` on a schedule
 - Enriches machines with Vast datacenter metadata from the Vast API
+- Captures machine-level error messages from Vast machine state
 - Tracks current machine state, snapshots, alerts, and events in SQLite
 - Detects host up/down transitions and rental activity changes
 - Computes rolling uptime for `24h`, `7d`, and `30d`
@@ -73,6 +74,7 @@ The dashboard includes:
 - Today’s hourly earnings
 - Sortable machine table
 - Datacenter `DC` indicator column
+- Bright orange highlighting for machines with active error messages
 - Recent alerts
 - Per-machine history modal
 
@@ -86,6 +88,21 @@ This project derives it from Vast bundle metadata using:
 - `host_id` -> stored as the datacenter ID internally
 
 In the dashboard, datacenter machines are shown with a blue `DC` pill.
+
+## Machine Errors
+
+The Vast machine payload can include machine-level error text such as:
+
+```text
+failed to inject CDI devices: unresolvable CDI devices
+```
+
+This project stores that message in machine state when present and uses it in the UI:
+
+- machine rows with an error are highlighted in bright orange
+- clicking the machine opens the modal with the error message displayed near the top
+
+The app currently prefers `error_description` and falls back to `vm_error_msg` if needed.
 
 ## API
 
@@ -140,6 +157,7 @@ If you pull a newer version of this repo onto another machine and start it again
 Current startup migrations cover missing columns including:
 
 - `public_ipaddr`
+- `error_message`
 - `host_id`
 - `hosting_type`
 - `is_datacenter`

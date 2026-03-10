@@ -63,6 +63,7 @@ function normalizeMachine(machine) {
     num_reports: intOrZero(machine.num_reports),
     num_recent_reports: numberOrNull(machine.num_recent_reports),
     status: (machine.timeout && machine.timeout > 300) ? "offline" : "online",
+    error_message: resolveErrorMessage(machine),
     public_ipaddr: machine.public_ipaddr || null,
     host_id: intOrNull(machine.host_id),
     hosting_type: intOrNull(machine.hosting_type),
@@ -172,3 +173,34 @@ function intOrZero(value) {
   const parsed = parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : 0;
 }
+
+function resolveErrorMessage(machine) {
+  const primary = normalizeErrorMessage(machine.error_description);
+  if (primary) {
+    return primary;
+  }
+
+  return normalizeErrorMessage(machine.vm_error_msg);
+}
+
+function cleanText(value) {
+  const text = String(value ?? "").trim();
+  return text.length > 0 ? text : null;
+}
+
+function normalizeErrorMessage(value) {
+  const text = cleanText(value);
+  if (!text) {
+    return null;
+  }
+
+  if (IGNORED_ERROR_MESSAGES.has(text)) {
+    return null;
+  }
+
+  return text;
+}
+
+const IGNORED_ERROR_MESSAGES = new Set([
+  "Error: machine does not support VMs."
+]);

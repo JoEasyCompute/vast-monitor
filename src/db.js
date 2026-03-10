@@ -41,6 +41,7 @@ export function createDatabase(dbPath) {
       num_recent_reports REAL,
       prev_day_reports INTEGER NOT NULL DEFAULT 0,
       reports_changed INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
       last_seen_at TEXT,
       last_online_at TEXT,
       idle_since TEXT,
@@ -76,6 +77,7 @@ export function createDatabase(dbPath) {
       earn_day REAL,
       num_reports INTEGER NOT NULL DEFAULT 0,
       num_recent_reports REAL,
+      error_message TEXT,
       host_id INTEGER,
       hosting_type INTEGER,
       is_datacenter INTEGER NOT NULL DEFAULT 0,
@@ -119,6 +121,9 @@ export function createDatabase(dbPath) {
   if (!machineStateColumns.has("host_id")) {
     db.exec("ALTER TABLE machine_state ADD COLUMN host_id INTEGER");
   }
+  if (!machineStateColumns.has("error_message")) {
+    db.exec("ALTER TABLE machine_state ADD COLUMN error_message TEXT");
+  }
   if (!machineStateColumns.has("hosting_type")) {
     db.exec("ALTER TABLE machine_state ADD COLUMN hosting_type INTEGER");
   }
@@ -134,6 +139,9 @@ export function createDatabase(dbPath) {
   );
   if (!machineSnapshotColumns.has("host_id")) {
     db.exec("ALTER TABLE machine_snapshots ADD COLUMN host_id INTEGER");
+  }
+  if (!machineSnapshotColumns.has("error_message")) {
+    db.exec("ALTER TABLE machine_snapshots ADD COLUMN error_message TEXT");
   }
   if (!machineSnapshotColumns.has("hosting_type")) {
     db.exec("ALTER TABLE machine_snapshots ADD COLUMN hosting_type INTEGER");
@@ -162,13 +170,13 @@ export function createDatabase(dbPath) {
       INSERT INTO machine_state (
         machine_id, hostname, gpu_type, num_gpus, status, occupancy, occupied_gpus,
         current_rentals_running, listed_gpu_cost, reliability, gpu_max_cur_temp, earn_day,
-        num_reports, num_recent_reports, prev_day_reports, reports_changed,
+        num_reports, num_recent_reports, prev_day_reports, reports_changed, error_message,
         last_seen_at, last_online_at, idle_since, host_id, hosting_type, is_datacenter, datacenter_id,
         temp_alert_active, idle_alert_active, updated_at, public_ipaddr
       ) VALUES (
         @machine_id, @hostname, @gpu_type, @num_gpus, @status, @occupancy, @occupied_gpus,
         @current_rentals_running, @listed_gpu_cost, @reliability, @gpu_max_cur_temp, @earn_day,
-        @num_reports, @num_recent_reports, @prev_day_reports, @reports_changed,
+        @num_reports, @num_recent_reports, @prev_day_reports, @reports_changed, @error_message,
         @last_seen_at, @last_online_at, @idle_since, @host_id, @hosting_type, @is_datacenter, @datacenter_id,
         @temp_alert_active, @idle_alert_active, @updated_at, @public_ipaddr
       )
@@ -188,6 +196,7 @@ export function createDatabase(dbPath) {
         num_recent_reports = excluded.num_recent_reports,
         prev_day_reports = excluded.prev_day_reports,
         reports_changed = excluded.reports_changed,
+        error_message = excluded.error_message,
         last_seen_at = excluded.last_seen_at,
         last_online_at = excluded.last_online_at,
         idle_since = excluded.idle_since,
@@ -204,12 +213,12 @@ export function createDatabase(dbPath) {
       INSERT INTO machine_snapshots (
         poll_id, polled_at, machine_id, hostname, gpu_type, num_gpus, occupancy,
         occupied_gpus, current_rentals_running, listed_gpu_cost, reliability,
-        gpu_max_cur_temp, earn_day, num_reports, num_recent_reports, host_id, hosting_type,
+        gpu_max_cur_temp, earn_day, num_reports, num_recent_reports, error_message, host_id, hosting_type,
         is_datacenter, datacenter_id, status
       ) VALUES (
         @poll_id, @polled_at, @machine_id, @hostname, @gpu_type, @num_gpus, @occupancy,
         @occupied_gpus, @current_rentals_running, @listed_gpu_cost, @reliability,
-        @gpu_max_cur_temp, @earn_day, @num_reports, @num_recent_reports, @host_id, @hosting_type,
+        @gpu_max_cur_temp, @earn_day, @num_reports, @num_recent_reports, @error_message, @host_id, @hosting_type,
         @is_datacenter, @datacenter_id, @status
       )
     `),
