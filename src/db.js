@@ -62,6 +62,24 @@ export function createDatabase(dbPath) {
       polled_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS fleet_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      poll_id INTEGER NOT NULL,
+      polled_at TEXT NOT NULL,
+      total_machines INTEGER NOT NULL,
+      datacenter_machines INTEGER NOT NULL,
+      unlisted_machines INTEGER NOT NULL,
+      listed_gpus INTEGER NOT NULL,
+      unlisted_gpus INTEGER NOT NULL,
+      occupied_gpus INTEGER NOT NULL,
+      utilisation_pct REAL NOT NULL,
+      total_daily_earnings REAL NOT NULL,
+      FOREIGN KEY (poll_id) REFERENCES polls(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_fleet_snapshots_time
+      ON fleet_snapshots(polled_at);
+
     CREATE TABLE IF NOT EXISTS machine_snapshots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       poll_id INTEGER NOT NULL,
@@ -173,6 +191,15 @@ export function createDatabase(dbPath) {
     insertPoll: db.prepare(`
       INSERT INTO polls (polled_at) VALUES (?)
     `),
+    insertFleetSnapshot: db.prepare(`
+      INSERT INTO fleet_snapshots (
+        poll_id, polled_at, total_machines, datacenter_machines, unlisted_machines,
+        listed_gpus, unlisted_gpus, occupied_gpus, utilisation_pct, total_daily_earnings
+      ) VALUES (
+        @poll_id, @polled_at, @total_machines, @datacenter_machines, @unlisted_machines,
+        @listed_gpus, @unlisted_gpus, @occupied_gpus, @utilisation_pct, @total_daily_earnings
+      )
+    `),
     upsertRegistry: db.prepare(`
       INSERT INTO machine_registry (machine_id, hostname, gpu_type, num_gpus, created_at, updated_at)
       VALUES (@machine_id, @hostname, @gpu_type, @num_gpus, @timestamp, @timestamp)
@@ -277,11 +304,36 @@ export function createDatabase(dbPath) {
       FROM machine_snapshots
       WHERE polled_at >= ? AND polled_at < ?
       ORDER BY polled_at ASC
+    `),
+    selectFleetSnapshotPollIds: db.prepare(`
+      SELECT poll_id FROM fleet_snapshots
+    `),
+    selectAllMachineSnapshots: db.prepare(`
+      SELECT poll_id, polled_at, machine_id, hostname, num_gpus, status, occupied_gpus,
+             listed, earn_day, is_datacenter
+      FROM machine_snapshots
+      ORDER BY poll_id ASC, machine_id ASC
+    `),
+    selectFleetSnapshotsSince: db.prepare(`
+      SELECT polled_at, total_machines, datacenter_machines, unlisted_machines,
+             listed_gpus, unlisted_gpus, occupied_gpus, utilisation_pct, total_daily_earnings
+      FROM fleet_snapshots
+      WHERE polled_at >= ?
+      ORDER BY polled_at ASC
     `)
   };
 
+  backfillFleetSnapshots(statements);
+
   const txRecordPoll = db.transaction(({ timestamp, machines, offlineMachines, events, alerts }) => {
     const pollId = statements.insertPoll.run(timestamp).lastInsertRowid;
+    const fleetSnapshot = buildFleetSnapshot([...machines, ...offlineMachines]);
+
+    statements.insertFleetSnapshot.run({
+      poll_id: pollId,
+      polled_at: timestamp,
+      ...fleetSnapshot
+    });
 
     for (const machine of machines) {
       statements.upsertRegistry.run({ ...machine, timestamp });
@@ -419,9 +471,15 @@ export function createDatabase(dbPath) {
     return { date: dateStr, hours, total };
   }
 
+  function getFleetHistory(hours) {
+    const cutoff = new Date(Date.now() - (hours * 60 * 60 * 1000)).toISOString();
+    return statements.selectFleetSnapshotsSince.all(cutoff);
+  }
+
   return {
     db,
     getCurrentFleetStatus,
+    getFleetHistory,
     getHourlyEarnings,
     getKnownMachines,
     getMachineHistory,
@@ -429,6 +487,86 @@ export function createDatabase(dbPath) {
     getRecentAlerts,
     recordPoll
   };
+}
+
+function buildFleetSnapshot(machines) {
+  const byHostname = new Map();
+  for (const machine of machines) {
+    const existing = byHostname.get(machine.hostname);
+    if (!existing || machine.machine_id > existing.machine_id) {
+      byHostname.set(machine.hostname, machine);
+    }
+  }
+
+  const uniqueMachines = [...byHostname.values()];
+  const totalMachines = uniqueMachines.length;
+  const datacenterMachines = uniqueMachines.reduce((sum, machine) => sum + (machine.is_datacenter ? 1 : 0), 0);
+  const unlistedMachines = uniqueMachines.reduce((sum, machine) => sum + (machine.listed ? 0 : 1), 0);
+  const listedGpus = uniqueMachines.reduce((sum, machine) => sum + (machine.listed ? machine.num_gpus || 0 : 0), 0);
+  const unlistedGpus = uniqueMachines.reduce((sum, machine) => sum + (machine.listed ? 0 : machine.num_gpus || 0), 0);
+  const occupiedGpus = uniqueMachines.reduce(
+    (sum, machine) => sum + (machine.listed && machine.status === "online" ? machine.occupied_gpus || 0 : 0),
+    0
+  );
+  const utilisationPct = listedGpus > 0 ? Number(((occupiedGpus / listedGpus) * 100).toFixed(2)) : 0;
+  const totalDailyEarnings = Number(
+    uniqueMachines.reduce((sum, machine) => sum + (machine.earn_day || 0), 0).toFixed(2)
+  );
+
+  return {
+    total_machines: totalMachines,
+    datacenter_machines: datacenterMachines,
+    unlisted_machines: unlistedMachines,
+    listed_gpus: listedGpus,
+    unlisted_gpus: unlistedGpus,
+    occupied_gpus: occupiedGpus,
+    utilisation_pct: utilisationPct,
+    total_daily_earnings: totalDailyEarnings
+  };
+}
+
+function backfillFleetSnapshots(statements) {
+  const existingPollIds = new Set(
+    statements.selectFleetSnapshotPollIds.all().map((row) => Number(row.poll_id))
+  );
+  const rows = statements.selectAllMachineSnapshots.all();
+  if (!rows.length) {
+    return;
+  }
+
+  const snapshotsByPollId = new Map();
+  for (const row of rows) {
+    const pollId = Number(row.poll_id);
+    if (existingPollIds.has(pollId)) {
+      continue;
+    }
+
+    if (!snapshotsByPollId.has(pollId)) {
+      snapshotsByPollId.set(pollId, {
+        polled_at: row.polled_at,
+        machines: []
+      });
+    }
+
+    snapshotsByPollId.get(pollId).machines.push({
+      machine_id: row.machine_id,
+      hostname: row.hostname,
+      num_gpus: row.num_gpus,
+      status: row.status,
+      occupied_gpus: row.occupied_gpus,
+      listed: row.listed,
+      earn_day: row.earn_day,
+      is_datacenter: row.is_datacenter
+    });
+  }
+
+  for (const [pollId, snapshot] of snapshotsByPollId.entries()) {
+    statements.insertFleetSnapshot.run({
+      poll_id: pollId,
+      polled_at: snapshot.polled_at,
+      ...buildFleetSnapshot(snapshot.machines)
+    });
+  }
 }
 
 function computeWindowUptime(history, now, hours) {

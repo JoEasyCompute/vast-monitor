@@ -2,14 +2,19 @@ import express from "express";
 import path from "node:path";
 import { fetchMachineReports } from "./vast-client.js";
 
-export function createServer({ config, db }) {
+export function createServer({ config, db, monitor }) {
   const app = express();
 
   app.use(express.static(path.join(config.projectRoot, "public")));
 
   app.get("/api/status", (_req, res) => {
     const fleet = db.getCurrentFleetStatus();
-    res.json(buildFleetResponse(fleet));
+    res.json(buildFleetResponse(fleet, config));
+  });
+
+  app.get("/api/health", (_req, res) => {
+    const health = buildHealthResponse({ config, db, monitor });
+    res.status(health.ok ? 200 : 503).json(health);
   });
 
   app.get("/api/history", (req, res) => {
@@ -32,6 +37,20 @@ export function createServer({ config, db }) {
       machine_id: machineId,
       hours,
       history: db.getMachineHistory(machineId, hours)
+    });
+  });
+
+  app.get("/api/fleet/history", (req, res) => {
+    const rawHours = req.query.hours == null ? 168 : Number(req.query.hours);
+    if (!Number.isFinite(rawHours) || rawHours < 1) {
+      res.status(400).json({ error: "hours must be a positive number" });
+      return;
+    }
+
+    const hours = Math.min(24 * 365, Math.floor(rawHours));
+    res.json({
+      hours,
+      history: db.getFleetHistory(hours)
     });
   });
 
@@ -85,7 +104,7 @@ export function createServer({ config, db }) {
   return app;
 }
 
-function buildFleetResponse(fleet) {
+function buildFleetResponse(fleet, config) {
   // Deduplicate machines by hostname to avoid double counting old offline machine IDs
   const byHostname = new Map();
   for (const m of fleet.machines) {
@@ -177,6 +196,10 @@ function buildFleetResponse(fleet) {
 
   return {
     latestPollAt: fleet.latestPollAt,
+    health: buildHealthStatus({
+      latestPollAt: fleet.latestPollAt,
+      pollIntervalMs: config.pollIntervalMs
+    }),
     summary: {
       totalMachines,
       datacenterMachines,
@@ -189,6 +212,37 @@ function buildFleetResponse(fleet) {
     },
     gpuTypeBreakdown: breakdown,
     machines
+  };
+}
+
+function buildHealthResponse({ config, db, monitor }) {
+  const latestPollAt = db.getCurrentFleetStatus().latestPollAt;
+  const status = buildHealthStatus({
+    latestPollAt,
+    pollIntervalMs: config.pollIntervalMs
+  });
+  const monitorHealth = typeof monitor?.getHealthSnapshot === "function" ? monitor.getHealthSnapshot() : {};
+
+  return {
+    ok: !status.isStale,
+    status: status.isStale ? "stale" : "ok",
+    latestPollAt,
+    pollIntervalMs: config.pollIntervalMs,
+    staleThresholdMs: status.staleThresholdMs,
+    pollAgeMs: status.pollAgeMs,
+    ...monitorHealth
+  };
+}
+
+function buildHealthStatus({ latestPollAt, pollIntervalMs }) {
+  const staleThresholdMs = pollIntervalMs * 2;
+  const pollAgeMs = latestPollAt ? Math.max(0, Date.now() - Date.parse(latestPollAt)) : null;
+  const isStale = pollAgeMs == null || pollAgeMs > staleThresholdMs;
+
+  return {
+    isStale,
+    pollAgeMs,
+    staleThresholdMs
   };
 }
 

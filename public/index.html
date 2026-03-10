@@ -18,11 +18,14 @@
           <p class="hero-copy">Live fleet health, utilisation, alerts, and uptime across your hosted GPUs.</p>
         </div>
         <div class="hero-meta">
+          <span id="health-badge" class="health-badge">Loading</span>
           <span id="last-updated">Loading...</span>
         </div>
       </header>
 
       <main class="dashboard">
+        <section id="stale-warning" class="warning-banner hidden"></section>
+
         <section class="panel">
           <h2>Fleet Summary</h2>
           <div class="summary-grid" id="summary-grid"></div>
@@ -50,6 +53,40 @@
 
         <section class="panel wide">
           <div class="panel-title-row">
+            <h2>Fleet Trends</h2>
+            <div class="trend-range" id="trend-range">
+              <button class="range-button active" type="button" data-hours="24">24h</button>
+              <button class="range-button" type="button" data-hours="168">7d</button>
+              <button class="range-button" type="button" data-hours="720">30d</button>
+            </div>
+          </div>
+          <div class="trend-grid">
+            <div class="trend-card">
+              <div class="trend-card-header">
+                <strong>GPU Capacity</strong>
+                <span class="muted">Listed vs unlisted</span>
+              </div>
+              <svg id="trend-gpus-chart" class="trend-chart" viewBox="0 0 720 180" preserveAspectRatio="none"></svg>
+            </div>
+            <div class="trend-card">
+              <div class="trend-card-header">
+                <strong>Fleet Counts</strong>
+                <span class="muted">Machines, unlisted, DC</span>
+              </div>
+              <svg id="trend-fleet-chart" class="trend-chart" viewBox="0 0 720 180" preserveAspectRatio="none"></svg>
+            </div>
+            <div class="trend-card">
+              <div class="trend-card-header">
+                <strong>Listed Utilisation</strong>
+                <span class="muted">Occupied listed GPUs</span>
+              </div>
+              <svg id="trend-util-chart" class="trend-chart" viewBox="0 0 720 180" preserveAspectRatio="none"></svg>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel wide">
+          <div class="panel-title-row">
             <h2>Hourly Earnings</h2>
             <div class="earnings-nav">
               <button id="earnings-prev" class="nav-button" type="button" aria-label="Previous day">&#8592;</button>
@@ -65,6 +102,28 @@
 
         <section class="panel wide">
           <h2>Machines</h2>
+          <div class="machine-filters" id="machine-filters">
+            <input id="filter-search" class="filter-input" type="search" placeholder="Search hostname, ID, GPU..." />
+            <select id="filter-status" class="filter-select">
+              <option value="all">All status</option>
+              <option value="online">Online</option>
+              <option value="offline">Offline</option>
+            </select>
+            <select id="filter-listed" class="filter-select">
+              <option value="all">Listed + unlisted</option>
+              <option value="listed">Listed only</option>
+              <option value="unlisted">Unlisted only</option>
+            </select>
+            <select id="filter-dc" class="filter-select">
+              <option value="all">All DC</option>
+              <option value="dc">DC only</option>
+              <option value="non-dc">Non-DC only</option>
+            </select>
+            <label class="filter-toggle"><input id="filter-errors" type="checkbox" /> Errors</label>
+            <label class="filter-toggle"><input id="filter-reports" type="checkbox" /> Reports</label>
+            <label class="filter-toggle"><input id="filter-maint" type="checkbox" /> Maint</label>
+            <button id="filter-reset" class="filter-reset" type="button">Reset</button>
+          </div>
           <div class="table-wrap machines-scroll">
             <table>
               <thead>

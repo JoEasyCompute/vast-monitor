@@ -10,7 +10,7 @@ const db = createDatabase(config.dbPath);
 console.log(`[startup] Database ready at ${config.dbPath}`);
 const alertManager = new AlertManager([new ConsoleAlertChannel()]);
 const monitor = new FleetMonitor({ config, db, alertManager });
-const app = createServer({ config, db });
+const app = createServer({ config, db, monitor });
 
 console.log(`[startup] Starting HTTP server on port ${config.port}`);
 const server = app.listen(config.port, () => {
@@ -19,13 +19,16 @@ const server = app.listen(config.port, () => {
 
 console.log("[startup] Starting fleet monitor");
 monitor.start()
-  .then(() => {
-    console.log("[startup] Initial fleet sync complete");
+  .then((initialPollSucceeded) => {
+    if (initialPollSucceeded) {
+      console.log("[startup] Initial fleet sync complete");
+    } else {
+      console.warn("[startup] Service is running, but initial fleet sync failed; waiting for next poll");
+    }
   })
   .catch((error) => {
     console.error("[startup] Fleet monitor failed to start:", error);
     process.exitCode = 1;
-    server.close();
   });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {

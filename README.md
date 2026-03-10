@@ -2,18 +2,19 @@
 
 `vast-monitor` is a Node.js service for monitoring a Vast.ai host fleet.
 
-It polls your hosted machines from Vast, enriches them with datacenter tagging metadata, stores state and history in SQLite, emits alerts, and serves a lightweight dashboard over Express.
+It polls your hosted machines from Vast, enriches them with datacenter metadata, stores current state and history in SQLite, emits alerts, and serves a lightweight dashboard over Express.
 
 ## Features
 
 - Polls `vast show machines --raw` on a schedule
 - Enriches machines with Vast datacenter metadata from the Vast API
+- Tracks listed vs unlisted machines and maintenance windows
 - Captures machine-level error messages from Vast machine state
-- Tracks current machine state, snapshots, alerts, and events in SQLite
+- Tracks current machine state, machine snapshots, fleet snapshots, alerts, and events in SQLite
 - Detects host up/down transitions and rental activity changes
 - Computes rolling uptime for `24h`, `7d`, and `30d`
-- Shows fleet health, utilisation, earnings, reports, and datacenter tags in a browser dashboard
-- Exposes JSON endpoints for status, history, alerts, and hourly earnings
+- Shows fleet health, listed-only utilisation, earnings, trends, and datacenter tags in a browser dashboard
+- Exposes JSON endpoints for status, health, history, alerts, fleet trends, and hourly earnings
 
 ## Requirements
 
@@ -65,15 +66,22 @@ vast-monitor listening on http://localhost:3000
 
 The HTTP server starts before the initial poll finishes, so the process becomes visibly healthy earlier.
 
+If the initial Vast poll fails, the server stays up and keeps retrying on the normal poll interval. The dashboard and `/api/health` will show stale state until a poll succeeds.
+
 ## Dashboard
 
 The dashboard includes:
 
 - Fleet summary cards
+- Header health badge (`Healthy`, `Polling`, `Stale`)
+- Stale-data warning banner when polls are too old
 - GPU type breakdown
-- Today’s hourly earnings
+- Fleet trends for `24h`, `7d`, and `30d`
+- Hourly earnings with previous/next day navigation
 - Sortable machine table
+- Machine table filters for search, status, listed/unlisted, datacenter, errors, reports, and maintenance
 - Datacenter `DC` indicator column
+- Listed status and maintenance columns
 - Bright orange highlighting for machines with active error messages
 - Recent alerts
 - Per-machine history modal
@@ -88,6 +96,16 @@ This project derives it from Vast bundle metadata using:
 - `host_id` -> stored as the datacenter ID internally
 
 In the dashboard, datacenter machines are shown with a blue `DC` pill.
+
+## Listed vs Unlisted Capacity
+
+Vast can hide GPU occupancy details for unlisted machines even when those machines still have active rentals.
+
+To avoid misleading utilisation numbers:
+
+- `Listed GPUs` and `Unlisted GPUs` are tracked separately
+- `Occupied GPUs` and `Utilisation` are calculated against listed capacity only
+- fleet trend charts follow the same rule
 
 ## Machine Errors
 
@@ -111,9 +129,20 @@ The app currently prefers `error_description` and falls back to `vm_error_msg` i
 Returns:
 
 - latest poll time
+- health status for the current dashboard state
 - summary metrics
 - GPU type breakdown
 - current machine list
+
+### `GET /api/health`
+
+Returns service and poll health details including:
+
+- whether the latest successful poll is considered stale
+- poll age and stale threshold
+- current poll activity
+- last poll success/failure timestamps
+- last poll error, if any
 
 ### `GET /api/history?machine_id=49697&hours=24`
 
@@ -137,6 +166,14 @@ Validation:
 
 Returns hourly earnings buckets for a UTC date.
 
+### `GET /api/fleet/history?hours=168`
+
+Returns fleet-wide trend points for the requested time window.
+
+Validation:
+
+- `hours` must be a positive number
+
 ## Database
 
 SQLite is used through `better-sqlite3`.
@@ -146,6 +183,7 @@ Main tables:
 - `machine_registry`
 - `machine_state`
 - `polls`
+- `fleet_snapshots`
 - `machine_snapshots`
 - `events`
 - `alerts`
@@ -157,7 +195,9 @@ If you pull a newer version of this repo onto another machine and start it again
 Current startup migrations cover missing columns including:
 
 - `public_ipaddr`
+- `listed`
 - `error_message`
+- `machine_maintenance`
 - `host_id`
 - `hosting_type`
 - `is_datacenter`
@@ -196,6 +236,7 @@ data/
 
 - If startup stalls after the monitor begins polling, check that the Vast CLI path is correct and the API key file exists.
 - If datacenter pills are missing, verify the app can read `VAST_API_KEY_PATH` and reach `VAST_API_URL`.
+- If the header shows `Stale`, check `/api/health` and confirm the Vast CLI can still reach Vast.
 - If you move the repo to another machine, confirm the SQLite path in `DB_PATH` is writable.
 
 ## Notes

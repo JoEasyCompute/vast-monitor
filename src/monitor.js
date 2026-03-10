@@ -7,17 +7,30 @@ export class FleetMonitor {
     this.alertManager = alertManager;
     this.intervalHandle = null;
     this.isPolling = false;
+    this.lastPollStartedAt = null;
+    this.lastPollCompletedAt = null;
+    this.lastPollSucceededAt = null;
+    this.lastPollFailedAt = null;
+    this.lastPollError = null;
+    this.lastSuccessfulMachineCount = 0;
   }
 
   async start() {
     console.log("[monitor] Running initial poll");
-    await this.poll();
+    let initialPollSucceeded = true;
+    try {
+      await this.poll();
+    } catch (error) {
+      initialPollSucceeded = false;
+      console.error("[monitor] Initial poll failed:", error);
+    }
     console.log(`[monitor] Polling every ${Math.round(this.config.pollIntervalMs / 1000)}s`);
     this.intervalHandle = setInterval(() => {
       this.poll().catch((error) => {
         console.error("Polling failed:", error);
       });
     }, this.config.pollIntervalMs);
+    return initialPollSucceeded;
   }
 
   stop() {
@@ -27,6 +40,19 @@ export class FleetMonitor {
     }
   }
 
+  getHealthSnapshot() {
+    return {
+      isPolling: this.isPolling,
+      pollIntervalMs: this.config.pollIntervalMs,
+      lastPollStartedAt: this.lastPollStartedAt,
+      lastPollCompletedAt: this.lastPollCompletedAt,
+      lastPollSucceededAt: this.lastPollSucceededAt,
+      lastPollFailedAt: this.lastPollFailedAt,
+      lastPollError: this.lastPollError,
+      lastSuccessfulMachineCount: this.lastSuccessfulMachineCount
+    };
+  }
+
   async poll() {
     if (this.isPolling) {
       return;
@@ -34,6 +60,8 @@ export class FleetMonitor {
 
     this.isPolling = true;
     const timestamp = new Date().toISOString();
+    this.lastPollStartedAt = timestamp;
+    this.lastPollError = null;
 
     try {
       console.log(`[monitor] Poll started at ${timestamp}`);
@@ -150,7 +178,17 @@ export class FleetMonitor {
         await this.alertManager.send(alert);
       }
 
+      this.lastPollCompletedAt = timestamp;
+      this.lastPollSucceededAt = timestamp;
+      this.lastPollFailedAt = null;
+      this.lastPollError = null;
+      this.lastSuccessfulMachineCount = rawMachines.length;
       console.log(`Poll complete at ${timestamp}: ${rawMachines.length} online machines`);
+    } catch (error) {
+      this.lastPollCompletedAt = new Date().toISOString();
+      this.lastPollFailedAt = this.lastPollCompletedAt;
+      this.lastPollError = error instanceof Error ? error.message : String(error);
+      throw error;
     } finally {
       this.isPolling = false;
     }

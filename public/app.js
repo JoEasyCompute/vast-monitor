@@ -8,32 +8,51 @@ const earningsTotal = document.getElementById("earnings-total");
 const earningsDate = document.getElementById("earnings-date");
 const earningsPrevButton = document.getElementById("earnings-prev");
 const earningsNextButton = document.getElementById("earnings-next");
+const staleWarning = document.getElementById("stale-warning");
+const healthBadge = document.getElementById("health-badge");
+const trendRange = document.getElementById("trend-range");
+const trendGpusChart = document.getElementById("trend-gpus-chart");
+const trendFleetChart = document.getElementById("trend-fleet-chart");
+const trendUtilChart = document.getElementById("trend-util-chart");
+const filterSearch = document.getElementById("filter-search");
+const filterStatus = document.getElementById("filter-status");
+const filterListed = document.getElementById("filter-listed");
+const filterDc = document.getElementById("filter-dc");
+const filterErrors = document.getElementById("filter-errors");
+const filterReports = document.getElementById("filter-reports");
+const filterMaint = document.getElementById("filter-maint");
+const filterReset = document.getElementById("filter-reset");
 
 let currentMachinesData = [];
 let sortCol = "hostname";
 let sortDesc = false;
 let selectedEarningsDate = todayUtcDateString();
+let selectedTrendHours = 168;
 let currentReports = [];
 let currentReportIndex = 0;
 
 async function loadDashboard() {
-  const [statusResponse, alertsResponse, earningsResponse] = await Promise.all([
+  const [statusResponse, alertsResponse, earningsResponse, fleetHistoryResponse] = await Promise.all([
     fetch("/api/status"),
     fetch("/api/alerts?limit=10"),
-    fetch(`/api/earnings/hourly?date=${selectedEarningsDate}`)
+    fetch(`/api/earnings/hourly?date=${selectedEarningsDate}`),
+    fetch(`/api/fleet/history?hours=${selectedTrendHours}`)
   ]);
 
   const status = await statusResponse.json();
   const alertsPayload = await alertsResponse.json();
   const earningsPayload = await earningsResponse.json();
+  const fleetHistoryPayload = await fleetHistoryResponse.json();
 
   currentMachinesData = status.machines;
 
   renderSummary(status.summary);
   renderBreakdown(status.gpuTypeBreakdown);
+  renderFleetTrends(fleetHistoryPayload.history || []);
   renderHourlyEarnings(earningsPayload);
   renderMachinesSorted();
   renderAlerts(alertsPayload.alerts);
+  renderHealth(status.health);
   lastUpdated.textContent = status.latestPollAt
     ? `Last updated ${new Date(status.latestPollAt).toLocaleString()}`
     : "No poll data yet";
@@ -60,7 +79,7 @@ function updateSortHeaders() {
 }
 
 function renderMachinesSorted() {
-  const sorted = [...currentMachinesData].sort((a, b) => {
+  const sorted = [...getFilteredMachines()].sort((a, b) => {
     let valA = a[sortCol];
     let valB = b[sortCol];
 
@@ -80,6 +99,58 @@ function renderMachinesSorted() {
   });
 
   renderMachines(sorted);
+}
+
+function getFilteredMachines() {
+  const searchTerm = filterSearch.value.trim().toLowerCase();
+
+  return currentMachinesData.filter((row) => {
+    if (searchTerm) {
+      const haystack = [
+        row.hostname,
+        row.gpu_type,
+        row.machine_id
+      ].join(" ").toLowerCase();
+
+      if (!haystack.includes(searchTerm)) {
+        return false;
+      }
+    }
+
+    if (filterStatus.value !== "all" && row.status !== filterStatus.value) {
+      return false;
+    }
+
+    if (filterListed.value === "listed" && !row.listed) {
+      return false;
+    }
+
+    if (filterListed.value === "unlisted" && row.listed) {
+      return false;
+    }
+
+    if (filterDc.value === "dc" && !row.is_datacenter) {
+      return false;
+    }
+
+    if (filterDc.value === "non-dc" && row.is_datacenter) {
+      return false;
+    }
+
+    if (filterErrors.checked && !row.error_message) {
+      return false;
+    }
+
+    if (filterReports.checked && (row.num_reports || 0) === 0) {
+      return false;
+    }
+
+    if (filterMaint.checked && (!Array.isArray(row.machine_maintenance) || row.machine_maintenance.length === 0)) {
+      return false;
+    }
+
+    return true;
+  });
 }
 
 function renderSummary(summary) {
@@ -214,6 +285,123 @@ function renderAlerts(rows) {
     .join("");
 }
 
+function renderHealth(health) {
+  healthBadge.className = "health-badge";
+
+  if (health?.isStale) {
+    healthBadge.textContent = "Stale";
+    healthBadge.classList.add("stale");
+  } else if (health?.pollAgeMs != null && health.pollAgeMs < 30 * 1000) {
+    healthBadge.textContent = "Polling";
+    healthBadge.classList.add("polling");
+  } else {
+    healthBadge.textContent = "Healthy";
+    healthBadge.classList.add("healthy");
+  }
+
+  if (!health?.isStale) {
+    staleWarning.classList.add("hidden");
+    staleWarning.textContent = "";
+    return;
+  }
+
+  const ageText = health.pollAgeMs == null
+    ? "No successful poll has completed yet."
+    : `Last successful poll is ${formatDuration(health.pollAgeMs)} old.`;
+  staleWarning.textContent = `Stale data warning. ${ageText}`;
+  staleWarning.classList.remove("hidden");
+}
+
+function renderFleetTrends(history) {
+  drawMultiSeriesChart(trendGpusChart, history, [
+    { key: "listed_gpus", label: "Listed GPUs", color: "#60a5fa" },
+    { key: "unlisted_gpus", label: "Unlisted GPUs", color: "#f59e0b" }
+  ], { formatValue: (value) => `${Math.round(value)}` });
+
+  drawMultiSeriesChart(trendFleetChart, history, [
+    { key: "total_machines", label: "Machines", color: "#22c55e" },
+    { key: "unlisted_machines", label: "Unlisted", color: "#f59e0b" },
+    { key: "datacenter_machines", label: "DC", color: "#60a5fa" }
+  ], { formatValue: (value) => `${Math.round(value)}` });
+
+  drawMultiSeriesChart(trendUtilChart, history, [
+    { key: "utilisation_pct", label: "Utilisation", color: "#f43f5e" }
+  ], { min: 0, max: 100, formatValue: (value) => `${Math.round(value)}%` });
+}
+
+function drawMultiSeriesChart(svg, history, series, options = {}) {
+  const width = 720;
+  const height = 180;
+  const padding = { top: 18, right: 16, bottom: 24, left: 34 };
+
+  if (!history.length) {
+    svg.innerHTML = `<text x="${width / 2}" y="${height / 2}" text-anchor="middle" class="chart-empty">No data yet</text>`;
+    return;
+  }
+
+  const points = history
+    .map((row) => ({ ...row, timeMs: Date.parse(row.polled_at) }))
+    .filter((row) => Number.isFinite(row.timeMs));
+
+  if (!points.length) {
+    svg.innerHTML = `<text x="${width / 2}" y="${height / 2}" text-anchor="middle" class="chart-empty">No data yet</text>`;
+    return;
+  }
+
+  const minTime = points[0].timeMs;
+  const maxTime = points[points.length - 1].timeMs;
+  const timeSpan = Math.max(1, maxTime - minTime);
+  const values = points.flatMap((row) => series.map((item) => Number(row[item.key]) || 0));
+  const minValue = options.min ?? 0;
+  const maxValue = options.max ?? Math.max(1, ...values);
+  const valueSpan = Math.max(1, maxValue - minValue);
+  const scaleX = (timeMs) => padding.left + ((timeMs - minTime) / timeSpan) * (width - padding.left - padding.right);
+  const scaleY = (value) => height - padding.bottom - ((value - minValue) / valueSpan) * (height - padding.top - padding.bottom);
+
+  const tickCount = 4;
+  let svgContent = "";
+
+  for (let index = 0; index <= tickCount; index += 1) {
+    const value = minValue + (valueSpan * index) / tickCount;
+    const y = scaleY(value);
+    svgContent += `<g class="trend-axis">
+      <line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" />
+      <text x="${padding.left - 8}" y="${y + 4}" text-anchor="end">${escapeHtml(options.formatValue ? options.formatValue(value) : value.toFixed(0))}</text>
+    </g>`;
+  }
+
+  for (const item of series) {
+    const path = points
+      .map((row, index) => {
+        const x = scaleX(row.timeMs);
+        const y = scaleY(Number(row[item.key]) || 0);
+        return `${index === 0 ? "M" : "L"} ${x} ${y}`;
+      })
+      .join(" ");
+
+    svgContent += `<path d="${path}" class="trend-line" style="stroke:${item.color}" />`;
+  }
+
+  const startLabel = new Date(minTime).toLocaleDateString();
+  const endLabel = new Date(maxTime).toLocaleDateString();
+  svgContent += `<g class="trend-axis">
+    <text x="${padding.left}" y="${height - 4}" text-anchor="start">${escapeHtml(startLabel)}</text>
+    <text x="${width - padding.right}" y="${height - 4}" text-anchor="end">${escapeHtml(endLabel)}</text>
+  </g>`;
+
+  svgContent += `<g class="trend-legend">`;
+  series.forEach((item, index) => {
+    const x = padding.left + (index * 150);
+    svgContent += `<g transform="translate(${x}, 10)">
+      <rect x="0" y="-8" width="14" height="3" rx="2" fill="${item.color}" />
+      <text x="20" y="-4">${escapeHtml(item.label)}</text>
+    </g>`;
+  });
+  svgContent += `</g>`;
+
+  svg.innerHTML = svgContent;
+}
+
 function renderOccupancy(row) {
   if (!row.occupancy) {
     if (row.status === "offline") {
@@ -290,6 +478,39 @@ setInterval(() => {
 
 document.querySelectorAll("th[data-sort]").forEach((th) => {
   th.addEventListener("click", () => handleSort(th.dataset.sort));
+});
+
+trendRange.querySelectorAll("[data-hours]").forEach((button) => {
+  button.addEventListener("click", () => {
+    selectedTrendHours = Number(button.dataset.hours) || 168;
+    trendRange.querySelectorAll("[data-hours]").forEach((item) => item.classList.remove("active"));
+    button.classList.add("active");
+    loadDashboard().catch((error) => console.error(error));
+  });
+});
+
+[
+  filterSearch,
+  filterStatus,
+  filterListed,
+  filterDc,
+  filterErrors,
+  filterReports,
+  filterMaint
+].forEach((control) => {
+  control.addEventListener("input", () => renderMachinesSorted());
+  control.addEventListener("change", () => renderMachinesSorted());
+});
+
+filterReset.addEventListener("click", () => {
+  filterSearch.value = "";
+  filterStatus.value = "all";
+  filterListed.value = "all";
+  filterDc.value = "all";
+  filterErrors.checked = false;
+  filterReports.checked = false;
+  filterMaint.checked = false;
+  renderMachinesSorted();
 });
 
 earningsPrevButton.addEventListener("click", () => {
@@ -564,6 +785,28 @@ function shiftUtcDate(dateStr, days) {
   const date = new Date(`${dateStr}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+function formatDuration(durationMs) {
+  const totalSeconds = Math.floor(durationMs / 1000);
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 60) {
+    return `${totalMinutes}m`;
+  }
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours < 24) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`;
 }
 
 function formatReportTimestamp(epochSeconds) {
