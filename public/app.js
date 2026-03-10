@@ -13,6 +13,8 @@ let currentMachinesData = [];
 let sortCol = "hostname";
 let sortDesc = false;
 let selectedEarningsDate = todayUtcDateString();
+let currentReports = [];
+let currentReportIndex = 0;
 
 async function loadDashboard() {
   const [statusResponse, alertsResponse, earningsResponse] = await Promise.all([
@@ -84,7 +86,9 @@ function renderSummary(summary) {
   const items = [
     ["Total machines", summary.totalMachines],
     ["DC Tagged", summary.datacenterMachines],
-    ["Total GPUs", summary.totalGpus],
+    ["Unlisted", summary.unlistedMachines],
+    ["Listed GPUs", summary.listedGpus],
+    ["Unlisted GPUs", summary.unlistedGpus],
     ["Occupied GPUs", summary.occupiedGpus],
     ["Utilisation", `${summary.utilisationPct}%`],
     ["Daily earnings", `$${summary.totalDailyEarnings.toFixed(2)}`]
@@ -106,7 +110,8 @@ function renderBreakdown(rows) {
       <tr>
         <td>${escapeHtml(row.gpu_type)}</td>
         <td>${row.machines}</td>
-        <td>${row.gpus}</td>
+        <td>${row.listed_gpus}</td>
+        <td>${row.unlisted_gpus}</td>
         <td><span class="util-chip ${utilClass(row.utilisation_pct)}">${row.utilisation_pct}%</span></td>
         <td>${row.avg_price == null ? "-" : `$${row.avg_price.toFixed(3)}`}</td>
         <td>$${row.earnings.toFixed(2)}</td>
@@ -126,14 +131,16 @@ function renderMachines(rows) {
         .join(" ");
       
       return `
-      <tr class="machine-row ${rowClass}" onclick="showMachineHistory(${row.machine_id})">
+      <tr class="machine-row ${rowClass}" onclick="showMachineRow(event, ${row.machine_id})">
         <td class="muted">${index + 1}</td>
         <td class="muted">#${row.machine_id}</td>
         <td class="dc-cell">${renderDatacenter(row)}</td>
+        <td class="listed-cell">${renderListed(row)}</td>
+        <td class="maint-cell">${renderMaintenanceCheckbox(row)}</td>
         <td>${escapeHtml(row.hostname)}</td>
         <td>${escapeHtml(row.gpu_type)}</td>
         <td>${row.num_gpus}</td>
-        <td>${renderOccupancy(row.occupancy)}</td>
+        <td>${renderOccupancy(row)}</td>
         <td>${row.listed_gpu_cost == null ? "-" : `$${Number(row.listed_gpu_cost).toFixed(2)}`}</td>
         <td>${row.current_rentals_running}</td>
         <td>${row.gpu_max_cur_temp == null ? "-" : `${row.gpu_max_cur_temp}C`}</td>
@@ -207,12 +214,20 @@ function renderAlerts(rows) {
     .join("");
 }
 
-function renderOccupancy(occupancy) {
-  if (!occupancy) {
-    return '<span class="muted">offline</span>';
+function renderOccupancy(row) {
+  if (!row.occupancy) {
+    if (row.status === "offline") {
+      return '<span class="muted">offline</span>';
+    }
+
+    if ((row.current_rentals_running || 0) > 0) {
+      return `<span class="muted">${row.current_rentals_running} rental${row.current_rentals_running === 1 ? "" : "s"}</span>`;
+    }
+
+    return '<span class="muted">-</span>';
   }
 
-  return occupancy
+  return row.occupancy
     .split(/\s+/)
     .filter(Boolean)
     .map((token) => `<span class="gpu-slot ${token === "D" ? "occupied" : "free"}">${escapeHtml(token)}</span>`)
@@ -234,6 +249,19 @@ function renderDatacenter(row) {
   }
 
   return "";
+}
+
+function renderMaintenanceCheckbox(row) {
+  const checked = Array.isArray(row.machine_maintenance) && row.machine_maintenance.length > 0 ? "checked" : "";
+  return `<input class="maint-checkbox" type="checkbox" disabled ${checked} />`;
+}
+
+function renderListed(row) {
+  if (row.listed) {
+    return '<span class="listed-pill">On</span>';
+  }
+
+  return '<span class="muted">-</span>';
 }
 
 function utilClass(value) {
@@ -284,7 +312,17 @@ const modalClose = document.getElementById("modal-close");
 const modalTitle = document.getElementById("modal-title");
 const modalStats = document.getElementById("modal-stats");
 const modalError = document.getElementById("modal-error");
+const modalMaintenance = document.getElementById("modal-maintenance");
 const renterChart = document.getElementById("renter-chart");
+const reportsModalBackdrop = document.getElementById("reports-modal-backdrop");
+const reportsModalClose = document.getElementById("reports-modal-close");
+const reportsModalTitle = document.getElementById("reports-modal-title");
+const reportsModalCounter = document.getElementById("reports-modal-counter");
+const reportsPrevButton = document.getElementById("reports-prev");
+const reportsNextButton = document.getElementById("reports-next");
+const reportsProblem = document.getElementById("reports-problem");
+const reportsTime = document.getElementById("reports-time");
+const reportsMessage = document.getElementById("reports-message");
 
 modalClose.addEventListener("click", () => {
   modalBackdrop.classList.add("hidden");
@@ -294,14 +332,54 @@ window.addEventListener("click", (e) => {
   if (e.target === modalBackdrop) {
     modalBackdrop.classList.add("hidden");
   }
+  if (e.target === reportsModalBackdrop) {
+    reportsModalBackdrop.classList.add("hidden");
+  }
 });
 
-window.showMachineHistory = async function (machineId) {
+window.addEventListener("keydown", (event) => {
+  if (reportsModalBackdrop.classList.contains("hidden")) {
+    return;
+  }
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    reportsModalBackdrop.classList.add("hidden");
+    return;
+  }
+
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    if (!reportsPrevButton.disabled) {
+      reportsPrevButton.click();
+    }
+  }
+
+  if (event.key === "ArrowRight") {
+    event.preventDefault();
+    if (!reportsNextButton.disabled) {
+      reportsNextButton.click();
+    }
+  }
+});
+
+window.showMachineRow = function (event, machineId) {
+  if ((event.ctrlKey || event.metaKey) && hasReports(machineId)) {
+    showMachineReports(machineId).catch((error) => console.error(error));
+    return;
+  }
+
+  showMachineHistory(machineId);
+};
+
+async function showMachineHistory(machineId) {
   modalTitle.textContent = `Machine #${machineId} History`;
   modalStats.textContent = "Loading...";
   document.getElementById("modal-ip").textContent = "";
   modalError.textContent = "";
   modalError.classList.add("hidden");
+  modalMaintenance.textContent = "";
+  modalMaintenance.classList.add("hidden");
   renterChart.innerHTML = "";
   modalBackdrop.classList.remove("hidden");
 
@@ -317,6 +395,10 @@ window.showMachineHistory = async function (machineId) {
     if (machine && machine.error_message) {
       modalError.textContent = machine.error_message;
       modalError.classList.remove("hidden");
+    }
+    if (machine && Array.isArray(machine.machine_maintenance) && machine.machine_maintenance.length > 0) {
+      modalMaintenance.textContent = formatMaintenanceWindows(machine.machine_maintenance);
+      modalMaintenance.classList.remove("hidden");
     }
     
     if (!data.history || data.history.length === 0) {
@@ -345,7 +427,73 @@ window.showMachineHistory = async function (machineId) {
     console.error(error);
     modalStats.textContent = "Failed to load history.";
   }
-};
+}
+
+async function showMachineReports(machineId) {
+  reportsModalTitle.textContent = `#${machineId}:`;
+  reportsModalCounter.textContent = "Loading...";
+  reportsProblem.textContent = "";
+  reportsTime.textContent = "";
+  reportsMessage.textContent = "";
+  reportsModalBackdrop.classList.remove("hidden");
+  reportsNextButton.focus();
+
+  const response = await fetch(`/api/reports?machine_id=${machineId}`);
+  const data = await response.json();
+  currentReports = Array.isArray(data.reports) ? data.reports : [];
+  currentReportIndex = 0;
+
+  if (currentReports.length === 0) {
+    reportsModalCounter.textContent = "No reports";
+    reportsProblem.textContent = "No reports";
+    reportsTime.textContent = "";
+    reportsMessage.textContent = "";
+    reportsPrevButton.disabled = true;
+    reportsNextButton.disabled = true;
+    return;
+  }
+
+  renderCurrentReport();
+}
+
+function renderCurrentReport() {
+  const report = currentReports[currentReportIndex];
+  reportsModalCounter.textContent = `${currentReportIndex + 1} / ${currentReports.length}`;
+  reportsProblem.textContent = report.problem || "Unknown";
+  reportsTime.textContent = report.created_at
+    ? formatReportTimestamp(report.created_at)
+    : "";
+  reportsMessage.textContent = report.message || "(no message)";
+  reportsPrevButton.disabled = currentReportIndex === 0;
+  reportsNextButton.disabled = currentReportIndex >= currentReports.length - 1;
+}
+
+function hasReports(machineId) {
+  const machine = currentMachinesData.find((row) => row.machine_id === machineId);
+  return Boolean(machine && (machine.num_reports || 0) > 0);
+}
+
+reportsModalClose.addEventListener("click", () => {
+  reportsModalBackdrop.classList.add("hidden");
+});
+
+reportsPrevButton.addEventListener("click", () => {
+  if (currentReportIndex <= 0) {
+    return;
+  }
+
+  currentReportIndex -= 1;
+  renderCurrentReport();
+});
+
+reportsNextButton.addEventListener("click", () => {
+  if (currentReportIndex >= currentReports.length - 1) {
+    return;
+  }
+
+  currentReportIndex += 1;
+  renderCurrentReport();
+});
 
 function drawChart(history) {
   if (history.length < 2) return;
@@ -416,4 +564,35 @@ function shiftUtcDate(dateStr, days) {
   const date = new Date(`${dateStr}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+function formatReportTimestamp(epochSeconds) {
+  const date = new Date(epochSeconds * 1000);
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = date.toLocaleString("en-GB", { month: "short" });
+  const year = date.getFullYear();
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  return `${day} ${month}, ${year} ${hours}:${minutes}:${seconds}`;
+}
+
+function formatMaintenanceWindows(windows) {
+  const unique = new Map();
+  for (const item of windows) {
+    const start = Number(item.start_time);
+    const durationHours = Number(item.duration_hours);
+    const key = `${start}:${durationHours}`;
+    if (!unique.has(key)) {
+      unique.set(key, { start, durationHours });
+    }
+  }
+
+  return Array.from(unique.values())
+    .map(({ start, durationHours }) => {
+      const startDate = formatReportTimestamp(start);
+      const endDate = formatReportTimestamp(start + (durationHours * 60 * 60));
+      return `Maintenance: ${startDate} - ${endDate} (${durationHours}h)`;
+    })
+    .join("\n");
 }

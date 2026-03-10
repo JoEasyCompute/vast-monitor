@@ -1,5 +1,6 @@
 import express from "express";
 import path from "node:path";
+import { fetchMachineReports } from "./vast-client.js";
 
 export function createServer({ config, db }) {
   const app = express();
@@ -32,6 +33,27 @@ export function createServer({ config, db }) {
       hours,
       history: db.getMachineHistory(machineId, hours)
     });
+  });
+
+  app.get("/api/reports", async (req, res) => {
+    const machineId = Number(req.query.machine_id);
+    if (!Number.isFinite(machineId)) {
+      res.status(400).json({ error: "machine_id is required" });
+      return;
+    }
+
+    try {
+      const reports = await fetchMachineReports(config, machineId);
+      res.json({
+        machine_id: machineId,
+        reports
+      });
+    } catch (error) {
+      res.status(502).json({
+        error: "failed to fetch reports",
+        detail: error instanceof Error ? error.message : String(error)
+      });
+    }
   });
 
   app.get("/api/earnings/hourly", (req, res) => {
@@ -82,6 +104,7 @@ function buildFleetResponse(fleet) {
     occupancy: machine.occupancy || "",
     occupied_gpus: machine.occupied_gpus || 0,
     current_rentals_running: machine.current_rentals_running || 0,
+    listed: Boolean(machine.listed),
     listed_gpu_cost: machine.listed_gpu_cost,
     reliability: machine.reliability,
     gpu_max_cur_temp: machine.gpu_max_cur_temp,
@@ -91,6 +114,7 @@ function buildFleetResponse(fleet) {
     reports_changed: machine.reports_changed || 0,
     status: machine.status,
     error_message: sanitizeErrorMessage(machine.error_message),
+    machine_maintenance: parseMaintenance(machine.machine_maintenance),
     last_online_at: machine.last_online_at,
     public_ipaddr: machine.public_ipaddr,
     host_id: machine.host_id,
@@ -102,10 +126,15 @@ function buildFleetResponse(fleet) {
 
   const totalMachines = machines.length;
   const datacenterMachines = machines.reduce((sum, machine) => sum + (machine.is_datacenter ? 1 : 0), 0);
-  const totalGpus = machines.reduce((sum, machine) => sum + (machine.num_gpus || 0), 0);
-  const occupiedGpus = machines.reduce((sum, machine) => sum + (machine.status === "online" ? machine.occupied_gpus || 0 : 0), 0);
+  const unlistedMachines = machines.reduce((sum, machine) => sum + (machine.listed ? 0 : 1), 0);
+  const listedGpus = machines.reduce((sum, machine) => sum + (machine.listed ? machine.num_gpus || 0 : 0), 0);
+  const unlistedGpus = machines.reduce((sum, machine) => sum + (machine.listed ? 0 : machine.num_gpus || 0), 0);
+  const occupiedGpus = machines.reduce(
+    (sum, machine) => sum + (machine.listed && machine.status === "online" ? machine.occupied_gpus || 0 : 0),
+    0
+  );
   const totalDailyEarnings = machines.reduce((sum, machine) => sum + (machine.earn_day || 0), 0);
-  const utilisationPct = totalGpus > 0 ? Number(((occupiedGpus / totalGpus) * 100).toFixed(2)) : 0;
+  const utilisationPct = listedGpus > 0 ? Number(((occupiedGpus / listedGpus) * 100).toFixed(2)) : 0;
 
   const gpuTypes = new Map();
   for (const machine of machines) {
@@ -113,7 +142,8 @@ function buildFleetResponse(fleet) {
     const current = gpuTypes.get(key) || {
       gpu_type: key,
       machines: 0,
-      gpus: 0,
+      listed_gpus: 0,
+      unlisted_gpus: 0,
       occupied_gpus: 0,
       total_price: 0,
       priced_machines: 0,
@@ -121,8 +151,12 @@ function buildFleetResponse(fleet) {
     };
 
     current.machines += 1;
-    current.gpus += machine.num_gpus || 0;
-    current.occupied_gpus += machine.status === "online" ? machine.occupied_gpus || 0 : 0;
+    if (machine.listed) {
+      current.listed_gpus += machine.num_gpus || 0;
+      current.occupied_gpus += machine.status === "online" ? machine.occupied_gpus || 0 : 0;
+    } else {
+      current.unlisted_gpus += machine.num_gpus || 0;
+    }
     current.earnings += machine.earn_day || 0;
     if (typeof machine.listed_gpu_cost === "number") {
       current.total_price += machine.listed_gpu_cost;
@@ -134,8 +168,9 @@ function buildFleetResponse(fleet) {
   const breakdown = [...gpuTypes.values()].map((item) => ({
     gpu_type: item.gpu_type,
     machines: item.machines,
-    gpus: item.gpus,
-    utilisation_pct: item.gpus > 0 ? Number(((item.occupied_gpus / item.gpus) * 100).toFixed(2)) : 0,
+    listed_gpus: item.listed_gpus,
+    unlisted_gpus: item.unlisted_gpus,
+    utilisation_pct: item.listed_gpus > 0 ? Number(((item.occupied_gpus / item.listed_gpus) * 100).toFixed(2)) : 0,
     avg_price: item.priced_machines > 0 ? Number((item.total_price / item.priced_machines).toFixed(3)) : null,
     earnings: Number(item.earnings.toFixed(2))
   }));
@@ -145,7 +180,9 @@ function buildFleetResponse(fleet) {
     summary: {
       totalMachines,
       datacenterMachines,
-      totalGpus,
+      unlistedMachines,
+      listedGpus,
+      unlistedGpus,
       occupiedGpus,
       utilisationPct,
       totalDailyEarnings: Number(totalDailyEarnings.toFixed(2))
@@ -166,6 +203,19 @@ function sanitizeErrorMessage(message) {
   }
 
   return text;
+}
+
+function parseMaintenance(value) {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 const IGNORED_ERROR_MESSAGES = new Set([

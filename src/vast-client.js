@@ -40,6 +40,29 @@ export async function fetchMachines(config) {
   });
 }
 
+export async function fetchMachineReports(config, machineId) {
+  const { vastCliPath } = config;
+  const { stdout, stderr } = await execFileAsync(vastCliPath, ["reports", String(machineId)], {
+    maxBuffer: 1024 * 1024 * 20
+  });
+
+  if (stderr && stderr.trim()) {
+    console.error(stderr.trim());
+  }
+
+  const trimmed = (stdout || "").trim();
+  const jsonText = trimmed.startsWith("reports:") ? trimmed.slice("reports:".length).trim() : trimmed;
+  const parsed = JSON.parse(jsonText || "[]");
+  const reports = Array.isArray(parsed) ? parsed : [];
+
+  return reports.map((report, index) => ({
+    id: index,
+    problem: cleanText(report.problem) || "Unknown",
+    message: cleanText(report.message) || "",
+    created_at: Number(report.created_at) || null
+  }));
+}
+
 function normalizeMachine(machine) {
   const occupancy = String(machine.gpu_occupancy || "").trim();
   const occupiedGpus = occupancy
@@ -56,6 +79,7 @@ function normalizeMachine(machine) {
     occupancy,
     occupied_gpus: occupiedGpus,
     current_rentals_running: Number(machine.current_rentals_running || 0),
+    listed: machine.listed === false ? 0 : 1,
     listed_gpu_cost: numberOrNull(machine.listed_gpu_cost),
     reliability: numberOrNull(machine.reliability2),
     gpu_max_cur_temp: numberOrNull(machine.gpu_max_cur_temp),
@@ -64,6 +88,7 @@ function normalizeMachine(machine) {
     num_recent_reports: numberOrNull(machine.num_recent_reports),
     status: (machine.timeout && machine.timeout > 300) ? "offline" : "online",
     error_message: resolveErrorMessage(machine),
+    machine_maintenance: serializeMaintenance(machine.machine_maintenance),
     public_ipaddr: machine.public_ipaddr || null,
     host_id: intOrNull(machine.host_id),
     hosting_type: intOrNull(machine.hosting_type),
@@ -186,6 +211,10 @@ function resolveErrorMessage(machine) {
 function cleanText(value) {
   const text = String(value ?? "").trim();
   return text.length > 0 ? text : null;
+}
+
+function serializeMaintenance(value) {
+  return Array.isArray(value) && value.length > 0 ? JSON.stringify(value) : null;
 }
 
 function normalizeErrorMessage(value) {

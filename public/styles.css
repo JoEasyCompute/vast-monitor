@@ -200,6 +200,17 @@ td.dc-cell {
   text-align: center;
 }
 
+th.listed-col,
+td.listed-cell,
+th.maint-col,
+td.maint-cell {
+  width: 1%;
+  white-space: nowrap;
+  padding-left: 6px;
+  padding-right: 6px;
+  text-align: center;
+}
+
 .util-chip, .status-pill, .gpu-slot {
   display: inline-flex;
   align-items: center;
@@ -296,6 +307,23 @@ tr.machine-error:hover {
   border: 1px solid rgba(96, 165, 250, 0.35);
 }
 
+.listed-pill {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: rgba(34, 197, 94, 0.15);
+  color: #86efac;
+  border: 1px solid rgba(34, 197, 94, 0.28);
+}
+
+.maint-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: #f59e0b;
+}
+
 @keyframes pulse-report {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.6; }
@@ -386,6 +414,88 @@ tr.machine-error:hover {
   color: #fdba74;
   font-size: 0.95rem;
   line-height: 1.4;
+}
+
+.modal-maintenance {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.1);
+  color: #fcd34d;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.reports-modal-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+}
+
+.reports-modal-content {
+  display: flex;
+  flex-direction: column;
+  max-height: min(80vh, 760px);
+}
+
+.reports-modal-body {
+  padding-top: 0;
+}
+
+.reports-modal-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 -24px 14px;
+  padding: 12px 24px 10px;
+  background: linear-gradient(180deg, rgba(9, 17, 31, 0.98), rgba(9, 17, 31, 0.86));
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.report-problem {
+  min-width: 0;
+  text-align: right;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fdba74;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reports-nav-group {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.report-message {
+  margin: 0;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.72);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.report-message-wrap {
+  height: 360px;
+  overflow-y: auto;
 }
 
 .alert-item {
