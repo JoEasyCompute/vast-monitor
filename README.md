@@ -14,6 +14,7 @@ It polls your hosted machines from Vast, enriches them with datacenter metadata,
 - Detects host up/down transitions and rental activity changes
 - Computes rolling uptime for `24h`, `7d`, and `30d`
 - Shows fleet health, listed-only utilisation, earnings, trends, hoverable chart values, and datacenter tags in a browser dashboard
+- Adds local browser settings for table density and frontend-only alert thresholds
 - Exposes JSON endpoints for status, health, history, alerts, fleet trends, and hourly earnings
 
 ## Requirements
@@ -74,6 +75,7 @@ The dashboard includes:
 
 - Fleet summary cards
 - Header health badge (`Healthy`, `Polling`, `Stale`)
+- Header `Settings` button for local browser preferences
 - Stale-data warning banner when polls are too old
 - GPU type breakdown
 - Fleet trends for `24h`, `7d`, and `30d`
@@ -81,12 +83,24 @@ The dashboard includes:
 - Hourly earnings with previous/next day navigation
 - Sortable machine table
 - Machine table filters for search, status, listed/unlisted, datacenter, errors, reports, and maintenance
+- Machine table density toggle (`Comfortable` / `Compact`)
 - Datacenter `DC` indicator column
 - Listed status and maintenance columns
 - Bright orange highlighting for machines with active error messages
+- Configurable frontend highlighting thresholds for low reliability and high temperature
 - Recent alerts
-- Per-machine history modal with renter, reliability, and GPU rental price charts
+- Per-machine history modal with tabbed `Charts` and `Recent Events` views
+- Machine modal charts for historical earnings, renter activity, reliability, and GPU rental price
+- Machine modal earnings chart prefers the machine's own stored `earn_day` history and falls back to Vast daily earnings only when local history is unavailable
 - Cursor hover inspection for fleet trend charts and machine modal charts
+- Resize-aware chart redraw for fleet and modal charts
+
+Local browser settings currently control:
+
+- machine table density
+- low reliability highlight threshold
+- high temperature highlight threshold
+- stale poll age threshold for the dashboard badge/warning
 
 ## Datacenter Tagging
 
@@ -176,6 +190,17 @@ Validation:
 ### `GET /api/earnings/hourly?date=YYYY-MM-DD`
 
 Returns hourly earnings buckets for a UTC date.
+
+### `GET /api/earnings/machine?machine_id=49697&hours=168`
+
+Returns machine earnings data from Vast for the requested window.
+
+In the UI, the machine modal currently prefers locally stored per-machine `earn_day` snapshot history for the chart because Vast daily earnings responses may not always be machine-specific in practice.
+
+Validation:
+
+- `machine_id` must be numeric
+- `hours` must be a positive number
 
 ### `GET /api/fleet/history?hours=168`
 
