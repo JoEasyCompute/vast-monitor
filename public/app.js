@@ -410,7 +410,9 @@ function renderHourlyEarnings(data) {
       return `
         <div class="hour-bar-wrap">
           <span class="hour-amount">$${h.earnings.toFixed(2)}</span>
-          <div class="${barClass}" style="height: ${isFuture ? 0 : Math.max(pct, 1.5)}%"></div>
+          <div class="hour-bar-track">
+            <div class="${barClass}" style="height: ${isFuture ? 0 : Math.max(pct, 1.5)}%"></div>
+          </div>
           <span class="hour-label">${String(h.hour).padStart(2, "0")}</span>
         </div>
       `;

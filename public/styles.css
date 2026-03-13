@@ -654,12 +654,22 @@ tr.machine-error:hover {
   flex-direction: column;
   align-items: center;
   height: 100%;
-  justify-content: flex-end;
+  min-width: 0;
+}
+
+.hour-bar-track {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  flex: 1;
 }
 
 .hour-bar {
   width: 100%;
   min-height: 2px;
+  max-height: 100%;
+  align-self: flex-end;
   border-radius: 4px 4px 0 0;
   background: linear-gradient(180deg, var(--blue), rgba(96, 165, 250, 0.4));
   transition: height 0.4s ease;
