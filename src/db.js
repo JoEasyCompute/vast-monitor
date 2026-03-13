@@ -320,6 +320,16 @@ export function createDatabase(dbPath) {
       FROM fleet_snapshots
       WHERE polled_at >= ?
       ORDER BY polled_at ASC
+    `),
+    selectGpuTypePriceSnapshotsSince: db.prepare(`
+      SELECT polled_at, gpu_type, num_gpus, listed_gpu_cost
+      FROM machine_snapshots
+      WHERE polled_at >= ?
+        AND listed = 1
+        AND listed_gpu_cost IS NOT NULL
+        AND num_gpus IS NOT NULL
+        AND num_gpus > 0
+      ORDER BY polled_at ASC
     `)
   };
 
@@ -476,10 +486,86 @@ export function createDatabase(dbPath) {
     return statements.selectFleetSnapshotsSince.all(cutoff);
   }
 
+  function getGpuTypePriceHistory(hours, top = 6) {
+    const cutoff = new Date(Date.now() - (hours * 60 * 60 * 1000)).toISOString();
+    const rows = statements.selectGpuTypePriceSnapshotsSince.all(cutoff);
+    if (rows.length === 0) {
+      return {
+        hours,
+        bucket_hours: getGpuTypePriceBucketHours(hours),
+        series: []
+      };
+    }
+
+    const bucketHours = getGpuTypePriceBucketHours(hours);
+    const bucketMs = bucketHours * 60 * 60 * 1000;
+    const buckets = new Map();
+    const totalPricedGpusByType = new Map();
+
+    for (const row of rows) {
+      const timeMs = Date.parse(row.polled_at);
+      if (!Number.isFinite(timeMs)) {
+        continue;
+      }
+
+      const gpuType = row.gpu_type || "Unknown";
+      const gpuCount = row.num_gpus || 0;
+      const price = row.listed_gpu_cost;
+      if (!Number.isFinite(gpuCount) || gpuCount <= 0 || !Number.isFinite(price)) {
+        continue;
+      }
+
+      const bucketStartMs = Math.floor(timeMs / bucketMs) * bucketMs;
+      if (!buckets.has(bucketStartMs)) {
+        buckets.set(bucketStartMs, new Map());
+      }
+
+      const bucket = buckets.get(bucketStartMs);
+      const current = bucket.get(gpuType) || { total_price_weighted: 0, priced_gpus: 0 };
+      current.total_price_weighted += price * gpuCount;
+      current.priced_gpus += gpuCount;
+      bucket.set(gpuType, current);
+
+      totalPricedGpusByType.set(gpuType, (totalPricedGpusByType.get(gpuType) || 0) + gpuCount);
+    }
+
+    const topGpuTypes = [...totalPricedGpusByType.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, top)
+      .map(([gpuType]) => gpuType);
+
+    const sortedBucketStarts = [...buckets.keys()].sort((a, b) => a - b);
+    const series = topGpuTypes.map((gpuType) => ({
+      gpu_type: gpuType,
+      points: sortedBucketStarts
+        .map((bucketStartMs) => {
+          const bucket = buckets.get(bucketStartMs);
+          const data = bucket.get(gpuType);
+          if (!data || data.priced_gpus === 0) {
+            return null;
+          }
+
+          return {
+            bucket_start: new Date(bucketStartMs).toISOString(),
+            avg_price: Number((data.total_price_weighted / data.priced_gpus).toFixed(3)),
+            priced_gpus: data.priced_gpus
+          };
+        })
+        .filter(Boolean)
+    })).filter((item) => item.points.length > 0);
+
+    return {
+      hours,
+      bucket_hours: bucketHours,
+      series
+    };
+  }
+
   return {
     db,
     getCurrentFleetStatus,
     getFleetHistory,
+    getGpuTypePriceHistory,
     getHourlyEarnings,
     getKnownMachines,
     getMachineHistory,
@@ -523,6 +609,16 @@ function buildFleetSnapshot(machines) {
     utilisation_pct: utilisationPct,
     total_daily_earnings: totalDailyEarnings
   };
+}
+
+function getGpuTypePriceBucketHours(hours) {
+  if (hours <= 48) {
+    return 1;
+  }
+  if (hours <= 24 * 10) {
+    return 6;
+  }
+  return 24;
 }
 
 function backfillFleetSnapshots(statements) {

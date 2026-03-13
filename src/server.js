@@ -54,6 +54,24 @@ export function createServer({ config, db, monitor }) {
     });
   });
 
+  app.get("/api/gpu-type/price-history", (req, res) => {
+    const rawHours = req.query.hours == null ? 168 : Number(req.query.hours);
+    if (!Number.isFinite(rawHours) || rawHours < 1) {
+      res.status(400).json({ error: "hours must be a positive number" });
+      return;
+    }
+
+    const rawTop = req.query.top == null ? 6 : Number(req.query.top);
+    if (!Number.isFinite(rawTop) || rawTop < 1) {
+      res.status(400).json({ error: "top must be a positive number" });
+      return;
+    }
+
+    const hours = Math.min(24 * 365, Math.floor(rawHours));
+    const top = Math.min(12, Math.floor(rawTop));
+    res.json(db.getGpuTypePriceHistory(hours, top));
+  });
+
   app.get("/api/reports", async (req, res) => {
     const machineId = Number(req.query.machine_id);
     if (!Number.isFinite(machineId)) {
@@ -164,23 +182,24 @@ function buildFleetResponse(fleet, config) {
       listed_gpus: 0,
       unlisted_gpus: 0,
       occupied_gpus: 0,
-      total_price: 0,
-      priced_machines: 0,
+      total_price_weighted: 0,
+      priced_gpus: 0,
       earnings: 0
     };
 
     current.machines += 1;
     if (machine.listed) {
-      current.listed_gpus += machine.num_gpus || 0;
+      const gpuCount = machine.num_gpus || 0;
+      current.listed_gpus += gpuCount;
       current.occupied_gpus += machine.status === "online" ? machine.occupied_gpus || 0 : 0;
+      if (typeof machine.listed_gpu_cost === "number" && gpuCount > 0) {
+        current.total_price_weighted += machine.listed_gpu_cost * gpuCount;
+        current.priced_gpus += gpuCount;
+      }
     } else {
       current.unlisted_gpus += machine.num_gpus || 0;
     }
     current.earnings += machine.earn_day || 0;
-    if (typeof machine.listed_gpu_cost === "number") {
-      current.total_price += machine.listed_gpu_cost;
-      current.priced_machines += 1;
-    }
     gpuTypes.set(key, current);
   }
 
@@ -190,7 +209,7 @@ function buildFleetResponse(fleet, config) {
     listed_gpus: item.listed_gpus,
     unlisted_gpus: item.unlisted_gpus,
     utilisation_pct: item.listed_gpus > 0 ? Number(((item.occupied_gpus / item.listed_gpus) * 100).toFixed(2)) : 0,
-    avg_price: item.priced_machines > 0 ? Number((item.total_price / item.priced_machines).toFixed(3)) : null,
+    avg_price: item.priced_gpus > 0 ? Number((item.total_price_weighted / item.priced_gpus).toFixed(3)) : null,
     earnings: Number(item.earnings.toFixed(2))
   }));
 

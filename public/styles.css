@@ -198,7 +198,7 @@ h1 {
 
 .trend-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   margin-top: 18px;
 }
@@ -373,6 +373,16 @@ th.sort-asc::after {
 th.sort-desc::after {
   content: " ↓";
   opacity: 0.7;
+}
+
+.breakdown-gpus-col {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.breakdown-num-col {
+  text-align: right;
+  white-space: nowrap;
 }
 
 th.dc-col,
@@ -874,6 +884,10 @@ tr.machine-row:hover {
 @media (max-width: 980px) {
   .panel {
     grid-column: 1 / -1;
+  }
+
+  .trend-grid {
+    grid-template-columns: 1fr;
   }
 
   .hero {

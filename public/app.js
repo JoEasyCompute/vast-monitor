@@ -14,6 +14,7 @@ const trendRange = document.getElementById("trend-range");
 const trendGpusChart = document.getElementById("trend-gpus-chart");
 const trendFleetChart = document.getElementById("trend-fleet-chart");
 const trendUtilChart = document.getElementById("trend-util-chart");
+const trendPriceChart = document.getElementById("trend-price-chart");
 const filterSearch = document.getElementById("filter-search");
 const filterStatus = document.getElementById("filter-status");
 const filterListed = document.getElementById("filter-listed");
@@ -32,23 +33,26 @@ let currentReports = [];
 let currentReportIndex = 0;
 
 async function loadDashboard() {
-  const [statusResponse, alertsResponse, earningsResponse, fleetHistoryResponse] = await Promise.all([
+  const [statusResponse, alertsResponse, earningsResponse, fleetHistoryResponse, gpuTypePriceResponse] = await Promise.all([
     fetch("/api/status"),
     fetch("/api/alerts?limit=10"),
     fetch(`/api/earnings/hourly?date=${selectedEarningsDate}`),
-    fetch(`/api/fleet/history?hours=${selectedTrendHours}`)
+    fetch(`/api/fleet/history?hours=${selectedTrendHours}`),
+    fetch(`/api/gpu-type/price-history?hours=${selectedTrendHours}&top=6`)
   ]);
 
   const status = await statusResponse.json();
   const alertsPayload = await alertsResponse.json();
   const earningsPayload = await earningsResponse.json();
   const fleetHistoryPayload = await fleetHistoryResponse.json();
+  const gpuTypePricePayload = await gpuTypePriceResponse.json();
 
   currentMachinesData = status.machines;
 
   renderSummary(status.summary);
   renderBreakdown(status.gpuTypeBreakdown);
   renderFleetTrends(fleetHistoryPayload.history || []);
+  renderGpuTypePriceTrends(gpuTypePricePayload);
   renderHourlyEarnings(earningsPayload);
   renderMachinesSorted();
   renderAlerts(alertsPayload.alerts);
@@ -180,12 +184,11 @@ function renderBreakdown(rows) {
     .map((row) => `
       <tr>
         <td>${escapeHtml(row.gpu_type)}</td>
-        <td>${row.machines}</td>
-        <td>${row.listed_gpus}</td>
-        <td>${row.unlisted_gpus}</td>
+        <td class="breakdown-num-col">${row.machines}</td>
+        <td class="breakdown-gpus-col">${row.listed_gpus}/${row.unlisted_gpus}</td>
         <td><span class="util-chip ${utilClass(row.utilisation_pct)}">${row.utilisation_pct}%</span></td>
-        <td>${row.avg_price == null ? "-" : `$${row.avg_price.toFixed(3)}`}</td>
-        <td>$${row.earnings.toFixed(2)}</td>
+        <td class="breakdown-num-col">${row.avg_price == null ? "-" : `$${row.avg_price.toFixed(3)}`}</td>
+        <td class="breakdown-num-col">$${row.earnings.toFixed(2)}</td>
       </tr>
     `)
     .join("");
@@ -327,6 +330,42 @@ function renderFleetTrends(history) {
   drawMultiSeriesChart(trendUtilChart, history, [
     { key: "utilisation_pct", label: "Utilisation", color: "#f43f5e" }
   ], { min: 0, max: 100, formatValue: (value) => `${Math.round(value)}%` });
+}
+
+function renderGpuTypePriceTrends(payload) {
+  const normalized = normalizeGpuTypePriceHistory(payload);
+  if (!normalized.history.length || !normalized.series.length) {
+    trendPriceChart.innerHTML = `<text x="360" y="90" text-anchor="middle" class="chart-empty">No GPU-type price history yet</text>`;
+    return;
+  }
+
+  drawMultiSeriesChart(trendPriceChart, normalized.history, normalized.series, {
+    formatValue: (value) => formatCurrency(value)
+  });
+}
+
+function normalizeGpuTypePriceHistory(payload) {
+  const palette = ["#34d399", "#60a5fa", "#f59e0b", "#f43f5e", "#a78bfa", "#f97316"];
+  const rowsByBucket = new Map();
+  const series = Array.isArray(payload?.series) ? payload.series : [];
+
+  series.forEach((item, index) => {
+    const key = `gpu_type_price_${index}`;
+    item.points.forEach((point) => {
+      const row = rowsByBucket.get(point.bucket_start) || { polled_at: point.bucket_start };
+      row[key] = point.avg_price;
+      rowsByBucket.set(point.bucket_start, row);
+    });
+  });
+
+  const history = [...rowsByBucket.values()].sort((a, b) => Date.parse(a.polled_at) - Date.parse(b.polled_at));
+  const chartSeries = series.map((item, index) => ({
+    key: `gpu_type_price_${index}`,
+    label: item.gpu_type,
+    color: palette[index % palette.length]
+  }));
+
+  return { history, series: chartSeries };
 }
 
 function drawMultiSeriesChart(svg, history, series, options = {}) {

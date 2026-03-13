@@ -77,6 +77,7 @@ The dashboard includes:
 - Stale-data warning banner when polls are too old
 - GPU type breakdown
 - Fleet trends for `24h`, `7d`, and `30d`
+- GPU-type pricing trends using listed-only weighted averages
 - Hourly earnings with previous/next day navigation
 - Sortable machine table
 - Machine table filters for search, status, listed/unlisted, datacenter, errors, reports, and maintenance
@@ -183,6 +184,15 @@ Returns fleet-wide trend points for the requested time window.
 Validation:
 
 - `hours` must be a positive number
+
+### `GET /api/gpu-type/price-history?hours=168&top=6`
+
+Returns bucketed, listed-only GPU-weighted average price history for the top GPU types in the requested window.
+
+Validation:
+
+- `hours` must be a positive number
+- `top` must be a positive number
 
 ## Database
 

@@ -38,17 +38,31 @@
               <thead>
                 <tr>
                   <th>GPU Type</th>
-                  <th>Machines</th>
-                  <th>Listed GPUs</th>
-                  <th>Unlisted GPUs</th>
+                  <th class="breakdown-num-col">Machines</th>
+                  <th class="breakdown-gpus-col">GPUs<br />L/U</th>
                   <th>Utilisation</th>
-                  <th>Avg Price</th>
-                  <th>Earnings</th>
+                  <th class="breakdown-num-col">Avg Price</th>
+                  <th class="breakdown-num-col">Earnings</th>
                 </tr>
               </thead>
               <tbody id="breakdown-body"></tbody>
             </table>
           </div>
+        </section>
+
+        <section class="panel wide">
+          <div class="panel-title-row">
+            <h2>Hourly Earnings</h2>
+            <div class="earnings-nav">
+              <button id="earnings-prev" class="nav-button" type="button" aria-label="Previous day">&#8592;</button>
+              <button id="earnings-next" class="nav-button" type="button" aria-label="Next day">&#8594;</button>
+            </div>
+          </div>
+          <div class="earnings-header">
+            <span class="earnings-total" id="earnings-total">$0.00</span>
+            <span class="muted" id="earnings-date"></span>
+          </div>
+          <div class="hourly-chart" id="hourly-chart"></div>
         </section>
 
         <section class="panel wide">
@@ -82,22 +96,14 @@
               </div>
               <svg id="trend-util-chart" class="trend-chart" viewBox="0 0 720 180" preserveAspectRatio="none"></svg>
             </div>
-          </div>
-        </section>
-
-        <section class="panel wide">
-          <div class="panel-title-row">
-            <h2>Hourly Earnings</h2>
-            <div class="earnings-nav">
-              <button id="earnings-prev" class="nav-button" type="button" aria-label="Previous day">&#8592;</button>
-              <button id="earnings-next" class="nav-button" type="button" aria-label="Next day">&#8594;</button>
+            <div class="trend-card">
+              <div class="trend-card-header">
+                <strong>GPU Type Pricing</strong>
+                <span class="muted">Listed-only weighted averages</span>
+              </div>
+              <svg id="trend-price-chart" class="trend-chart" viewBox="0 0 720 180" preserveAspectRatio="none"></svg>
             </div>
           </div>
-          <div class="earnings-header">
-            <span class="earnings-total" id="earnings-total">$0.00</span>
-            <span class="muted" id="earnings-date"></span>
-          </div>
-          <div class="hourly-chart" id="hourly-chart"></div>
         </section>
 
         <section class="panel wide">
