@@ -18,6 +18,7 @@
           <p class="hero-copy">Live fleet health, utilisation, alerts, and uptime across your hosted GPUs.</p>
         </div>
         <div class="hero-meta">
+          <button id="settings-button" class="settings-button" type="button">Settings</button>
           <span id="health-badge" class="health-badge">Loading</span>
           <span id="last-updated">Loading...</span>
         </div>
@@ -129,9 +130,13 @@
             <label class="filter-toggle"><input id="filter-errors" type="checkbox" /> Errors</label>
             <label class="filter-toggle"><input id="filter-reports" type="checkbox" /> Reports</label>
             <label class="filter-toggle"><input id="filter-maint" type="checkbox" /> Maint</label>
+            <div class="density-toggle" id="density-toggle">
+              <button class="density-button active" type="button" data-density="comfortable">Comfortable</button>
+              <button class="density-button" type="button" data-density="compact">Compact</button>
+            </div>
             <button id="filter-reset" class="filter-reset" type="button">Reset</button>
           </div>
-          <div class="table-wrap machines-scroll">
+          <div class="table-wrap machines-scroll" id="machines-scroll">
             <table>
               <thead>
                 <tr>
@@ -183,29 +188,41 @@
           <div id="modal-earnings-breakdown" class="modal-summary-grid modal-breakdown-grid"></div>
           <div id="modal-error" class="modal-error hidden"></div>
           <div id="modal-maintenance" class="modal-maintenance hidden"></div>
-          <div class="modal-toolbar">
-            <div id="modal-stats" class="modal-stats"></div>
-            <div class="trend-range" id="modal-history-range">
-              <button class="range-button" type="button" data-hours="24">24h</button>
-              <button class="range-button active" type="button" data-hours="168">7d</button>
-              <button class="range-button" type="button" data-hours="720">30d</button>
+          <div class="modal-tabs" id="modal-tabs">
+            <button class="modal-tab active" type="button" data-tab="charts">Charts</button>
+            <button class="modal-tab" type="button" data-tab="events">Recent Events</button>
+          </div>
+          <div id="modal-tab-charts" class="modal-tab-panel active">
+            <div class="modal-toolbar">
+              <div id="modal-stats" class="modal-stats"></div>
+              <div class="trend-range" id="modal-history-range">
+                <button class="range-button" type="button" data-hours="24">24h</button>
+                <button class="range-button active" type="button" data-hours="168">7d</button>
+                <button class="range-button" type="button" data-hours="720">30d</button>
+              </div>
+            </div>
+            <div class="modal-chart-title-row">
+              <div id="earnings-chart-title" class="modal-chart-title">Historical Earnings</div>
+              <div id="earnings-chart-note" class="modal-chart-note"></div>
+            </div>
+            <div class="modal-chart-wrap">
+              <svg id="earnings-chart" width="100%" height="200"></svg>
+            </div>
+            <div class="modal-chart-title">Renter Activity</div>
+            <div class="modal-chart-wrap">
+              <svg id="renter-chart" width="100%" height="200"></svg>
+            </div>
+            <div class="modal-chart-title">Reliability</div>
+            <div class="modal-chart-wrap">
+              <svg id="reliability-chart" width="100%" height="200"></svg>
+            </div>
+            <div class="modal-chart-title">GPU Rental Price</div>
+            <div class="modal-chart-wrap">
+              <svg id="price-chart" width="100%" height="200"></svg>
             </div>
           </div>
-          <div class="modal-chart-title">Historical Earnings</div>
-          <div class="modal-chart-wrap">
-            <svg id="earnings-chart" width="100%" height="200"></svg>
-          </div>
-          <div class="modal-chart-title">Renter Activity</div>
-          <div class="modal-chart-wrap">
-            <svg id="renter-chart" width="100%" height="200"></svg>
-          </div>
-          <div class="modal-chart-title">Reliability</div>
-          <div class="modal-chart-wrap">
-            <svg id="reliability-chart" width="100%" height="200"></svg>
-          </div>
-          <div class="modal-chart-title">GPU Rental Price</div>
-          <div class="modal-chart-wrap">
-            <svg id="price-chart" width="100%" height="200"></svg>
+          <div id="modal-tab-events" class="modal-tab-panel">
+            <div id="modal-timeline" class="modal-timeline hidden"></div>
           </div>
         </div>
       </div>
@@ -231,6 +248,45 @@
           </div>
           <div class="report-message-wrap">
             <pre id="reports-message" class="report-message"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="settings-backdrop" class="modal-backdrop hidden">
+      <div class="modal-content settings-modal-content">
+        <header class="modal-header">
+          <h2>Settings</h2>
+          <button id="settings-close" class="modal-close">&times;</button>
+        </header>
+        <div class="modal-body">
+          <div class="settings-section">
+            <div class="settings-section-title">Display</div>
+            <label class="settings-field">
+              <span>Machine table density</span>
+              <select id="settings-density" class="filter-select">
+                <option value="comfortable">Comfortable</option>
+                <option value="compact">Compact</option>
+              </select>
+            </label>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-title">Frontend Thresholds</div>
+            <label class="settings-field">
+              <span>Low reliability (%)</span>
+              <input id="settings-reliability" class="filter-input settings-input" type="number" min="0" max="100" step="1" />
+            </label>
+            <label class="settings-field">
+              <span>High temperature (C)</span>
+              <input id="settings-temperature" class="filter-input settings-input" type="number" min="0" max="150" step="1" />
+            </label>
+            <label class="settings-field">
+              <span>Stale poll age (minutes)</span>
+              <input id="settings-stale-minutes" class="filter-input settings-input" type="number" min="1" max="1440" step="1" />
+            </label>
+          </div>
+          <div class="settings-actions">
+            <button id="settings-reset" class="filter-reset" type="button">Reset to Defaults</button>
           </div>
         </div>
       </div>

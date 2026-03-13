@@ -24,6 +24,25 @@ const filterErrors = document.getElementById("filter-errors");
 const filterReports = document.getElementById("filter-reports");
 const filterMaint = document.getElementById("filter-maint");
 const filterReset = document.getElementById("filter-reset");
+const densityToggle = document.getElementById("density-toggle");
+const machinesScroll = document.getElementById("machines-scroll");
+const settingsButton = document.getElementById("settings-button");
+const settingsBackdrop = document.getElementById("settings-backdrop");
+const settingsClose = document.getElementById("settings-close");
+const settingsDensity = document.getElementById("settings-density");
+const settingsReliability = document.getElementById("settings-reliability");
+const settingsTemperature = document.getElementById("settings-temperature");
+const settingsStaleMinutes = document.getElementById("settings-stale-minutes");
+const settingsReset = document.getElementById("settings-reset");
+
+const DEFAULT_UI_SETTINGS = {
+  tableDensity: "comfortable",
+  lowReliabilityPct: 90,
+  highTemperatureC: 85,
+  stalePollMinutes: 15
+};
+const UI_SETTINGS_KEY = "vast-monitor-ui-settings";
+let uiSettings = loadUiSettings();
 
 let currentMachinesData = [];
 let sortCol = "hostname";
@@ -35,6 +54,15 @@ let currentMachineHistoryHours = 168;
 let currentReports = [];
 let currentReportIndex = 0;
 const chartSyncGroups = new Map();
+let latestFleetHistory = [];
+let latestGpuTypePricePayload = null;
+let latestHourlyEarningsPayload = null;
+let lastKnownHealth = null;
+let currentModalMachine = null;
+let currentModalHistory = [];
+let currentModalEarningsData = null;
+let currentModalTab = "charts";
+initializeStateFromUrl();
 
 async function loadDashboard() {
   const [statusResponse, alertsResponse, earningsResponse, fleetHistoryResponse, gpuTypePriceResponse] = await Promise.all([
@@ -50,17 +78,21 @@ async function loadDashboard() {
   const earningsPayload = await earningsResponse.json();
   const fleetHistoryPayload = await fleetHistoryResponse.json();
   const gpuTypePricePayload = await gpuTypePriceResponse.json();
+  latestHourlyEarningsPayload = earningsPayload;
+  latestFleetHistory = fleetHistoryPayload.history || [];
+  latestGpuTypePricePayload = gpuTypePricePayload;
 
   currentMachinesData = status.machines;
 
   renderSummary(status.summary);
   renderSummaryComparison(status.summary?.comparison24h);
   renderBreakdown(status.gpuTypeBreakdown);
-  renderFleetTrends(fleetHistoryPayload.history || []);
-  renderGpuTypePriceTrends(gpuTypePricePayload);
-  renderHourlyEarnings(earningsPayload);
+  renderFleetTrends(latestFleetHistory);
+  renderGpuTypePriceTrends(latestGpuTypePricePayload);
+  renderHourlyEarnings(latestHourlyEarningsPayload);
   renderMachinesSorted();
   renderAlerts(alertsPayload.alerts);
+  lastKnownHealth = status.health;
   renderHealth(status.health);
   lastUpdated.textContent = status.latestPollAt
     ? `Last updated ${new Date(status.latestPollAt).toLocaleString()}`
@@ -78,6 +110,7 @@ function handleSort(col) {
     sortCol = col;
     sortDesc = false;
   }
+  persistStateToUrl();
   updateSortHeaders();
   renderMachinesSorted();
 }
@@ -248,9 +281,10 @@ function renderMachines(rows) {
   machinesBody.innerHTML = rows
     .map((row, index) => {
       const reliabilityScore = row.reliability != null ? row.reliability * 100 : null;
-      const isLowReliability = reliabilityScore != null && reliabilityScore < 90;
+      const isLowReliability = reliabilityScore != null && reliabilityScore < uiSettings.lowReliabilityPct;
+      const isHot = row.gpu_max_cur_temp != null && row.gpu_max_cur_temp >= uiSettings.highTemperatureC;
       const hasError = Boolean(row.error_message);
-      const rowClass = [hasError ? "machine-error" : "", isLowReliability ? "low-reliability" : ""]
+      const rowClass = [hasError ? "machine-error" : "", isLowReliability ? "low-reliability" : "", isHot ? "high-temperature" : ""]
         .filter(Boolean)
         .join(" ");
       
@@ -266,12 +300,12 @@ function renderMachines(rows) {
         <td>${row.num_gpus}</td>
         <td>${renderOccupancy(row)}</td>
         <td>${renderPriceCell(row)}</td>
-        <td>${row.current_rentals_running}</td>
+        <td>${renderRentalsCell(row)}</td>
         <td>${row.gpu_max_cur_temp == null ? "-" : `${row.gpu_max_cur_temp}C`}</td>
         <td>${renderReports(row)}</td>
-        <td>${reliabilityScore == null ? "-" : `${reliabilityScore.toFixed(1)}%`}</td>
+        <td>${renderReliabilityCell(row, reliabilityScore)}</td>
         <td>${row.uptime?.["24h"] == null ? "-" : `${row.uptime["24h"]}%`}</td>
-        <td><span class="status-pill ${row.status}" title="${getStatusTooltip(row)}">${row.status}</span></td>
+        <td>${renderStatusCell(row)}</td>
       </tr>
     `})
     .join("");
@@ -298,27 +332,81 @@ function renderPriceCell(row) {
   </span>`;
 }
 
+function renderRentalsCell(row) {
+  return `<span class="delta-cell">
+    <span>${row.current_rentals_running ?? 0}</span>
+    ${renderDeltaChip(
+      row.rentals_change_direction,
+      row.previous_rentals,
+      row.current_rentals_running,
+      row.rentals_changed_at,
+      "renters"
+    )}
+  </span>`;
+}
+
+function renderReliabilityCell(row, reliabilityScore) {
+  if (reliabilityScore == null) {
+    return "-";
+  }
+
+  const previous = typeof row.previous_reliability === "number" ? row.previous_reliability * 100 : null;
+  return `<span class="delta-cell">
+    <span>${reliabilityScore.toFixed(1)}%</span>
+    ${renderDeltaChip(
+      row.reliability_change_direction,
+      previous,
+      reliabilityScore,
+      row.reliability_changed_at,
+      "reliability",
+      (value) => `${Number(value).toFixed(1)}%`
+    )}
+  </span>`;
+}
+
+function renderStatusCell(row) {
+  return `<span class="delta-cell" title="${escapeHtml(getStatusTooltip(row))}">
+    <span class="status-pill ${row.status}">${row.status}</span>
+    ${renderDeltaChip(
+      row.status_change_direction,
+      row.previous_status,
+      row.status,
+      row.status_changed_at,
+      "status"
+    )}
+  </span>`;
+}
+
+function renderDeltaChip(direction, previousValue, currentValue, changedAt, label, formatter = (value) => String(value)) {
+  const changeLabel = direction === "up" ? "↑" : direction === "down" ? "↓" : "•";
+  const changeClass = direction === "up" ? "delta-up" : direction === "down" ? "delta-down" : "delta-flat";
+  const title = !changedAt
+    ? `No recent ${label} change`
+    : `${capitalize(label)} changed from ${formatter(previousValue)} to ${formatter(currentValue)} at ${formatChartTimestamp(changedAt)}`;
+
+  return `<span class="price-chip ${changeClass}" title="${escapeHtml(title)}">${changeLabel}</span>`;
+}
+
 function renderModalSummary(machine) {
-  const items = [
-    ["GPU Type", machine.gpu_type || "Unknown"],
-    ["GPUs", machine.num_gpus ?? "-"],
-    ["Status", machine.status || "-"],
+  const operationalItems = [
+    ["Status", renderModalStatus(machine)],
+    ["Rentals", renderModalRentals(machine)],
+    ["Reliability", machine.reliability == null ? "-" : renderModalReliability(machine)],
+    ["Temp", escapeHtml(machine.gpu_max_cur_temp == null ? "-" : `${machine.gpu_max_cur_temp}C`)],
+    ["Uptime 24h", escapeHtml(machine.uptime?.["24h"] == null ? "-" : `${machine.uptime["24h"]}%`)],
+    ["DC", escapeHtml(machine.is_datacenter ? "Yes" : "No")]
+  ];
+  const commercialItems = [
+    ["GPU Type", escapeHtml(machine.gpu_type || "Unknown")],
+    ["GPUs", escapeHtml(machine.num_gpus ?? "-")],
     ["Price", machine.listed_gpu_cost == null ? "-" : renderSummaryPrice(machine)],
-    ["Temp", machine.gpu_max_cur_temp == null ? "-" : `${machine.gpu_max_cur_temp}C`],
-    ["Uptime 24h", machine.uptime?.["24h"] == null ? "-" : `${machine.uptime["24h"]}%`],
-    ["DC", machine.is_datacenter ? "Yes" : "No"],
-    ["Rentals", machine.current_rentals_running ?? 0],
-    ["Earn/day", machine.earn_day == null ? "-" : formatPriceShort(machine.earn_day)]
+    ["Earn/day", escapeHtml(machine.earn_day == null ? "-" : formatPriceShort(machine.earn_day))]
   ];
 
-  modalSummary.innerHTML = items
-    .map(([label, value]) => `
-      <article class="modal-summary-card">
-        <span>${escapeHtml(label)}</span>
-        <strong>${escapeHtml(typeof value === "string" ? value : String(value))}</strong>
-      </article>
-    `)
-    .join("");
+  modalSummary.innerHTML = `
+    ${renderModalSummarySection("Operational", operationalItems)}
+    ${renderModalSummarySection("Commercial", commercialItems)}
+  `;
 }
 
 function renderSummaryPrice(machine) {
@@ -330,12 +418,71 @@ function renderSummaryPrice(machine) {
   return `${currentPrice} ${machine.price_change_direction === "up" ? "↑" : "↓"} ${formatSignedCurrency(machine.listed_gpu_cost - machine.previous_listed_gpu_cost)}`;
 }
 
+function renderModalSummarySection(title, items) {
+  return `
+    <div class="modal-summary-section-title">${escapeHtml(title)}</div>
+    ${items.map(([label, value]) => `
+      <article class="modal-summary-card">
+        <span>${escapeHtml(label)}</span>
+        <strong>${value}</strong>
+      </article>
+    `).join("")}
+  `;
+}
+
+function renderModalStatus(machine) {
+  return `<span class="modal-inline-value">
+    <span class="status-pill ${machine.status}">${escapeHtml(machine.status || "-")}</span>
+    ${renderModalDeltaText(machine.status_change_direction, machine.previous_status, machine.status, "status")}
+  </span>`;
+}
+
+function renderModalRentals(machine) {
+  return `<span class="modal-inline-value">
+    <span>${machine.current_rentals_running ?? 0}</span>
+    ${renderModalDeltaText(
+      machine.rentals_change_direction,
+      machine.previous_rentals,
+      machine.current_rentals_running,
+      "renters"
+    )}
+  </span>`;
+}
+
+function renderModalReliability(machine) {
+  const current = machine.reliability * 100;
+  const previous = typeof machine.previous_reliability === "number" ? machine.previous_reliability * 100 : null;
+  return `<span class="modal-inline-value">
+    <span>${current.toFixed(1)}%</span>
+    ${renderModalDeltaText(
+      machine.reliability_change_direction,
+      previous,
+      current,
+      "reliability",
+      (value) => `${Number(value).toFixed(1)}%`
+    )}
+  </span>`;
+}
+
+function renderModalDeltaText(direction, previousValue, currentValue, label, formatter = (value) => String(value)) {
+  if (direction === "none" || previousValue == null || currentValue == null) {
+    return '<small class="modal-delta-text modal-delta-flat">stable</small>';
+  }
+
+  return `<small class="modal-delta-text modal-delta-${direction}">
+    ${direction === "up" ? "↑" : "↓"} ${escapeHtml(formatter(previousValue))} -> ${escapeHtml(formatter(currentValue))}
+  </small>`;
+}
+
 function updateModalEarningsSummary(machine, earningsData) {
   if (!machine || !earningsData || !Number.isFinite(earningsData.total)) {
     return;
   }
 
-  const label = currentMachineHistoryHours <= 24 ? "Earned 24h" : currentMachineHistoryHours <= 168 ? "Earned 7d" : "Earned 30d";
+  const baseLabel = currentMachineHistoryHours <= 24 ? "Earned 24h" : currentMachineHistoryHours <= 168 ? "Earned 7d" : "Earned 30d";
+  const label = earningsData.source === "estimated"
+    ? `${baseLabel} (est)`
+    : baseLabel;
   const summaryCard = modalSummary.querySelector(".modal-summary-card:last-child");
   if (!summaryCard) {
     return;
@@ -347,6 +494,109 @@ function updateModalEarningsSummary(machine, earningsData) {
       <strong>${escapeHtml(formatPriceShort(earningsData.total))}</strong>
     </article>
   `);
+}
+
+function renderModalTimeline(history) {
+  if (!modalTimeline) {
+    return;
+  }
+
+  const events = buildMachineTimeline(history);
+  if (!events.length) {
+    modalTimeline.innerHTML = "";
+    modalTimeline.classList.add("hidden");
+    return;
+  }
+
+  modalTimeline.innerHTML = `
+    <div class="modal-timeline-title">Recent Events</div>
+    <div class="modal-timeline-list">
+      ${events.map((event) => `
+        <article class="timeline-item">
+          <time>${escapeHtml(formatChartTimestamp(event.time))}</time>
+          <strong class="timeline-${event.severity}">${escapeHtml(event.label)}</strong>
+          <p>${escapeHtml(event.detail)}</p>
+        </article>
+      `).join("")}
+    </div>
+  `;
+  modalTimeline.classList.remove("hidden");
+}
+
+function setModalTab(tabName) {
+  currentModalTab = tabName === "events" ? "events" : "charts";
+  modalTabs.querySelectorAll("[data-tab]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.tab === currentModalTab);
+  });
+  modalTabCharts.classList.toggle("active", currentModalTab === "charts");
+  modalTabEvents.classList.toggle("active", currentModalTab === "events");
+
+  if (currentModalTab === "charts") {
+    redrawChartsForCurrentLayout();
+  }
+}
+
+function buildMachineTimeline(history) {
+  const events = [];
+
+  for (let index = 1; index < history.length; index += 1) {
+    const previous = history[index - 1];
+    const current = history[index];
+
+    if (current.status !== previous.status) {
+      events.push({
+        time: current.polled_at,
+        label: current.status === "online" ? "Back online" : "Went offline",
+        detail: `Status changed from ${previous.status} to ${current.status}`,
+        severity: current.status === "online" ? "good" : "warn"
+      });
+    }
+
+    if (current.current_rentals_running !== previous.current_rentals_running) {
+      events.push({
+        time: current.polled_at,
+        label: "Renter count changed",
+        detail: `${previous.current_rentals_running ?? 0} -> ${current.current_rentals_running ?? 0} renters`,
+        severity: (current.current_rentals_running ?? 0) > (previous.current_rentals_running ?? 0) ? "good" : "neutral"
+      });
+    }
+
+    if (typeof current.listed_gpu_cost === "number" && typeof previous.listed_gpu_cost === "number" && current.listed_gpu_cost !== previous.listed_gpu_cost) {
+      events.push({
+        time: current.polled_at,
+        label: "Price changed",
+        detail: `${formatCurrency(previous.listed_gpu_cost)} -> ${formatCurrency(current.listed_gpu_cost)} per GPU`,
+        severity: current.listed_gpu_cost > previous.listed_gpu_cost ? "good" : "neutral"
+      });
+    }
+
+    if (typeof current.reliability === "number" && typeof previous.reliability === "number") {
+      const delta = Number(((current.reliability - previous.reliability) * 100).toFixed(1));
+      if (Math.abs(delta) >= 0.5) {
+        events.push({
+          time: current.polled_at,
+          label: "Reliability changed",
+          detail: `${(previous.reliability * 100).toFixed(1)}% -> ${(current.reliability * 100).toFixed(1)}%`,
+          severity: delta > 0 ? "good" : "warn"
+        });
+      }
+    }
+  }
+
+  return events
+    .sort((a, b) => Date.parse(b.time) - Date.parse(a.time))
+    .slice(0, 8);
+}
+
+function updateModalEarningsPresentation(earningsData) {
+  const isRealized = Array.isArray(earningsData?.days) && earningsData.days.length > 0;
+  const title = isRealized ? "Historical Earnings" : "Historical Earnings (Estimated)";
+  const note = isRealized
+    ? "Realized daily earnings from Vast"
+    : "Estimated from stored earn/day snapshots";
+
+  earningsChartTitle.textContent = title;
+  earningsChartNote.textContent = note;
 }
 
 function renderModalEarningsBreakdown(earningsData) {
@@ -441,8 +691,10 @@ function renderAlerts(rows) {
 
 function renderHealth(health) {
   healthBadge.className = "health-badge";
+  const staleThresholdMs = uiSettings.stalePollMinutes * 60 * 1000;
+  const isStale = health?.pollAgeMs != null ? health.pollAgeMs >= staleThresholdMs : Boolean(health?.isStale);
 
-  if (health?.isStale) {
+  if (isStale) {
     healthBadge.textContent = "Stale";
     healthBadge.classList.add("stale");
   } else if (health?.pollAgeMs != null && health.pollAgeMs < 30 * 1000) {
@@ -453,7 +705,7 @@ function renderHealth(health) {
     healthBadge.classList.add("healthy");
   }
 
-  if (!health?.isStale) {
+  if (!isStale) {
     staleWarning.classList.add("hidden");
     staleWarning.textContent = "";
     return;
@@ -461,7 +713,7 @@ function renderHealth(health) {
 
   const ageText = health.pollAgeMs == null
     ? "No successful poll has completed yet."
-    : `Last successful poll is ${formatDuration(health.pollAgeMs)} old.`;
+    : `Last successful poll is ${formatDuration(health.pollAgeMs)} old (threshold ${uiSettings.stalePollMinutes} min).`;
   staleWarning.textContent = `Stale data warning. ${ageText}`;
   staleWarning.classList.remove("hidden");
 }
@@ -670,14 +922,190 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function initializeStateFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+
+  sortCol = params.get("sort") || sortCol;
+  sortDesc = params.get("desc") === "1";
+
+  const trendHours = Number(params.get("trend_hours"));
+  if (Number.isFinite(trendHours) && trendHours > 0) {
+    selectedTrendHours = trendHours;
+  }
+
+  const earningsDate = params.get("earnings_date");
+  if (earningsDate && /^\d{4}-\d{2}-\d{2}$/.test(earningsDate)) {
+    selectedEarningsDate = earningsDate;
+  }
+
+  filterSearch.value = params.get("search") || "";
+  filterStatus.value = params.get("status") || "all";
+  filterListed.value = params.get("listed") || "all";
+  filterDc.value = params.get("dc") || "all";
+  filterErrors.checked = params.get("errors") === "1";
+  filterReports.checked = params.get("reports") === "1";
+  filterMaint.checked = params.get("maint") === "1";
+
+  trendRange.querySelectorAll("[data-hours]").forEach((button) => {
+    button.classList.toggle("active", Number(button.dataset.hours) === selectedTrendHours);
+  });
+
+  applyUiSettings();
+}
+
+function persistStateToUrl() {
+  const params = new URLSearchParams();
+  if (sortCol && sortCol !== "hostname") params.set("sort", sortCol);
+  if (sortDesc) params.set("desc", "1");
+  if (selectedTrendHours !== 168) params.set("trend_hours", String(selectedTrendHours));
+  if (selectedEarningsDate !== todayUtcDateString()) params.set("earnings_date", selectedEarningsDate);
+  if (filterSearch.value.trim()) params.set("search", filterSearch.value.trim());
+  if (filterStatus.value !== "all") params.set("status", filterStatus.value);
+  if (filterListed.value !== "all") params.set("listed", filterListed.value);
+  if (filterDc.value !== "all") params.set("dc", filterDc.value);
+  if (filterErrors.checked) params.set("errors", "1");
+  if (filterReports.checked) params.set("reports", "1");
+  if (filterMaint.checked) params.set("maint", "1");
+
+  const nextUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
+  window.history.replaceState({}, "", nextUrl);
+}
+
+function capitalize(value) {
+  return String(value ?? "").charAt(0).toUpperCase() + String(value ?? "").slice(1);
+}
+
+function loadUiSettings() {
+  try {
+    const raw = window.localStorage.getItem(UI_SETTINGS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return {
+      tableDensity: parsed.tableDensity === "compact" ? "compact" : DEFAULT_UI_SETTINGS.tableDensity,
+      lowReliabilityPct: normalizeSettingNumber(parsed.lowReliabilityPct, DEFAULT_UI_SETTINGS.lowReliabilityPct, 0, 100),
+      highTemperatureC: normalizeSettingNumber(parsed.highTemperatureC, DEFAULT_UI_SETTINGS.highTemperatureC, 0, 150),
+      stalePollMinutes: normalizeSettingNumber(parsed.stalePollMinutes, DEFAULT_UI_SETTINGS.stalePollMinutes, 1, 1440)
+    };
+  } catch {
+    return { ...DEFAULT_UI_SETTINGS };
+  }
+}
+
+function saveUiSettings() {
+  window.localStorage.setItem(UI_SETTINGS_KEY, JSON.stringify(uiSettings));
+}
+
+function normalizeSettingNumber(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function applyUiSettings() {
+  machinesScroll.classList.toggle("compact-density", uiSettings.tableDensity === "compact");
+  densityToggle.querySelectorAll("[data-density]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.density === uiSettings.tableDensity);
+  });
+  settingsDensity.value = uiSettings.tableDensity;
+  settingsReliability.value = String(uiSettings.lowReliabilityPct);
+  settingsTemperature.value = String(uiSettings.highTemperatureC);
+  settingsStaleMinutes.value = String(uiSettings.stalePollMinutes);
+}
+
+function updateUiSettings(nextSettings) {
+  uiSettings = {
+    ...uiSettings,
+    ...nextSettings
+  };
+  saveUiSettings();
+  applyUiSettings();
+  renderMachinesSorted();
+  if (lastKnownHealth) {
+    renderHealth(lastKnownHealth);
+  }
+}
+
+function redrawChartsForCurrentLayout() {
+  if (latestHourlyEarningsPayload) {
+    renderHourlyEarnings(latestHourlyEarningsPayload);
+  }
+  if (latestFleetHistory) {
+    renderFleetTrends(latestFleetHistory);
+  }
+  if (latestGpuTypePricePayload) {
+    renderGpuTypePriceTrends(latestGpuTypePricePayload);
+  }
+
+  if (!modalBackdrop.classList.contains("hidden") && currentModalHistory.length && currentModalTab === "charts") {
+    clearChartSyncGroup("machine-modal");
+    drawRenterChart(currentModalHistory);
+    drawReliabilityChart(currentModalHistory);
+    drawPriceChart(currentModalHistory);
+    drawMachineEarningsChart(currentModalEarningsData || { days: [], total: null }, currentModalHistory);
+    updateModalEarningsPresentation(currentModalEarningsData || { days: [] });
+  }
+}
+
 loadDashboard().catch((error) => {
   console.error(error);
   lastUpdated.textContent = "Failed to load dashboard";
 });
 
+updateSortHeaders();
+
 setInterval(() => {
   loadDashboard().catch((error) => console.error(error));
 }, 5 * 60 * 1000);
+
+let resizeRedrawTimer = null;
+window.addEventListener("resize", () => {
+  window.clearTimeout(resizeRedrawTimer);
+  resizeRedrawTimer = window.setTimeout(() => {
+    redrawChartsForCurrentLayout();
+  }, 120);
+});
+
+densityToggle.querySelectorAll("[data-density]").forEach((button) => {
+  button.addEventListener("click", () => {
+    updateUiSettings({ tableDensity: button.dataset.density === "compact" ? "compact" : "comfortable" });
+  });
+});
+
+settingsButton.addEventListener("click", () => {
+  applyUiSettings();
+  settingsBackdrop.classList.remove("hidden");
+});
+
+settingsClose.addEventListener("click", () => {
+  settingsBackdrop.classList.add("hidden");
+});
+
+settingsDensity.addEventListener("change", () => {
+  updateUiSettings({ tableDensity: settingsDensity.value === "compact" ? "compact" : "comfortable" });
+});
+
+settingsReliability.addEventListener("change", () => {
+  updateUiSettings({ lowReliabilityPct: normalizeSettingNumber(settingsReliability.value, DEFAULT_UI_SETTINGS.lowReliabilityPct, 0, 100) });
+});
+
+settingsTemperature.addEventListener("change", () => {
+  updateUiSettings({ highTemperatureC: normalizeSettingNumber(settingsTemperature.value, DEFAULT_UI_SETTINGS.highTemperatureC, 0, 150) });
+});
+
+settingsStaleMinutes.addEventListener("change", () => {
+  updateUiSettings({ stalePollMinutes: normalizeSettingNumber(settingsStaleMinutes.value, DEFAULT_UI_SETTINGS.stalePollMinutes, 1, 1440) });
+});
+
+settingsReset.addEventListener("click", () => {
+  uiSettings = { ...DEFAULT_UI_SETTINGS };
+  saveUiSettings();
+  applyUiSettings();
+  renderMachinesSorted();
+  if (lastKnownHealth) {
+    renderHealth(lastKnownHealth);
+  }
+});
 
 document.querySelectorAll("th[data-sort]").forEach((th) => {
   th.addEventListener("click", () => handleSort(th.dataset.sort));
@@ -688,6 +1116,7 @@ trendRange.querySelectorAll("[data-hours]").forEach((button) => {
     selectedTrendHours = Number(button.dataset.hours) || 168;
     trendRange.querySelectorAll("[data-hours]").forEach((item) => item.classList.remove("active"));
     button.classList.add("active");
+    persistStateToUrl();
     loadDashboard().catch((error) => console.error(error));
   });
 });
@@ -701,8 +1130,14 @@ trendRange.querySelectorAll("[data-hours]").forEach((button) => {
   filterReports,
   filterMaint
 ].forEach((control) => {
-  control.addEventListener("input", () => renderMachinesSorted());
-  control.addEventListener("change", () => renderMachinesSorted());
+  control.addEventListener("input", () => {
+    persistStateToUrl();
+    renderMachinesSorted();
+  });
+  control.addEventListener("change", () => {
+    persistStateToUrl();
+    renderMachinesSorted();
+  });
 });
 
 filterReset.addEventListener("click", () => {
@@ -713,11 +1148,13 @@ filterReset.addEventListener("click", () => {
   filterErrors.checked = false;
   filterReports.checked = false;
   filterMaint.checked = false;
+  persistStateToUrl();
   renderMachinesSorted();
 });
 
 earningsPrevButton.addEventListener("click", () => {
   selectedEarningsDate = shiftUtcDate(selectedEarningsDate, -1);
+  persistStateToUrl();
   loadDashboard().catch((error) => console.error(error));
 });
 
@@ -728,6 +1165,7 @@ earningsNextButton.addEventListener("click", () => {
   }
 
   selectedEarningsDate = nextDate;
+  persistStateToUrl();
   loadDashboard().catch((error) => console.error(error));
 });
 
@@ -738,10 +1176,16 @@ const modalNext = document.getElementById("modal-next");
 const modalTitle = document.getElementById("modal-title");
 const modalSummary = document.getElementById("modal-summary");
 const modalEarningsBreakdown = document.getElementById("modal-earnings-breakdown");
+const modalTimeline = document.getElementById("modal-timeline");
 const modalStats = document.getElementById("modal-stats");
 const modalError = document.getElementById("modal-error");
 const modalMaintenance = document.getElementById("modal-maintenance");
+const modalTabs = document.getElementById("modal-tabs");
+const modalTabCharts = document.getElementById("modal-tab-charts");
+const modalTabEvents = document.getElementById("modal-tab-events");
 const modalHistoryRange = document.getElementById("modal-history-range");
+const earningsChartTitle = document.getElementById("earnings-chart-title");
+const earningsChartNote = document.getElementById("earnings-chart-note");
 const renterChart = document.getElementById("renter-chart");
 const reliabilityChart = document.getElementById("reliability-chart");
 const priceChart = document.getElementById("price-chart");
@@ -769,6 +1213,12 @@ modalNext.addEventListener("click", () => {
   navigateMachineHistory(1);
 });
 
+modalTabs.querySelectorAll("[data-tab]").forEach((button) => {
+  button.addEventListener("click", () => {
+    setModalTab(button.dataset.tab || "charts");
+  });
+});
+
 modalHistoryRange.querySelectorAll("[data-hours]").forEach((button) => {
   button.addEventListener("click", () => {
     currentMachineHistoryHours = Number(button.dataset.hours) || 168;
@@ -781,6 +1231,9 @@ modalHistoryRange.querySelectorAll("[data-hours]").forEach((button) => {
 });
 
 window.addEventListener("click", (e) => {
+  if (e.target === settingsBackdrop) {
+    settingsBackdrop.classList.add("hidden");
+  }
   if (e.target === modalBackdrop) {
     clearChartSyncGroup("machine-modal");
     modalBackdrop.classList.add("hidden");
@@ -791,6 +1244,12 @@ window.addEventListener("click", (e) => {
 });
 
 window.addEventListener("keydown", (event) => {
+  if (!settingsBackdrop.classList.contains("hidden") && event.key === "Escape") {
+    event.preventDefault();
+    settingsBackdrop.classList.add("hidden");
+    return;
+  }
+
   if (!modalBackdrop.classList.contains("hidden")) {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -854,15 +1313,23 @@ async function showMachineHistory(machineId, options = {}) {
   const { preserveScroll = false } = options;
   const modalBody = modalBackdrop.querySelector(".modal-body");
   currentMachineHistoryId = machineId;
+  currentModalMachine = null;
+  currentModalHistory = [];
+  currentModalEarningsData = null;
+  setModalTab(preserveScroll ? currentModalTab : "charts");
   modalTitle.textContent = `Machine #${machineId} History`;
   modalStats.textContent = "Loading...";
   document.getElementById("modal-ip").textContent = "";
   modalSummary.innerHTML = "";
   modalEarningsBreakdown.innerHTML = "";
+  modalTimeline.innerHTML = "";
+  modalTimeline.classList.add("hidden");
   modalError.textContent = "";
   modalError.classList.add("hidden");
   modalMaintenance.textContent = "";
   modalMaintenance.classList.add("hidden");
+  earningsChartTitle.textContent = "Historical Earnings";
+  earningsChartNote.textContent = "";
   renterChart.innerHTML = "";
   reliabilityChart.innerHTML = "";
   priceChart.innerHTML = "";
@@ -885,6 +1352,9 @@ async function showMachineHistory(machineId, options = {}) {
     
     // Find IP from current machine data
     const machine = currentMachinesData.find((m) => m.machine_id === machineId);
+    currentModalMachine = machine ?? null;
+    currentModalHistory = Array.isArray(data.history) ? data.history : [];
+    currentModalEarningsData = earningsData;
     if (machine && machine.public_ipaddr) {
       document.getElementById("modal-ip").textContent = `IP: ${machine.public_ipaddr}`;
     }
@@ -892,6 +1362,7 @@ async function showMachineHistory(machineId, options = {}) {
       renderModalSummary(machine);
     }
     renderModalEarningsBreakdown(earningsData);
+    updateModalEarningsPresentation(earningsData);
     if (machine && machine.error_message) {
       modalError.textContent = machine.error_message;
       modalError.classList.remove("hidden");
@@ -910,6 +1381,7 @@ async function showMachineHistory(machineId, options = {}) {
     }
 
     const history = data.history;
+    renderModalTimeline(history);
     const current = history[history.length - 1];
     
     if (current.current_rentals_running > 0) {
@@ -1105,6 +1577,7 @@ function drawMachineEarningsChart(earningsData, machineHistory = []) {
     : [];
 
   if (apiHistory.length > 0) {
+    earningsData.source = "realized";
     drawSingleSeriesChart(earningsChart, {
       history: apiHistory,
       key: "earnings",
@@ -1126,6 +1599,7 @@ function drawMachineEarningsChart(earningsData, machineHistory = []) {
     return;
   }
 
+  earningsData.source = "estimated";
   drawSingleSeriesChart(earningsChart, {
     history: machineHistory,
     key: "earn_day",

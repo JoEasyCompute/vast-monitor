@@ -470,6 +470,51 @@ export function createDatabase(dbPath) {
     };
   }
 
+  function computeMachineDeltaContext(history) {
+    const latest = history[history.length - 1] ?? null;
+    if (!latest) {
+      return {
+        previous_rentals: null,
+        rentals_changed_at: null,
+        rentals_change_direction: "none",
+        previous_reliability: null,
+        reliability_changed_at: null,
+        reliability_change_direction: "none",
+        previous_status: null,
+        status_changed_at: null,
+        status_change_direction: "none"
+      };
+    }
+
+    const rentalsContext = computeDeltaFromHistory(
+      history,
+      (row) => Number.isFinite(row.current_rentals_running) ? row.current_rentals_running : null,
+      (current, previous) => current > previous ? "up" : current < previous ? "down" : "none"
+    );
+    const reliabilityContext = computeDeltaFromHistory(
+      history,
+      (row) => Number.isFinite(row.reliability) ? row.reliability : null,
+      (current, previous) => current > previous ? "up" : current < previous ? "down" : "none"
+    );
+    const statusContext = computeDeltaFromHistory(
+      history,
+      (row) => row.status || null,
+      (current, previous) => current === previous ? "none" : current === "online" ? "up" : "down"
+    );
+
+    return {
+      previous_rentals: rentalsContext.previousValue,
+      rentals_changed_at: rentalsContext.changedAt,
+      rentals_change_direction: rentalsContext.direction,
+      previous_reliability: reliabilityContext.previousValue,
+      reliability_changed_at: reliabilityContext.changedAt,
+      reliability_change_direction: reliabilityContext.direction,
+      previous_status: statusContext.previousValue,
+      status_changed_at: statusContext.changedAt,
+      status_change_direction: statusContext.direction
+    };
+  }
+
   function getCurrentFleetStatus() {
     const now = new Date();
     const cutoff = new Date(now.getTime() - UPTIME_WINDOWS["30d"] * 60 * 60 * 1000).toISOString();
@@ -483,6 +528,7 @@ export function createDatabase(dbPath) {
       return {
         ...state,
         ...computePriceContext(history),
+        ...computeMachineDeltaContext(history),
         uptime
       };
     });
@@ -753,6 +799,46 @@ function computeGpuWeightedAvgPrice(rows) {
   }
 
   return totalWeightedPrice / totalPricedGpus;
+}
+
+function computeDeltaFromHistory(history, getValue, getDirection) {
+  const currentRow = history[history.length - 1] ?? null;
+  if (!currentRow) {
+    return {
+      previousValue: null,
+      changedAt: null,
+      direction: "none"
+    };
+  }
+
+  const currentValue = getValue(currentRow);
+  if (currentValue == null) {
+    return {
+      previousValue: null,
+      changedAt: null,
+      direction: "none"
+    };
+  }
+
+  let previousValue = currentValue;
+  let changedAt = null;
+  for (let index = history.length - 2; index >= 0; index -= 1) {
+    const candidateValue = getValue(history[index]);
+    if (candidateValue == null) {
+      continue;
+    }
+    previousValue = candidateValue;
+    if (candidateValue !== currentValue) {
+      changedAt = currentRow.polled_at;
+      break;
+    }
+  }
+
+  return {
+    previousValue,
+    changedAt,
+    direction: changedAt ? getDirection(currentValue, previousValue) : "none"
+  };
 }
 
 function getGpuTypePriceBucketHours(hours) {
