@@ -1,4 +1,5 @@
 const summaryGrid = document.getElementById("summary-grid");
+const summaryCompareGrid = document.getElementById("summary-compare-grid");
 const breakdownBody = document.getElementById("breakdown-body");
 const machinesBody = document.getElementById("machines-body");
 const alertsList = document.getElementById("alerts-list");
@@ -29,8 +30,11 @@ let sortCol = "hostname";
 let sortDesc = false;
 let selectedEarningsDate = todayUtcDateString();
 let selectedTrendHours = 168;
+let currentMachineHistoryId = null;
+let currentMachineHistoryHours = 168;
 let currentReports = [];
 let currentReportIndex = 0;
+const chartSyncGroups = new Map();
 
 async function loadDashboard() {
   const [statusResponse, alertsResponse, earningsResponse, fleetHistoryResponse, gpuTypePriceResponse] = await Promise.all([
@@ -50,6 +54,7 @@ async function loadDashboard() {
   currentMachinesData = status.machines;
 
   renderSummary(status.summary);
+  renderSummaryComparison(status.summary?.comparison24h);
   renderBreakdown(status.gpuTypeBreakdown);
   renderFleetTrends(fleetHistoryPayload.history || []);
   renderGpuTypePriceTrends(gpuTypePricePayload);
@@ -60,6 +65,10 @@ async function loadDashboard() {
   lastUpdated.textContent = status.latestPollAt
     ? `Last updated ${new Date(status.latestPollAt).toLocaleString()}`
     : "No poll data yet";
+
+  if (currentMachineHistoryId != null && !modalBackdrop.classList.contains("hidden")) {
+    showMachineHistory(currentMachineHistoryId, { preserveScroll: true }).catch((error) => console.error(error));
+  }
 }
 
 function handleSort(col) {
@@ -83,26 +92,9 @@ function updateSortHeaders() {
 }
 
 function renderMachinesSorted() {
-  const sorted = [...getFilteredMachines()].sort((a, b) => {
-    let valA = a[sortCol];
-    let valB = b[sortCol];
-
-    if (sortCol === "uptime") {
-      valA = a.uptime?.["24h"] ?? -1;
-      valB = b.uptime?.["24h"] ?? -1;
-    }
-
-    if (valA == null) valA = "";
-    if (valB == null) valB = "";
-
-    if (typeof valA === "string" && typeof valB === "string") {
-      return sortDesc ? valB.localeCompare(valA) : valA.localeCompare(valB);
-    }
-
-    return sortDesc ? (valB > valA ? 1 : -1) : (valA > valB ? 1 : -1);
-  });
-
+  const sorted = getSortedMachines();
   renderMachines(sorted);
+  updateModalNavigation();
 }
 
 function getFilteredMachines() {
@@ -157,26 +149,84 @@ function getFilteredMachines() {
   });
 }
 
+function getSortedMachines() {
+  return [...getFilteredMachines()].sort((a, b) => {
+    let valA = a[sortCol];
+    let valB = b[sortCol];
+
+    if (sortCol === "uptime") {
+      valA = a.uptime?.["24h"] ?? -1;
+      valB = b.uptime?.["24h"] ?? -1;
+    }
+
+    if (valA == null) valA = "";
+    if (valB == null) valB = "";
+
+    if (typeof valA === "string" && typeof valB === "string") {
+      return sortDesc ? valB.localeCompare(valA) : valA.localeCompare(valB);
+    }
+
+    return sortDesc ? (valB > valA ? 1 : -1) : (valA > valB ? 1 : -1);
+  });
+}
+
 function renderSummary(summary) {
+  const comparison = summary?.comparison24h ?? null;
   const items = [
-    ["Total machines", summary.totalMachines],
-    ["DC Tagged", summary.datacenterMachines],
-    ["Unlisted", summary.unlistedMachines],
-    ["Listed GPUs", summary.listedGpus],
-    ["Unlisted GPUs", summary.unlistedGpus],
-    ["Occupied GPUs", summary.occupiedGpus],
-    ["Utilisation", `${summary.utilisationPct}%`],
-    ["Daily earnings", `$${summary.totalDailyEarnings.toFixed(2)}`]
+    { label: "Total machines", value: summary.totalMachines },
+    { label: "DC Tagged", value: summary.datacenterMachines },
+    { label: "Unlisted", value: summary.unlistedMachines },
+    { label: "Listed GPUs", value: summary.listedGpus, comparisonLabel: "Listed GPUs vs 24h", comparisonMetric: comparison?.listed_gpus },
+    { label: "Unlisted GPUs", value: summary.unlistedGpus },
+    { label: "Occupied GPUs", value: summary.occupiedGpus },
+    { label: "Utilisation", value: `${summary.utilisationPct}%`, comparisonLabel: "Utilisation vs 24h", comparisonMetric: comparison?.utilisation_pct },
+    { label: "Daily earnings", value: `$${summary.totalDailyEarnings.toFixed(2)}`, comparisonLabel: "Daily earnings vs 24h", comparisonMetric: comparison?.total_daily_earnings }
   ];
 
   summaryGrid.innerHTML = items
-    .map(([label, value]) => `
-      <article class="stat-card">
-        <span>${label}</span>
-        <strong>${value}</strong>
+    .map((item) => `
+      <article class="stat-card ${item.comparisonMetric ? "stat-card-compare" : ""}">
+        <span class="stat-label">${escapeHtml(item.label)}</span>
+        <strong class="stat-value">${escapeHtml(String(item.value))}</strong>
+        ${item.comparisonMetric ? `
+          <div class="stat-compare compare-${getComparisonDirection(item.comparisonMetric.delta)}">
+            <span class="stat-compare-label">${escapeHtml(item.comparisonLabel)}</span>
+            <strong class="stat-compare-value">${escapeHtml(formatComparisonDelta(item.label, item.comparisonMetric.delta))}</strong>
+            ${item.comparisonMetric.pct_delta == null ? "" : `<small class="stat-compare-pct">${escapeHtml(`${item.comparisonMetric.pct_delta > 0 ? "+" : ""}${item.comparisonMetric.pct_delta}%`)}</small>`}
+          </div>
+        ` : ""}
       </article>
     `)
     .join("");
+}
+
+function renderSummaryComparison(comparison) {
+  if (summaryCompareGrid) {
+    summaryCompareGrid.innerHTML = "";
+  }
+}
+
+function formatComparisonDelta(label, delta) {
+  if (delta == null) {
+    return "No comparison";
+  }
+
+  if (label === "Avg Listed Price" || label === "Daily Earnings") {
+    return formatSignedCurrency(delta);
+  }
+
+  if (label === "Utilisation") {
+    return `${delta > 0 ? "+" : ""}${delta.toFixed(2)}%`;
+  }
+
+  return `${delta > 0 ? "+" : ""}${Math.round(delta)}`;
+}
+
+function getComparisonDirection(delta) {
+  if (delta == null || delta === 0) {
+    return "flat";
+  }
+  return delta > 0 ? "up" : "down";
 }
 
 function renderBreakdown(rows) {
@@ -215,7 +265,7 @@ function renderMachines(rows) {
         <td>${escapeHtml(row.gpu_type)}</td>
         <td>${row.num_gpus}</td>
         <td>${renderOccupancy(row)}</td>
-        <td>${row.listed_gpu_cost == null ? "-" : `$${Number(row.listed_gpu_cost).toFixed(2)}`}</td>
+        <td>${renderPriceCell(row)}</td>
         <td>${row.current_rentals_running}</td>
         <td>${row.gpu_max_cur_temp == null ? "-" : `${row.gpu_max_cur_temp}C`}</td>
         <td>${renderReports(row)}</td>
@@ -224,6 +274,105 @@ function renderMachines(rows) {
         <td><span class="status-pill ${row.status}" title="${getStatusTooltip(row)}">${row.status}</span></td>
       </tr>
     `})
+    .join("");
+}
+
+function renderPriceCell(row) {
+  if (row.listed_gpu_cost == null) {
+    return "-";
+  }
+
+  const direction = row.price_change_direction;
+  const delta = typeof row.previous_listed_gpu_cost === "number"
+    ? row.listed_gpu_cost - row.previous_listed_gpu_cost
+    : null;
+  const changeLabel = direction === "up" ? "↑" : direction === "down" ? "↓" : "•";
+  const changeClass = direction === "up" ? "price-up" : direction === "down" ? "price-down" : "price-flat";
+  const title = delta == null || direction === "none"
+    ? "No recent price change"
+    : `Changed ${direction === "up" ? "up" : "down"} ${formatSignedCurrency(delta)} since ${formatChartTimestamp(row.price_changed_at)}`;
+
+  return `<span class="price-cell">
+    <span>${formatPriceShort(row.listed_gpu_cost)}</span>
+    <span class="price-chip ${changeClass}" title="${escapeHtml(title)}">${changeLabel}</span>
+  </span>`;
+}
+
+function renderModalSummary(machine) {
+  const items = [
+    ["GPU Type", machine.gpu_type || "Unknown"],
+    ["GPUs", machine.num_gpus ?? "-"],
+    ["Status", machine.status || "-"],
+    ["Price", machine.listed_gpu_cost == null ? "-" : renderSummaryPrice(machine)],
+    ["Temp", machine.gpu_max_cur_temp == null ? "-" : `${machine.gpu_max_cur_temp}C`],
+    ["Uptime 24h", machine.uptime?.["24h"] == null ? "-" : `${machine.uptime["24h"]}%`],
+    ["DC", machine.is_datacenter ? "Yes" : "No"],
+    ["Rentals", machine.current_rentals_running ?? 0],
+    ["Earn/day", machine.earn_day == null ? "-" : formatPriceShort(machine.earn_day)]
+  ];
+
+  modalSummary.innerHTML = items
+    .map(([label, value]) => `
+      <article class="modal-summary-card">
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(typeof value === "string" ? value : String(value))}</strong>
+      </article>
+    `)
+    .join("");
+}
+
+function renderSummaryPrice(machine) {
+  const currentPrice = formatCurrency(machine.listed_gpu_cost);
+  if (machine.price_change_direction === "none" || typeof machine.previous_listed_gpu_cost !== "number") {
+    return currentPrice;
+  }
+
+  return `${currentPrice} ${machine.price_change_direction === "up" ? "↑" : "↓"} ${formatSignedCurrency(machine.listed_gpu_cost - machine.previous_listed_gpu_cost)}`;
+}
+
+function updateModalEarningsSummary(machine, earningsData) {
+  if (!machine || !earningsData || !Number.isFinite(earningsData.total)) {
+    return;
+  }
+
+  const label = currentMachineHistoryHours <= 24 ? "Earned 24h" : currentMachineHistoryHours <= 168 ? "Earned 7d" : "Earned 30d";
+  const summaryCard = modalSummary.querySelector(".modal-summary-card:last-child");
+  if (!summaryCard) {
+    return;
+  }
+
+  summaryCard.insertAdjacentHTML("afterend", `
+    <article class="modal-summary-card">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(formatPriceShort(earningsData.total))}</strong>
+    </article>
+  `);
+}
+
+function renderModalEarningsBreakdown(earningsData) {
+  if (!modalEarningsBreakdown) {
+    return;
+  }
+
+  const items = [
+    ["GPU", earningsData?.gpu_earn],
+    ["Storage", earningsData?.sto_earn],
+    ["BW Up", earningsData?.bwu_earn],
+    ["BW Down", earningsData?.bwd_earn]
+  ].filter(([, value]) => Number.isFinite(value));
+
+  if (!items.length) {
+    modalEarningsBreakdown.innerHTML = "";
+    return;
+  }
+
+  modalEarningsBreakdown.innerHTML = items
+    .map(([label, value]) => `
+      <article class="modal-summary-card">
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(formatPriceShort(value))}</strong>
+      </article>
+    `)
     .join("");
 }
 
@@ -582,13 +731,19 @@ earningsNextButton.addEventListener("click", () => {
 
 const modalBackdrop = document.getElementById("modal-backdrop");
 const modalClose = document.getElementById("modal-close");
+const modalPrev = document.getElementById("modal-prev");
+const modalNext = document.getElementById("modal-next");
 const modalTitle = document.getElementById("modal-title");
+const modalSummary = document.getElementById("modal-summary");
+const modalEarningsBreakdown = document.getElementById("modal-earnings-breakdown");
 const modalStats = document.getElementById("modal-stats");
 const modalError = document.getElementById("modal-error");
 const modalMaintenance = document.getElementById("modal-maintenance");
+const modalHistoryRange = document.getElementById("modal-history-range");
 const renterChart = document.getElementById("renter-chart");
 const reliabilityChart = document.getElementById("reliability-chart");
 const priceChart = document.getElementById("price-chart");
+const earningsChart = document.getElementById("earnings-chart");
 const reportsModalBackdrop = document.getElementById("reports-modal-backdrop");
 const reportsModalClose = document.getElementById("reports-modal-close");
 const reportsModalTitle = document.getElementById("reports-modal-title");
@@ -600,11 +755,32 @@ const reportsTime = document.getElementById("reports-time");
 const reportsMessage = document.getElementById("reports-message");
 
 modalClose.addEventListener("click", () => {
+  clearChartSyncGroup("machine-modal");
   modalBackdrop.classList.add("hidden");
+});
+
+modalPrev.addEventListener("click", () => {
+  navigateMachineHistory(-1);
+});
+
+modalNext.addEventListener("click", () => {
+  navigateMachineHistory(1);
+});
+
+modalHistoryRange.querySelectorAll("[data-hours]").forEach((button) => {
+  button.addEventListener("click", () => {
+    currentMachineHistoryHours = Number(button.dataset.hours) || 168;
+    modalHistoryRange.querySelectorAll("[data-hours]").forEach((item) => item.classList.remove("active"));
+    button.classList.add("active");
+    if (currentMachineHistoryId != null) {
+      showMachineHistory(currentMachineHistoryId).catch((error) => console.error(error));
+    }
+  });
 });
 
 window.addEventListener("click", (e) => {
   if (e.target === modalBackdrop) {
+    clearChartSyncGroup("machine-modal");
     modalBackdrop.classList.add("hidden");
   }
   if (e.target === reportsModalBackdrop) {
@@ -613,6 +789,31 @@ window.addEventListener("click", (e) => {
 });
 
 window.addEventListener("keydown", (event) => {
+  if (!modalBackdrop.classList.contains("hidden")) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      clearChartSyncGroup("machine-modal");
+      modalBackdrop.classList.add("hidden");
+      return;
+    }
+
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      if (!modalPrev.disabled) {
+        modalPrev.click();
+      }
+      return;
+    }
+
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      if (!modalNext.disabled) {
+        modalNext.click();
+      }
+      return;
+    }
+  }
+
   if (reportsModalBackdrop.classList.contains("hidden")) {
     return;
   }
@@ -647,10 +848,15 @@ window.showMachineRow = function (event, machineId) {
   showMachineHistory(machineId);
 };
 
-async function showMachineHistory(machineId) {
+async function showMachineHistory(machineId, options = {}) {
+  const { preserveScroll = false } = options;
+  const modalBody = modalBackdrop.querySelector(".modal-body");
+  currentMachineHistoryId = machineId;
   modalTitle.textContent = `Machine #${machineId} History`;
   modalStats.textContent = "Loading...";
   document.getElementById("modal-ip").textContent = "";
+  modalSummary.innerHTML = "";
+  modalEarningsBreakdown.innerHTML = "";
   modalError.textContent = "";
   modalError.classList.add("hidden");
   modalMaintenance.textContent = "";
@@ -658,17 +864,32 @@ async function showMachineHistory(machineId) {
   renterChart.innerHTML = "";
   reliabilityChart.innerHTML = "";
   priceChart.innerHTML = "";
+  earningsChart.innerHTML = "";
+  clearChartSyncGroup("machine-modal");
   modalBackdrop.classList.remove("hidden");
+  updateModalNavigation();
+  const previousScrollTop = preserveScroll ? modalBody?.scrollTop ?? 0 : 0;
 
   try {
-    const response = await fetch(`/api/history?machine_id=${machineId}&hours=168`);
-    const data = await response.json();
+    const [historyResponse, earningsResponse] = await Promise.all([
+      fetch(`/api/history?machine_id=${machineId}&hours=${currentMachineHistoryHours}`),
+      fetch(`/api/earnings/machine?machine_id=${machineId}&hours=${currentMachineHistoryHours}`)
+    ]);
+    if (!historyResponse.ok) {
+      throw new Error(`History request failed (${historyResponse.status})`);
+    }
+    const data = await historyResponse.json();
+    const earningsData = earningsResponse.ok ? await earningsResponse.json() : { days: [], total: null };
     
     // Find IP from current machine data
-    const machine = currentMachinesData.find(m => m.machine_id === machineId);
+    const machine = currentMachinesData.find((m) => m.machine_id === machineId);
     if (machine && machine.public_ipaddr) {
       document.getElementById("modal-ip").textContent = `IP: ${machine.public_ipaddr}`;
     }
+    if (machine) {
+      renderModalSummary(machine);
+    }
+    renderModalEarningsBreakdown(earningsData);
     if (machine && machine.error_message) {
       modalError.textContent = machine.error_message;
       modalError.classList.remove("hidden");
@@ -680,6 +901,9 @@ async function showMachineHistory(machineId) {
     
     if (!data.history || data.history.length === 0) {
       modalStats.textContent = "No history available.";
+      if (preserveScroll && modalBody) {
+        modalBody.scrollTop = previousScrollTop;
+      }
       return;
     }
 
@@ -702,6 +926,11 @@ async function showMachineHistory(machineId) {
     drawRenterChart(history);
     drawReliabilityChart(history);
     drawPriceChart(history);
+    drawMachineEarningsChart(earningsData, history);
+    updateModalEarningsSummary(machine, earningsData);
+    if (preserveScroll && modalBody) {
+      modalBody.scrollTop = previousScrollTop;
+    }
   } catch (error) {
     console.error(error);
     modalStats.textContent = "Failed to load history.";
@@ -752,6 +981,35 @@ function hasReports(machineId) {
   return Boolean(machine && (machine.num_reports || 0) > 0);
 }
 
+function updateModalNavigation() {
+  if (!modalPrev || !modalNext) {
+    return;
+  }
+
+  const sorted = getSortedMachines();
+  const index = sorted.findIndex((row) => row.machine_id === currentMachineHistoryId);
+  const canGoPrev = index > 0;
+  const canGoNext = index >= 0 && index < sorted.length - 1;
+
+  modalPrev.disabled = !canGoPrev;
+  modalNext.disabled = !canGoNext;
+}
+
+function navigateMachineHistory(direction) {
+  const sorted = getSortedMachines();
+  const index = sorted.findIndex((row) => row.machine_id === currentMachineHistoryId);
+  if (index === -1) {
+    return;
+  }
+
+  const nextMachine = sorted[index + direction];
+  if (!nextMachine) {
+    return;
+  }
+
+  showMachineHistory(nextMachine.machine_id).catch((error) => console.error(error));
+}
+
 reportsModalClose.addEventListener("click", () => {
   reportsModalBackdrop.classList.add("hidden");
 });
@@ -788,6 +1046,7 @@ function drawRenterChart(history) {
     tickCount: Math.min(Math.max(1, Math.max(...history.map((row) => row.current_rentals_running || 0))), 5),
     stepped: true,
     fillArea: true,
+    syncGroup: "machine-modal",
     formatAxisValue: (value) => `${Math.round(value)}`,
     formatHoverValue: (value) => `${Math.round(value)} renter${Math.round(value) === 1 ? "" : "s"}`
   });
@@ -806,6 +1065,7 @@ function drawReliabilityChart(history) {
     max: 100,
     tickCount: 4,
     valueTransform: (value) => typeof value === "number" ? value * 100 : null,
+    syncGroup: "machine-modal",
     formatAxisValue: (value) => `${Math.round(value)}%`,
     formatHoverValue: (value) => `${value.toFixed(1)}%`,
     emptyMessage: "No reliability history yet"
@@ -813,6 +1073,7 @@ function drawReliabilityChart(history) {
 }
 
 function drawPriceChart(history) {
+  const changePoints = getPriceChangePoints(history);
   drawSingleSeriesChart(priceChart, {
     history,
     key: "listed_gpu_cost",
@@ -826,7 +1087,60 @@ function drawPriceChart(history) {
     formatAxisValue: (value) => formatCurrency(value),
     formatHoverValue: (value) => `${formatCurrency(value)} / GPU`,
     emptyMessage: "No price history yet",
-    autoPadRange: true
+    autoPadRange: true,
+    syncGroup: "machine-modal",
+    annotationPoints: changePoints,
+    formatAnnotation: (point) => formatCurrency(point.value)
+  });
+}
+
+function drawMachineEarningsChart(earningsData, machineHistory = []) {
+  const apiHistory = Array.isArray(earningsData?.days)
+    ? earningsData.days.map((row) => ({
+      polled_at: row.day,
+      earnings: row.earnings
+    }))
+    : [];
+
+  if (apiHistory.length > 0) {
+    drawSingleSeriesChart(earningsChart, {
+      history: apiHistory,
+      key: "earnings",
+      label: "Earnings",
+      color: "#22c55e",
+      width: earningsChart.clientWidth || 600,
+      height: 200,
+      padding: { top: 20, right: 20, bottom: 30, left: 56 },
+      min: 0,
+      tickCount: 4,
+      valueTransform: (value) => typeof value === "number" ? value : null,
+      syncGroup: "machine-modal",
+      formatAxisValue: (value) => formatCurrency(value),
+      formatHoverValue: (value) => `${formatCurrency(value)} earned`,
+      emptyMessage: "No earnings history yet",
+      autoPadRange: true,
+      fillArea: true
+    });
+    return;
+  }
+
+  drawSingleSeriesChart(earningsChart, {
+    history: machineHistory,
+    key: "earn_day",
+    label: "Earn/day",
+    color: "#22c55e",
+    width: earningsChart.clientWidth || 600,
+    height: 200,
+    padding: { top: 20, right: 20, bottom: 30, left: 56 },
+    min: 0,
+    tickCount: 4,
+    valueTransform: (value) => typeof value === "number" ? value : null,
+    syncGroup: "machine-modal",
+    formatAxisValue: (value) => formatCurrency(value),
+    formatHoverValue: (value) => `${formatCurrency(value)} / day`,
+    emptyMessage: "No earnings history yet",
+    autoPadRange: true,
+    fillArea: true
   });
 }
 
@@ -848,7 +1162,10 @@ function drawSingleSeriesChart(svg, options) {
     formatAxisValue = (value) => value.toFixed(0),
     formatHoverValue = formatAxisValue,
     emptyMessage = "No data yet",
-    autoPadRange = false
+    autoPadRange = false,
+    syncGroup = null,
+    annotationPoints = [],
+    formatAnnotation = () => ""
   } = options;
 
   const points = history
@@ -919,6 +1236,17 @@ function drawSingleSeriesChart(svg, options) {
     { stepped }
   );
   svgContent += `<path d="${linePath}" class="chart-line" style="stroke:${color}" />`;
+  svgContent += annotationPoints
+    .map((point) => {
+      const x = scaleX(point.timeMs);
+      const y = scaleY(point.value);
+      const labelY = Math.max(padding.top + 12, y - 10);
+      return `<g class="chart-annotation">
+        <circle class="chart-annotation-dot" cx="${x}" cy="${y}" r="4" />
+        <text x="${x}" y="${labelY}" text-anchor="middle">${escapeHtml(formatAnnotation(point))}</text>
+      </g>`;
+    })
+    .join("");
   svgContent += `<g class="chart-axis">
     <text x="${padding.left}" y="${height - 5}" text-anchor="start">${escapeHtml(new Date(minTime).toLocaleDateString())}</text>
     <text x="${width - padding.right}" y="${height - 5}" text-anchor="end">${escapeHtml(new Date(maxTime).toLocaleDateString())}</text>
@@ -932,6 +1260,7 @@ function drawSingleSeriesChart(svg, options) {
     padding,
     points,
     scaleX: (row) => scaleX(row.timeMs),
+    syncGroup,
     series: [
       {
         label,
@@ -1001,7 +1330,7 @@ function buildAreaPath(points, getX, getY, baselineY, options = {}) {
 }
 
 function attachChartHover(svg, options) {
-  const { width, height, padding, points, scaleX, series } = options;
+  const { width, height, padding, points, scaleX, series, syncGroup } = options;
   if (!points.length || !series.length) {
     return;
   }
@@ -1078,7 +1407,42 @@ function attachChartHover(svg, options) {
     </g>`;
   };
 
-  svg.onmouseleave = clearHover;
+  const renderHoverForTime = (timeMs) => {
+    if (!Number.isFinite(timeMs)) {
+      clearHover();
+      return;
+    }
+
+    let nearestIndex = 0;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < points.length; index += 1) {
+      const distance = Math.abs(points[index].timeMs - timeMs);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestIndex = index;
+      }
+    }
+    renderHover(nearestIndex);
+  };
+
+  svg.__chartHoverApi = {
+    renderHoverForTime,
+    clearHover
+  };
+
+  if (syncGroup) {
+    const members = chartSyncGroups.get(syncGroup) || new Set();
+    members.add(svg);
+    chartSyncGroups.set(syncGroup, members);
+  }
+
+  svg.onmouseleave = () => {
+    if (syncGroup) {
+      clearChartSyncGroup(syncGroup);
+      return;
+    }
+    clearHover();
+  };
   svg.onmousemove = (event) => {
     const rect = svg.getBoundingClientRect();
     if (!rect.width) {
@@ -1098,11 +1462,30 @@ function attachChartHover(svg, options) {
       }
     }
 
-    renderHover(nearestIndex);
+    if (!syncGroup) {
+      renderHover(nearestIndex);
+      return;
+    }
+
+    const timeMs = points[nearestIndex]?.timeMs;
+    const members = chartSyncGroups.get(syncGroup) || [];
+    members.forEach((member) => member.__chartHoverApi?.renderHoverForTime(timeMs));
   };
 }
 
+function clearChartSyncGroup(groupName) {
+  const members = chartSyncGroups.get(groupName);
+  if (!members) {
+    return;
+  }
+
+  members.forEach((member) => member.__chartHoverApi?.clearHover());
+}
+
 function formatChartTimestamp(value) {
+  if (!value) {
+    return "Unknown time";
+  }
   return new Date(value).toLocaleString([], {
     month: "short",
     day: "numeric",
@@ -1113,6 +1496,41 @@ function formatChartTimestamp(value) {
 
 function formatCurrency(value) {
   return `$${Number(value).toFixed(3)}`;
+}
+
+function formatPriceShort(value) {
+  return `$${Number(value).toFixed(2)}`;
+}
+
+function formatSignedCurrency(value) {
+  const amount = Math.abs(Number(value));
+  const sign = Number(value) >= 0 ? "+" : "-";
+  return `${sign}$${amount.toFixed(3)}`;
+}
+
+function getPriceChangePoints(history) {
+  const changePoints = [];
+  let previousPrice = null;
+
+  for (const row of history) {
+    if (typeof row.listed_gpu_cost !== "number") {
+      continue;
+    }
+
+    if (previousPrice != null && row.listed_gpu_cost !== previousPrice) {
+      const timeMs = Date.parse(row.polled_at);
+      if (Number.isFinite(timeMs)) {
+        changePoints.push({
+          timeMs,
+          value: row.listed_gpu_cost
+        });
+      }
+    }
+
+    previousPrice = row.listed_gpu_cost;
+  }
+
+  return changePoints.slice(-8);
 }
 
 function todayUtcDateString() {

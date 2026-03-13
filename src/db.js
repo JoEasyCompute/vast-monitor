@@ -321,6 +321,14 @@ export function createDatabase(dbPath) {
       WHERE polled_at >= ?
       ORDER BY polled_at ASC
     `),
+    selectFleetSnapshotAtOrBefore: db.prepare(`
+      SELECT poll_id, polled_at, total_machines, datacenter_machines, unlisted_machines,
+             listed_gpus, unlisted_gpus, occupied_gpus, utilisation_pct, total_daily_earnings
+      FROM fleet_snapshots
+      WHERE polled_at <= ?
+      ORDER BY polled_at DESC
+      LIMIT 1
+    `),
     selectGpuTypePriceSnapshotsSince: db.prepare(`
       SELECT polled_at, gpu_type, num_gpus, listed_gpu_cost
       FROM machine_snapshots
@@ -330,6 +338,11 @@ export function createDatabase(dbPath) {
         AND num_gpus IS NOT NULL
         AND num_gpus > 0
       ORDER BY polled_at ASC
+    `),
+    selectMachineSnapshotsByPollId: db.prepare(`
+      SELECT listed, num_gpus, listed_gpu_cost
+      FROM machine_snapshots
+      WHERE poll_id = ?
     `)
   };
 
@@ -417,16 +430,67 @@ export function createDatabase(dbPath) {
     return result;
   }
 
+  function computePriceContext(history) {
+    const pricedHistory = history.filter((row) => typeof row.listed_gpu_cost === "number");
+    const current = pricedHistory[pricedHistory.length - 1] ?? null;
+    if (!current) {
+      return {
+        previous_listed_gpu_cost: null,
+        price_changed_at: null,
+        price_change_direction: "none"
+      };
+    }
+
+    let previous = null;
+    for (let index = pricedHistory.length - 2; index >= 0; index -= 1) {
+      if (pricedHistory[index].listed_gpu_cost !== current.listed_gpu_cost) {
+        previous = pricedHistory[index];
+        break;
+      }
+    }
+
+    if (!previous) {
+      return {
+        previous_listed_gpu_cost: current.listed_gpu_cost,
+        price_changed_at: null,
+        price_change_direction: "none"
+      };
+    }
+
+    const direction = current.listed_gpu_cost > previous.listed_gpu_cost
+      ? "up"
+      : current.listed_gpu_cost < previous.listed_gpu_cost
+        ? "down"
+        : "none";
+
+    return {
+      previous_listed_gpu_cost: previous.listed_gpu_cost,
+      price_changed_at: current.polled_at,
+      price_change_direction: direction
+    };
+  }
+
   function getCurrentFleetStatus() {
     const now = new Date();
-    const machines = getMachineStates().map((state) => ({
-      ...state,
-      uptime: computeUptime(state.machine_id, now)
-    }));
+    const cutoff = new Date(now.getTime() - UPTIME_WINDOWS["30d"] * 60 * 60 * 1000).toISOString();
+    const machines = getMachineStates().map((state) => {
+      const history = statements.selectSnapshotsSince.all(state.machine_id, cutoff);
+      const uptime = {};
+      for (const [label, hours] of Object.entries(UPTIME_WINDOWS)) {
+        uptime[label] = computeWindowUptime(history, now, hours);
+      }
+
+      return {
+        ...state,
+        ...computePriceContext(history),
+        uptime
+      };
+    });
 
     return {
       latestPollAt: getLatestPollTime(),
-      machines
+      machines,
+      comparison24h: getFleetComparison(24)
     };
   }
 
@@ -561,6 +625,41 @@ export function createDatabase(dbPath) {
     };
   }
 
+  function getFleetComparison(hoursAgo = 24) {
+    const latestPollAt = getLatestPollTime();
+    if (!latestPollAt) {
+      return null;
+    }
+
+    const latestSnapshot = statements.selectFleetSnapshotAtOrBefore.get(latestPollAt);
+    if (!latestSnapshot) {
+      return null;
+    }
+
+    const compareCutoff = new Date(Date.parse(latestPollAt) - (hoursAgo * 60 * 60 * 1000)).toISOString();
+    const previousSnapshot = statements.selectFleetSnapshotAtOrBefore.get(compareCutoff);
+    if (!previousSnapshot) {
+      return null;
+    }
+
+    const latestAvgPrice = computeGpuWeightedAvgPrice(
+      statements.selectMachineSnapshotsByPollId.all(latestSnapshot.poll_id)
+    );
+    const previousAvgPrice = computeGpuWeightedAvgPrice(
+      statements.selectMachineSnapshotsByPollId.all(previousSnapshot.poll_id)
+    );
+
+    return {
+      hoursAgo,
+      latest_at: latestSnapshot.polled_at,
+      previous_at: previousSnapshot.polled_at,
+      listed_gpus: buildComparisonMetric(latestSnapshot.listed_gpus, previousSnapshot.listed_gpus, 0),
+      utilisation_pct: buildComparisonMetric(latestSnapshot.utilisation_pct, previousSnapshot.utilisation_pct, 2),
+      total_daily_earnings: buildComparisonMetric(latestSnapshot.total_daily_earnings, previousSnapshot.total_daily_earnings, 2),
+      avg_listed_gpu_price: buildComparisonMetric(latestAvgPrice, previousAvgPrice, 3)
+    };
+  }
+
   return {
     db,
     getCurrentFleetStatus,
@@ -609,6 +708,51 @@ function buildFleetSnapshot(machines) {
     utilisation_pct: utilisationPct,
     total_daily_earnings: totalDailyEarnings
   };
+}
+
+function buildComparisonMetric(current, previous, decimals = 2) {
+  if (!Number.isFinite(current) || !Number.isFinite(previous)) {
+    return {
+      current: Number.isFinite(current) ? Number(current.toFixed(decimals)) : null,
+      previous: Number.isFinite(previous) ? Number(previous.toFixed(decimals)) : null,
+      delta: null,
+      pct_delta: null
+    };
+  }
+
+  const roundedCurrent = Number(current.toFixed(decimals));
+  const roundedPrevious = Number(previous.toFixed(decimals));
+  const delta = Number((current - previous).toFixed(decimals));
+  const pctDelta = previous === 0 ? null : Number((((current - previous) / previous) * 100).toFixed(2));
+
+  return {
+    current: roundedCurrent,
+    previous: roundedPrevious,
+    delta,
+    pct_delta: pctDelta
+  };
+}
+
+function computeGpuWeightedAvgPrice(rows) {
+  let totalWeightedPrice = 0;
+  let totalPricedGpus = 0;
+
+  for (const row of rows) {
+    const gpuCount = Number(row.num_gpus);
+    const price = Number(row.listed_gpu_cost);
+    if (!row.listed || !Number.isFinite(gpuCount) || gpuCount <= 0 || !Number.isFinite(price)) {
+      continue;
+    }
+
+    totalWeightedPrice += price * gpuCount;
+    totalPricedGpus += gpuCount;
+  }
+
+  if (totalPricedGpus === 0) {
+    return null;
+  }
+
+  return totalWeightedPrice / totalPricedGpus;
 }
 
 function getGpuTypePriceBucketHours(hours) {

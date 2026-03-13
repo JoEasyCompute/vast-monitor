@@ -63,6 +63,57 @@ export async function fetchMachineReports(config, machineId) {
   }));
 }
 
+export async function fetchMachineEarnings(config, machineId, hours) {
+  const { vastCliPath } = config;
+  const endDate = new Date();
+  const startDate = new Date(endDate.getTime() - (hours * 60 * 60 * 1000));
+  const { stdout, stderr } = await execFileAsync(vastCliPath, [
+    "show",
+    "earnings",
+    "--raw",
+    "-m",
+    String(machineId),
+    "-s",
+    startDate.toISOString(),
+    "-e",
+    endDate.toISOString()
+  ], {
+    maxBuffer: 1024 * 1024 * 20
+  });
+
+  if (stderr && stderr.trim()) {
+    console.error(stderr.trim());
+  }
+
+  const parsed = JSON.parse((stdout || "{}").trim() || "{}");
+  const perDay = Array.isArray(parsed?.per_day) ? parsed.per_day : [];
+  const perMachine = Array.isArray(parsed?.per_machine) ? parsed.per_machine : [];
+  const currentMachine = perMachine.find((row) => Number(row.machine_id) === machineId) || perMachine[0] || null;
+
+  const days = perDay
+    .map((row) => ({
+      day: normalizeEarningsDay(row.day),
+      earnings: sumEarningsRow(row),
+      gpu_earn: numberOrNull(row.gpu_earn) || 0,
+      sto_earn: numberOrNull(row.sto_earn) || 0,
+      bwu_earn: numberOrNull(row.bwu_earn) || 0,
+      bwd_earn: numberOrNull(row.bwd_earn) || 0
+    }))
+    .filter((row) => row.day)
+    .sort((a, b) => Date.parse(a.day) - Date.parse(b.day));
+
+  return {
+    machine_id: machineId,
+    hours,
+    total: currentMachine ? sumEarningsRow(currentMachine) : Number(days.reduce((sum, row) => sum + row.earnings, 0).toFixed(4)),
+    gpu_earn: currentMachine ? (numberOrNull(currentMachine.gpu_earn) || 0) : 0,
+    sto_earn: currentMachine ? (numberOrNull(currentMachine.sto_earn) || 0) : 0,
+    bwu_earn: currentMachine ? (numberOrNull(currentMachine.bwu_earn) || 0) : 0,
+    bwd_earn: currentMachine ? (numberOrNull(currentMachine.bwd_earn) || 0) : 0,
+    days
+  };
+}
+
 function normalizeMachine(machine) {
   const occupancy = String(machine.gpu_occupancy || "").trim();
   const occupiedGpus = occupancy
@@ -185,6 +236,53 @@ function readApiKey(apiKeyPath) {
 function numberOrNull(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function sumEarningsRow(row) {
+  return Number((
+    (numberOrNull(row.gpu_earn) || 0) +
+    (numberOrNull(row.sto_earn) || 0) +
+    (numberOrNull(row.bwu_earn) || 0) +
+    (numberOrNull(row.bwd_earn) || 0)
+  ).toFixed(4));
+}
+
+function normalizeEarningsDay(value) {
+  if (value == null) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+      return `${trimmed.slice(0, 10)}T00:00:00.000Z`;
+    }
+  }
+
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+
+  // Vast machine-earnings uses "day" as days since Unix epoch.
+  if (numeric > 1000 && numeric < 100000) {
+    return new Date(numeric * 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  if (numeric > 10_000_000_000) {
+    return new Date(numeric).toISOString();
+  }
+
+  if (numeric > 1_000_000_000) {
+    return new Date(numeric * 1000).toISOString();
+  }
+
+  const text = String(Math.trunc(numeric));
+  if (text.length === 8) {
+    return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}T00:00:00.000Z`;
+  }
+
+  return null;
 }
 
 function intOrNull(value) {

@@ -1,6 +1,6 @@
 import express from "express";
 import path from "node:path";
-import { fetchMachineReports } from "./vast-client.js";
+import { fetchMachineEarnings, fetchMachineReports } from "./vast-client.js";
 
 export function createServer({ config, db, monitor }) {
   const app = express();
@@ -93,6 +93,30 @@ export function createServer({ config, db, monitor }) {
     }
   });
 
+  app.get("/api/earnings/machine", async (req, res) => {
+    const machineId = Number(req.query.machine_id);
+    const rawHours = req.query.hours == null ? 168 : Number(req.query.hours);
+    if (!Number.isFinite(machineId)) {
+      res.status(400).json({ error: "machine_id is required" });
+      return;
+    }
+    if (!Number.isFinite(rawHours) || rawHours < 1) {
+      res.status(400).json({ error: "hours must be a positive number" });
+      return;
+    }
+
+    try {
+      const hours = Math.min(24 * 365, Math.floor(rawHours));
+      const earnings = await fetchMachineEarnings(config, machineId, hours);
+      res.json(earnings);
+    } catch (error) {
+      res.status(502).json({
+        error: "failed to fetch machine earnings",
+        detail: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
   app.get("/api/earnings/hourly", (req, res) => {
     const date = req.query.date || new Date().toISOString().slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -143,6 +167,9 @@ function buildFleetResponse(fleet, config) {
     current_rentals_running: machine.current_rentals_running || 0,
     listed: Boolean(machine.listed),
     listed_gpu_cost: machine.listed_gpu_cost,
+    previous_listed_gpu_cost: machine.previous_listed_gpu_cost,
+    price_changed_at: machine.price_changed_at,
+    price_change_direction: machine.price_change_direction,
     reliability: machine.reliability,
     gpu_max_cur_temp: machine.gpu_max_cur_temp,
     earn_day: machine.earn_day,
@@ -227,7 +254,8 @@ function buildFleetResponse(fleet, config) {
       unlistedGpus,
       occupiedGpus,
       utilisationPct,
-      totalDailyEarnings: Number(totalDailyEarnings.toFixed(2))
+      totalDailyEarnings: Number(totalDailyEarnings.toFixed(2)),
+      comparison24h: fleet.comparison24h ?? null
     },
     gpuTypeBreakdown: breakdown,
     machines

@@ -29,6 +29,7 @@
         <section class="panel">
           <h2>Fleet Summary</h2>
           <div class="summary-grid" id="summary-grid"></div>
+          <div class="summary-compare-grid" id="summary-compare-grid"></div>
         </section>
 
         <section class="panel">
@@ -167,14 +168,33 @@
     <div id="modal-backdrop" class="modal-backdrop hidden">
       <div class="modal-content">
         <header class="modal-header">
-          <h2 id="modal-title">Machine History</h2>
+          <div class="modal-title-row">
+            <h2 id="modal-title">Machine History</h2>
+            <div class="modal-nav-group">
+              <button id="modal-prev" class="nav-button" type="button" aria-label="Previous machine">&#8592;</button>
+              <button id="modal-next" class="nav-button" type="button" aria-label="Next machine">&#8594;</button>
+            </div>
+          </div>
           <button id="modal-close" class="modal-close">&times;</button>
         </header>
         <div class="modal-body">
           <div id="modal-ip" class="modal-ip" style="color: var(--muted); margin-bottom: 10px; font-size: 0.95rem;"></div>
+          <div id="modal-summary" class="modal-summary-grid"></div>
+          <div id="modal-earnings-breakdown" class="modal-summary-grid modal-breakdown-grid"></div>
           <div id="modal-error" class="modal-error hidden"></div>
           <div id="modal-maintenance" class="modal-maintenance hidden"></div>
-          <div id="modal-stats" class="modal-stats"></div>
+          <div class="modal-toolbar">
+            <div id="modal-stats" class="modal-stats"></div>
+            <div class="trend-range" id="modal-history-range">
+              <button class="range-button" type="button" data-hours="24">24h</button>
+              <button class="range-button active" type="button" data-hours="168">7d</button>
+              <button class="range-button" type="button" data-hours="720">30d</button>
+            </div>
+          </div>
+          <div class="modal-chart-title">Historical Earnings</div>
+          <div class="modal-chart-wrap">
+            <svg id="earnings-chart" width="100%" height="200"></svg>
+          </div>
           <div class="modal-chart-title">Renter Activity</div>
           <div class="modal-chart-wrap">
             <svg id="renter-chart" width="100%" height="200"></svg>
