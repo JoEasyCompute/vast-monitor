@@ -1575,6 +1575,37 @@ function drawMachineEarningsChart(earningsData, machineHistory = []) {
       earnings: row.earnings
     }))
     : [];
+  const estimatedHistory = Array.isArray(machineHistory)
+    ? machineHistory
+      .map((row) => ({
+        polled_at: row.polled_at,
+        earn_day: typeof row.earn_day === "number" ? row.earn_day : null
+      }))
+      .filter((row) => row.earn_day != null)
+    : [];
+
+  if (estimatedHistory.length > 0) {
+    earningsData.source = "estimated";
+    drawSingleSeriesChart(earningsChart, {
+      history: estimatedHistory,
+      key: "earn_day",
+      label: "Earn/day",
+      color: "#22c55e",
+      width: earningsChart.clientWidth || 600,
+      height: 200,
+      padding: { top: 20, right: 20, bottom: 30, left: 56 },
+      min: 0,
+      tickCount: 4,
+      valueTransform: (value) => typeof value === "number" ? value : null,
+      syncGroup: "machine-modal",
+      formatAxisValue: (value) => formatCurrency(value),
+      formatHoverValue: (value) => `${formatCurrency(value)} / day`,
+      emptyMessage: "No earnings history yet",
+      autoPadRange: true,
+      fillArea: true
+    });
+    return;
+  }
 
   if (apiHistory.length > 0) {
     earningsData.source = "realized";
@@ -1601,7 +1632,7 @@ function drawMachineEarningsChart(earningsData, machineHistory = []) {
 
   earningsData.source = "estimated";
   drawSingleSeriesChart(earningsChart, {
-    history: machineHistory,
+    history: estimatedHistory,
     key: "earn_day",
     label: "Earn/day",
     color: "#22c55e",
