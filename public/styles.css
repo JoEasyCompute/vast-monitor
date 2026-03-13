@@ -222,6 +222,7 @@ h1 {
   display: block;
   width: 100%;
   height: 180px;
+  cursor: crosshair;
 }
 
 .trend-line {
@@ -733,7 +734,8 @@ tr.machine-error:hover {
   border: 1px solid var(--panel-border);
   border-radius: 24px;
   width: 90%;
-  max-width: 600px;
+  max-width: 760px;
+  max-height: min(90vh, 900px);
   box-shadow: var(--shadow);
   overflow: hidden;
 }
@@ -766,12 +768,21 @@ tr.machine-error:hover {
 
 .modal-body {
   padding: 24px;
+  overflow-y: auto;
 }
 
 .modal-stats {
   margin-bottom: 20px;
   font-size: 1.1rem;
   color: var(--green);
+}
+
+.modal-chart-title {
+  margin: 18px 0 10px;
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .modal-chart-wrap {
@@ -783,14 +794,62 @@ tr.machine-error:hover {
   position: relative;
 }
 
+.modal-chart-wrap svg {
+  cursor: crosshair;
+}
+
 .chart-line {
   fill: none;
   stroke: var(--blue);
   stroke-width: 2;
 }
 
+.reliability-line {
+  stroke: #f59e0b;
+}
+
+.reliability-point {
+  fill: #f59e0b;
+  stroke: rgba(15, 23, 42, 0.9);
+  stroke-width: 1.5;
+  opacity: 0.2;
+  transition: opacity 120ms ease, r 120ms ease;
+}
+
+.reliability-point:hover {
+  opacity: 1;
+  r: 5;
+}
+
 .chart-area {
   fill: rgba(96, 165, 250, 0.2);
+}
+
+.chart-crosshair {
+  stroke: rgba(148, 163, 184, 0.45);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.chart-hover-dot {
+  stroke: rgba(9, 17, 31, 0.9);
+  stroke-width: 2;
+}
+
+.chart-tooltip-box {
+  fill: rgba(9, 17, 31, 0.94);
+  stroke: rgba(148, 163, 184, 0.22);
+}
+
+.chart-tooltip-time,
+.chart-tooltip-value {
+  fill: var(--text);
+  font-size: 11px;
+  font-family: "Space Grotesk", sans-serif;
+}
+
+.chart-tooltip-time {
+  fill: var(--muted);
 }
 
 .chart-axis text {

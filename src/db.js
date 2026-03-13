@@ -285,7 +285,7 @@ export function createDatabase(dbPath) {
       SELECT machine_id, hostname, gpu_type, num_gpus FROM machine_registry
     `),
     selectSnapshotsSince: db.prepare(`
-      SELECT polled_at, status, occupancy, occupied_gpus, current_rentals_running, gpu_max_cur_temp, listed_gpu_cost, earn_day
+      SELECT polled_at, status, occupancy, occupied_gpus, current_rentals_running, reliability, gpu_max_cur_temp, listed_gpu_cost, earn_day
       FROM machine_snapshots
       WHERE machine_id = ? AND polled_at >= ?
       ORDER BY polled_at ASC

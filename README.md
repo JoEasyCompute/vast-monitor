@@ -10,10 +10,10 @@ It polls your hosted machines from Vast, enriches them with datacenter metadata,
 - Enriches machines with Vast datacenter metadata from the Vast API
 - Tracks listed vs unlisted machines and maintenance windows
 - Captures machine-level error messages from Vast machine state
-- Tracks current machine state, machine snapshots, fleet snapshots, alerts, and events in SQLite
+- Tracks current machine state, machine snapshots including `listed_gpu_cost` history, fleet snapshots, alerts, and events in SQLite
 - Detects host up/down transitions and rental activity changes
 - Computes rolling uptime for `24h`, `7d`, and `30d`
-- Shows fleet health, listed-only utilisation, earnings, trends, and datacenter tags in a browser dashboard
+- Shows fleet health, listed-only utilisation, earnings, trends, hoverable chart values, and datacenter tags in a browser dashboard
 - Exposes JSON endpoints for status, health, history, alerts, fleet trends, and hourly earnings
 
 ## Requirements
@@ -84,7 +84,8 @@ The dashboard includes:
 - Listed status and maintenance columns
 - Bright orange highlighting for machines with active error messages
 - Recent alerts
-- Per-machine history modal
+- Per-machine history modal with renter, reliability, and GPU rental price charts
+- Cursor hover inspection for fleet trend charts and machine modal charts
 
 ## Datacenter Tagging
 
@@ -147,6 +148,15 @@ Returns service and poll health details including:
 ### `GET /api/history?machine_id=49697&hours=24`
 
 Returns historical snapshots for one machine.
+
+Snapshot fields include:
+
+- machine status and occupancy
+- renter count
+- reliability
+- GPU temperature
+- `listed_gpu_cost`
+- daily earnings
 
 Validation:
 

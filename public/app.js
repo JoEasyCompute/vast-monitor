@@ -371,13 +371,11 @@ function drawMultiSeriesChart(svg, history, series, options = {}) {
   }
 
   for (const item of series) {
-    const path = points
-      .map((row, index) => {
-        const x = scaleX(row.timeMs);
-        const y = scaleY(Number(row[item.key]) || 0);
-        return `${index === 0 ? "M" : "L"} ${x} ${y}`;
-      })
-      .join(" ");
+    const path = buildLinePath(
+      points,
+      (row) => scaleX(row.timeMs),
+      (row) => scaleY(Number(row[item.key]) || 0)
+    );
 
     svgContent += `<path d="${path}" class="trend-line" style="stroke:${item.color}" />`;
   }
@@ -399,7 +397,22 @@ function drawMultiSeriesChart(svg, history, series, options = {}) {
   });
   svgContent += `</g>`;
 
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.innerHTML = svgContent;
+  attachChartHover(svg, {
+    width,
+    height,
+    padding,
+    points,
+    scaleX: (row) => scaleX(row.timeMs),
+    series: series.map((item) => ({
+      label: item.label,
+      color: item.color,
+      getValue: (row) => Number(row[item.key]) || 0,
+      getY: (row) => scaleY(Number(row[item.key]) || 0),
+      formatValue: (value) => options.formatValue ? options.formatValue(value) : value.toFixed(0)
+    }))
+  });
 }
 
 function renderOccupancy(row) {
@@ -535,6 +548,8 @@ const modalStats = document.getElementById("modal-stats");
 const modalError = document.getElementById("modal-error");
 const modalMaintenance = document.getElementById("modal-maintenance");
 const renterChart = document.getElementById("renter-chart");
+const reliabilityChart = document.getElementById("reliability-chart");
+const priceChart = document.getElementById("price-chart");
 const reportsModalBackdrop = document.getElementById("reports-modal-backdrop");
 const reportsModalClose = document.getElementById("reports-modal-close");
 const reportsModalTitle = document.getElementById("reports-modal-title");
@@ -602,6 +617,8 @@ async function showMachineHistory(machineId) {
   modalMaintenance.textContent = "";
   modalMaintenance.classList.add("hidden");
   renterChart.innerHTML = "";
+  reliabilityChart.innerHTML = "";
+  priceChart.innerHTML = "";
   modalBackdrop.classList.remove("hidden");
 
   try {
@@ -643,7 +660,9 @@ async function showMachineHistory(machineId) {
       modalStats.textContent = "No current renters.";
     }
 
-    drawChart(history);
+    drawRenterChart(history);
+    drawReliabilityChart(history);
+    drawPriceChart(history);
   } catch (error) {
     console.error(error);
     modalStats.textContent = "Failed to load history.";
@@ -716,65 +735,345 @@ reportsNextButton.addEventListener("click", () => {
   renderCurrentReport();
 });
 
-function drawChart(history) {
-  if (history.length < 2) return;
+function drawRenterChart(history) {
+  drawSingleSeriesChart(renterChart, {
+    history,
+    key: "current_rentals_running",
+    label: "Renters",
+    color: "#60a5fa",
+    width: renterChart.clientWidth || 600,
+    height: 200,
+    padding: { top: 20, right: 20, bottom: 30, left: 30 },
+    min: 0,
+    max: Math.max(1, ...history.map((row) => row.current_rentals_running || 0)),
+    tickCount: Math.min(Math.max(1, Math.max(...history.map((row) => row.current_rentals_running || 0))), 5),
+    stepped: true,
+    fillArea: true,
+    formatAxisValue: (value) => `${Math.round(value)}`,
+    formatHoverValue: (value) => `${Math.round(value)} renter${Math.round(value) === 1 ? "" : "s"}`
+  });
+}
 
-  // Set width dynamically or fallback to 600
-  const width = renterChart.clientWidth || 600;
-  const height = 200;
-  const padding = { top: 20, right: 20, bottom: 30, left: 30 };
+function drawReliabilityChart(history) {
+  drawSingleSeriesChart(reliabilityChart, {
+    history,
+    key: "reliability",
+    label: "Reliability",
+    color: "#f59e0b",
+    width: reliabilityChart.clientWidth || 600,
+    height: 200,
+    padding: { top: 20, right: 20, bottom: 30, left: 40 },
+    min: 60,
+    max: 100,
+    tickCount: 4,
+    valueTransform: (value) => typeof value === "number" ? value * 100 : null,
+    formatAxisValue: (value) => `${Math.round(value)}%`,
+    formatHoverValue: (value) => `${value.toFixed(1)}%`,
+    emptyMessage: "No reliability history yet"
+  });
+}
 
-  const minTime = new Date(history[0].polled_at).getTime();
-  const maxTime = new Date(history[history.length - 1].polled_at).getTime();
-  
-  const maxRentals = Math.max(1, ...history.map(d => d.current_rentals_running || 0));
-  
-  // Prevent division by zero if minTime === maxTime
-  const timeSpan = Math.max(1, maxTime - minTime);
-  
-  const scaleX = (time) => padding.left + ((time - minTime) / timeSpan) * (width - padding.left - padding.right);
-  const scaleY = (rentals) => height - padding.bottom - (rentals / maxRentals) * (height - padding.top - padding.bottom);
+function drawPriceChart(history) {
+  drawSingleSeriesChart(priceChart, {
+    history,
+    key: "listed_gpu_cost",
+    label: "Price",
+    color: "#34d399",
+    width: priceChart.clientWidth || 600,
+    height: 200,
+    padding: { top: 20, right: 20, bottom: 30, left: 52 },
+    tickCount: 4,
+    valueTransform: (value) => typeof value === "number" ? value : null,
+    formatAxisValue: (value) => formatCurrency(value),
+    formatHoverValue: (value) => `${formatCurrency(value)} / GPU`,
+    emptyMessage: "No price history yet",
+    autoPadRange: true
+  });
+}
 
-  let pathData = "";
-  let areaData = "";
+function drawSingleSeriesChart(svg, options) {
+  const {
+    history,
+    key,
+    label,
+    color,
+    width,
+    height,
+    padding,
+    min,
+    max,
+    tickCount = 4,
+    stepped = false,
+    fillArea = false,
+    valueTransform = (value) => typeof value === "number" ? value : null,
+    formatAxisValue = (value) => value.toFixed(0),
+    formatHoverValue = formatAxisValue,
+    emptyMessage = "No data yet",
+    autoPadRange = false
+  } = options;
 
-  for (let i = 0; i < history.length; i++) {
-    const d = history[i];
-    const x = scaleX(new Date(d.polled_at).getTime());
-    const y = scaleY(d.current_rentals_running || 0);
-    
-    if (i === 0) {
-      pathData += `M ${x} ${y}`;
-      areaData += `M ${x} ${scaleY(0)} L ${x} ${y}`;
-    } else {
-      const prevY = scaleY(history[i-1].current_rentals_running || 0);
-      pathData += ` L ${x} ${prevY} L ${x} ${y}`;
-      areaData += ` L ${x} ${prevY} L ${x} ${y}`;
-    }
+  const points = history
+    .map((row) => ({
+      ...row,
+      timeMs: Date.parse(row.polled_at),
+      value: valueTransform(row[key])
+    }))
+    .filter((row) => Number.isFinite(row.timeMs));
+
+  if (!points.length) {
+    svg.innerHTML = `<text x="${width / 2}" y="${height / 2}" text-anchor="middle" class="chart-empty">No data yet</text>`;
+    return;
   }
 
-  areaData += ` L ${scaleX(maxTime)} ${scaleY(0)} Z`;
+  const validValues = points
+    .map((row) => row.value)
+    .filter((value) => typeof value === "number" && Number.isFinite(value));
 
-  let svgContent = `<path d="${areaData}" class="chart-area" />`;
-  svgContent += `<path d="${pathData}" class="chart-line" />`;
-  
-  // Generate a reasonable number of Y-axis ticks
-  const ticksCount = Math.min(maxRentals, 5);
-  for (let i = 0; i <= ticksCount; i++) {
-    const val = Math.round((i / ticksCount) * maxRentals);
-    const y = scaleY(val);
+  if (!validValues.length) {
+    svg.innerHTML = `<text x="${width / 2}" y="${height / 2}" text-anchor="middle" class="chart-empty">${emptyMessage}</text>`;
+    return;
+  }
+
+  const minTime = points[0].timeMs;
+  const maxTime = points[points.length - 1].timeMs;
+  const timeSpan = Math.max(1, maxTime - minTime);
+  let minValue = min ?? Math.min(...validValues);
+  let maxValue = max ?? Math.max(...validValues);
+
+  if (autoPadRange && min == null && max == null && minValue === maxValue) {
+    const pad = Math.max(Math.abs(minValue) * 0.05, 0.01);
+    minValue -= pad;
+    maxValue += pad;
+  }
+
+  const valueSpan = Math.max(1e-6, maxValue - minValue);
+  const scaleX = (timeMs) => padding.left + ((timeMs - minTime) / timeSpan) * (width - padding.left - padding.right);
+  const scaleY = (value) => height - padding.bottom - ((value - minValue) / valueSpan) * (height - padding.top - padding.bottom);
+
+  let svgContent = "";
+  for (let index = 0; index <= tickCount; index += 1) {
+    const value = minValue + (valueSpan * index) / tickCount;
+    const y = scaleY(value);
     svgContent += `<g class="chart-axis">
       <line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke-dasharray="2,2" />
-      <text x="${padding.left - 5}" y="${y + 4}" text-anchor="end">${val}</text>
+      <text x="${padding.left - 6}" y="${y + 4}" text-anchor="end">${escapeHtml(formatAxisValue(value))}</text>
     </g>`;
   }
 
+  if (fillArea) {
+    const areaPath = buildAreaPath(
+      points,
+      (row) => scaleX(row.timeMs),
+      (row) => row.value == null ? null : scaleY(row.value),
+      scaleY(minValue),
+      { stepped }
+    );
+    if (areaPath) {
+      svgContent += `<path d="${areaPath}" class="chart-area" />`;
+    }
+  }
+
+  const linePath = buildLinePath(
+    points,
+    (row) => scaleX(row.timeMs),
+    (row) => row.value == null ? null : scaleY(row.value),
+    { stepped }
+  );
+  svgContent += `<path d="${linePath}" class="chart-line" style="stroke:${color}" />`;
   svgContent += `<g class="chart-axis">
-    <text x="${padding.left}" y="${height - 5}" text-anchor="start">${new Date(minTime).toLocaleDateString()}</text>
-    <text x="${width - padding.right}" y="${height - 5}" text-anchor="end">Now</text>
+    <text x="${padding.left}" y="${height - 5}" text-anchor="start">${escapeHtml(new Date(minTime).toLocaleDateString())}</text>
+    <text x="${width - padding.right}" y="${height - 5}" text-anchor="end">${escapeHtml(new Date(maxTime).toLocaleDateString())}</text>
   </g>`;
 
-  renterChart.innerHTML = svgContent;
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.innerHTML = svgContent;
+  attachChartHover(svg, {
+    width,
+    height,
+    padding,
+    points,
+    scaleX: (row) => scaleX(row.timeMs),
+    series: [
+      {
+        label,
+        color,
+        getValue: (row) => row.value,
+        getY: (row) => row.value == null ? null : scaleY(row.value),
+        formatValue: formatHoverValue
+      }
+    ]
+  });
+}
+
+function buildLinePath(points, getX, getY, options = {}) {
+  const { stepped = false } = options;
+  let path = "";
+  let previousY = null;
+  let started = false;
+
+  for (const point of points) {
+    const x = getX(point);
+    const y = getY(point);
+    if (y == null) {
+      started = false;
+      previousY = null;
+      continue;
+    }
+
+    if (!started) {
+      path += `${path ? " " : ""}M ${x} ${y}`;
+      started = true;
+    } else if (stepped) {
+      path += ` L ${x} ${previousY} L ${x} ${y}`;
+    } else {
+      path += ` L ${x} ${y}`;
+    }
+
+    previousY = y;
+  }
+
+  return path;
+}
+
+function buildAreaPath(points, getX, getY, baselineY, options = {}) {
+  const { stepped = false } = options;
+  const validPoints = points
+    .map((point) => ({ x: getX(point), y: getY(point) }))
+    .filter((point) => point.y != null);
+
+  if (!validPoints.length) {
+    return "";
+  }
+
+  let path = `M ${validPoints[0].x} ${baselineY} L ${validPoints[0].x} ${validPoints[0].y}`;
+  for (let index = 1; index < validPoints.length; index += 1) {
+    const point = validPoints[index];
+    const previous = validPoints[index - 1];
+    if (stepped) {
+      path += ` L ${point.x} ${previous.y} L ${point.x} ${point.y}`;
+    } else {
+      path += ` L ${point.x} ${point.y}`;
+    }
+  }
+
+  const last = validPoints[validPoints.length - 1];
+  path += ` L ${last.x} ${baselineY} Z`;
+  return path;
+}
+
+function attachChartHover(svg, options) {
+  const { width, height, padding, points, scaleX, series } = options;
+  if (!points.length || !series.length) {
+    return;
+  }
+
+  svg.onmousemove = null;
+  svg.onmouseleave = null;
+
+  const left = padding.left;
+  const right = width - padding.right;
+  const top = padding.top;
+  const bottom = height - padding.bottom;
+  const pointPositions = points.map((point) => scaleX(point));
+
+  const clearHover = () => {
+    svg.querySelector(".chart-hover-layer")?.remove();
+  };
+
+  const renderHover = (index) => {
+    clearHover();
+
+    const point = points[index];
+    if (!point) {
+      return;
+    }
+
+    const x = pointPositions[index];
+    const values = series
+      .map((item) => {
+        const value = item.getValue(point);
+        if (value == null || !Number.isFinite(value)) {
+          return null;
+        }
+
+        return {
+          label: item.label,
+          color: item.color,
+          valueText: item.formatValue ? item.formatValue(value, point) : `${value}`,
+          y: item.getY ? item.getY(point) : null
+        };
+      })
+      .filter(Boolean);
+
+    if (!values.length) {
+      return;
+    }
+
+    const tooltipWidth = 172;
+    const tooltipHeight = 18 + ((values.length + 1) * 16);
+    const tooltipX = x > width / 2
+      ? Math.max(left, x - tooltipWidth - 10)
+      : Math.min(right - tooltipWidth, x + 10);
+    const tooltipY = Math.max(top, Math.min(bottom - tooltipHeight, top + 6));
+
+    const markers = values
+      .filter((entry) => entry.y != null)
+      .map((entry) => `<circle class="chart-hover-dot" cx="${x}" cy="${entry.y}" r="4" fill="${entry.color}" />`)
+      .join("");
+    const valueLines = values
+      .map((entry, lineIndex) => {
+        const y = tooltipY + 32 + (lineIndex * 16);
+        return `<text x="${tooltipX + 10}" y="${y}" class="chart-tooltip-value">
+          <tspan fill="${entry.color}">${escapeHtml(entry.label)}:</tspan>
+          <tspan dx="6">${escapeHtml(entry.valueText)}</tspan>
+        </text>`;
+      })
+      .join("");
+
+    svg.innerHTML += `<g class="chart-hover-layer">
+      <line class="chart-crosshair" x1="${x}" y1="${top}" x2="${x}" y2="${bottom}" />
+      ${markers}
+      <rect class="chart-tooltip-box" x="${tooltipX}" y="${tooltipY}" width="${tooltipWidth}" height="${tooltipHeight}" rx="10" />
+      <text x="${tooltipX + 10}" y="${tooltipY + 16}" class="chart-tooltip-time">${escapeHtml(formatChartTimestamp(point.polled_at))}</text>
+      ${valueLines}
+    </g>`;
+  };
+
+  svg.onmouseleave = clearHover;
+  svg.onmousemove = (event) => {
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width) {
+      return;
+    }
+
+    const x = ((event.clientX - rect.left) / rect.width) * width;
+    const clampedX = Math.max(left, Math.min(right, x));
+    let nearestIndex = 0;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    for (let index = 0; index < pointPositions.length; index += 1) {
+      const distance = Math.abs(pointPositions[index] - clampedX);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestIndex = index;
+      }
+    }
+
+    renderHover(nearestIndex);
+  };
+}
+
+function formatChartTimestamp(value) {
+  return new Date(value).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function formatCurrency(value) {
+  return `$${Number(value).toFixed(3)}`;
 }
 
 function todayUtcDateString() {
