@@ -321,6 +321,14 @@ export function createDatabase(dbPath) {
       WHERE polled_at >= ?
       ORDER BY polled_at ASC
     `),
+    selectGpuTypeUtilizationSnapshotsSince: db.prepare(`
+      SELECT polled_at, gpu_type, num_gpus, occupied_gpus, listed, status
+      FROM machine_snapshots
+      WHERE polled_at >= ?
+        AND num_gpus IS NOT NULL
+        AND num_gpus > 0
+      ORDER BY polled_at ASC
+    `),
     selectFleetSnapshotAtOrBefore: db.prepare(`
       SELECT poll_id, polled_at, total_machines, datacenter_machines, unlisted_machines,
              listed_gpus, unlisted_gpus, occupied_gpus, utilisation_pct, total_daily_earnings
@@ -593,7 +601,72 @@ export function createDatabase(dbPath) {
 
   function getFleetHistory(hours) {
     const cutoff = new Date(Date.now() - (hours * 60 * 60 * 1000)).toISOString();
-    return statements.selectFleetSnapshotsSince.all(cutoff);
+    const history = statements.selectFleetSnapshotsSince.all(cutoff);
+    const gpuTypeUtilization = getGpuTypeUtilizationHistory(cutoff);
+
+    return {
+      history,
+      gpu_type_utilization: gpuTypeUtilization
+    };
+  }
+
+  function getGpuTypeUtilizationHistory(cutoff, top = 5) {
+    const rows = statements.selectGpuTypeUtilizationSnapshotsSince.all(cutoff);
+    if (rows.length === 0) {
+      return [];
+    }
+
+    const totalsByGpuType = new Map();
+    const byTimestamp = new Map();
+
+    for (const row of rows) {
+      if (!row.listed) {
+        continue;
+      }
+
+      const polledAt = row.polled_at;
+      const gpuType = row.gpu_type || "Unknown";
+      const listedGpus = Number(row.num_gpus) || 0;
+      const occupiedGpus = row.status === "online" ? (Number(row.occupied_gpus) || 0) : 0;
+      if (listedGpus <= 0) {
+        continue;
+      }
+
+      totalsByGpuType.set(gpuType, (totalsByGpuType.get(gpuType) || 0) + listedGpus);
+
+      const point = byTimestamp.get(polledAt) || new Map();
+      const current = point.get(gpuType) || { listed_gpus: 0, occupied_gpus: 0 };
+      current.listed_gpus += listedGpus;
+      current.occupied_gpus += occupiedGpus;
+      point.set(gpuType, current);
+      byTimestamp.set(polledAt, point);
+    }
+
+    const topGpuTypes = [...totalsByGpuType.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, top)
+      .map(([gpuType]) => gpuType);
+
+    const timestamps = [...byTimestamp.keys()].sort((a, b) => Date.parse(a) - Date.parse(b));
+
+    return topGpuTypes.map((gpuType) => ({
+      gpu_type: gpuType,
+      points: timestamps
+        .map((polledAt) => {
+          const point = byTimestamp.get(polledAt)?.get(gpuType);
+          if (!point || point.listed_gpus <= 0) {
+            return null;
+          }
+
+          return {
+            polled_at: polledAt,
+            listed_gpus: point.listed_gpus,
+            occupied_gpus: point.occupied_gpus,
+            utilisation_pct: Number(((point.occupied_gpus / point.listed_gpus) * 100).toFixed(2))
+          };
+        })
+        .filter(Boolean)
+    })).filter((series) => series.points.length > 0);
   }
 
   function getGpuTypePriceHistory(hours, top = 6) {

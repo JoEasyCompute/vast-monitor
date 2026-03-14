@@ -114,7 +114,7 @@ export async function fetchMachineEarnings(config, machineId, hours) {
   };
 }
 
-function normalizeMachine(machine) {
+export function normalizeMachine(machine, now = new Date().toISOString()) {
   const occupancy = String(machine.gpu_occupancy || "").trim();
   const occupiedGpus = occupancy
     .split(/\s+/)
@@ -147,11 +147,11 @@ function normalizeMachine(machine) {
     datacenter_id: Number(machine.hosting_type) === 1 ? intOrNull(machine.host_id) : null,
     temp_alert_active: 0,
     idle_alert_active: 0,
-    idle_since: Number(machine.current_rentals_running || 0) > 0 ? null : new Date().toISOString()
+    idle_since: Number(machine.current_rentals_running || 0) > 0 ? null : now
   };
 }
 
-async function fetchDatacenterMetadata(config, machineIds) {
+export async function fetchDatacenterMetadata(config, machineIds) {
   const ids = machineIds.filter(Number.isFinite);
   if (ids.length === 0) {
     return {};
@@ -162,9 +162,10 @@ async function fetchDatacenterMetadata(config, machineIds) {
     return {};
   }
   const metadataByMachineId = {};
+  const batchSize = 100;
 
-  for (const machineId of ids) {
-    const offers = await fetchDatacenterMetadataBatch(config, apiKey, [machineId]);
+  for (let index = 0; index < ids.length; index += batchSize) {
+    const offers = await fetchDatacenterMetadataBatch(config, apiKey, ids.slice(index, index + batchSize));
 
     for (const offer of offers) {
       const machineId = Number(offer.machine_id);
@@ -187,7 +188,7 @@ async function fetchDatacenterMetadata(config, machineIds) {
   return metadataByMachineId;
 }
 
-async function fetchDatacenterMetadataBatch(config, apiKey, machineIds) {
+export async function fetchDatacenterMetadataBatch(config, apiKey, machineIds) {
   const response = await fetch(`${config.vastApiUrl}/bundles/?api_key=${encodeURIComponent(apiKey)}`, {
     method: "POST",
     headers: {
@@ -247,7 +248,7 @@ function sumEarningsRow(row) {
   ).toFixed(4));
 }
 
-function normalizeEarningsDay(value) {
+export function normalizeEarningsDay(value) {
   if (value == null) {
     return null;
   }
@@ -297,7 +298,7 @@ function intOrZero(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function resolveErrorMessage(machine) {
+export function resolveErrorMessage(machine) {
   const primary = normalizeErrorMessage(machine.error_description);
   if (primary) {
     return primary;

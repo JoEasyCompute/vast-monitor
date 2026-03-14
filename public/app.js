@@ -15,6 +15,7 @@ const trendRange = document.getElementById("trend-range");
 const trendGpusChart = document.getElementById("trend-gpus-chart");
 const trendFleetChart = document.getElementById("trend-fleet-chart");
 const trendUtilChart = document.getElementById("trend-util-chart");
+const trendUtilGpuSelect = document.getElementById("trend-util-gpu-select");
 const trendPriceChart = document.getElementById("trend-price-chart");
 const filterSearch = document.getElementById("filter-search");
 const filterStatus = document.getElementById("filter-status");
@@ -39,7 +40,8 @@ const DEFAULT_UI_SETTINGS = {
   tableDensity: "comfortable",
   lowReliabilityPct: 90,
   highTemperatureC: 85,
-  stalePollMinutes: 15
+  stalePollMinutes: 15,
+  selectedUtilizationGpuType: "__fleet__"
 };
 const UI_SETTINGS_KEY = "vast-monitor-ui-settings";
 let uiSettings = loadUiSettings();
@@ -54,10 +56,11 @@ let currentMachineHistoryHours = 168;
 let currentReports = [];
 let currentReportIndex = 0;
 const chartSyncGroups = new Map();
-let latestFleetHistory = [];
+let latestFleetHistoryPayload = null;
 let latestGpuTypePricePayload = null;
 let latestHourlyEarningsPayload = null;
 let lastKnownHealth = null;
+let selectedUtilizationGpuType = uiSettings.selectedUtilizationGpuType || "__fleet__";
 let currentModalMachine = null;
 let currentModalHistory = [];
 let currentModalEarningsData = null;
@@ -79,7 +82,7 @@ async function loadDashboard() {
   const fleetHistoryPayload = await fleetHistoryResponse.json();
   const gpuTypePricePayload = await gpuTypePriceResponse.json();
   latestHourlyEarningsPayload = earningsPayload;
-  latestFleetHistory = fleetHistoryPayload.history || [];
+  latestFleetHistoryPayload = fleetHistoryPayload;
   latestGpuTypePricePayload = gpuTypePricePayload;
 
   currentMachinesData = status.machines;
@@ -87,7 +90,7 @@ async function loadDashboard() {
   renderSummary(status.summary);
   renderSummaryComparison(status.summary?.comparison24h);
   renderBreakdown(status.gpuTypeBreakdown);
-  renderFleetTrends(latestFleetHistory);
+  renderFleetTrends(latestFleetHistoryPayload);
   renderGpuTypePriceTrends(latestGpuTypePricePayload);
   renderHourlyEarnings(latestHourlyEarningsPayload);
   renderMachinesSorted();
@@ -697,6 +700,9 @@ function renderHealth(health) {
   if (isStale) {
     healthBadge.textContent = "Stale";
     healthBadge.classList.add("stale");
+  } else if (health?.liveOperationsOk === false) {
+    healthBadge.textContent = "Degraded";
+    healthBadge.classList.add("degraded");
   } else if (health?.pollAgeMs != null && health.pollAgeMs < 30 * 1000) {
     healthBadge.textContent = "Polling";
     healthBadge.classList.add("polling");
@@ -718,7 +724,8 @@ function renderHealth(health) {
   staleWarning.classList.remove("hidden");
 }
 
-function renderFleetTrends(history) {
+function renderFleetTrends(payload) {
+  const history = Array.isArray(payload?.history) ? payload.history : [];
   drawMultiSeriesChart(trendGpusChart, history, [
     { key: "listed_gpus", label: "Listed GPUs", color: "#60a5fa" },
     { key: "unlisted_gpus", label: "Unlisted GPUs", color: "#f59e0b" }
@@ -730,9 +737,18 @@ function renderFleetTrends(history) {
     { key: "datacenter_machines", label: "DC", color: "#60a5fa" }
   ], { formatValue: (value) => `${Math.round(value)}` });
 
-  drawMultiSeriesChart(trendUtilChart, history, [
-    { key: "utilisation_pct", label: "Utilisation", color: "#f43f5e" }
-  ], { min: 0, max: 100, formatValue: (value) => `${Math.round(value)}%` });
+  const utilizationHistory = normalizeGpuTypeUtilizationHistory(payload);
+  updateUtilizationSelector(utilizationHistory);
+
+  const selectedSeries = utilizationHistory.series.find((item) => item.key === selectedUtilizationGpuType)
+    || utilizationHistory.series[0]
+    || { key: "utilisation_pct", label: "Fleet", color: "#f43f5e" };
+
+  drawMultiSeriesChart(trendUtilChart, utilizationHistory.history, [selectedSeries], {
+    min: 0,
+    max: 100,
+    formatValue: (value) => `${Math.round(value)}%`
+  });
 }
 
 function renderGpuTypePriceTrends(payload) {
@@ -771,6 +787,55 @@ function normalizeGpuTypePriceHistory(payload) {
   return { history, series: chartSeries };
 }
 
+function normalizeGpuTypeUtilizationHistory(payload) {
+  const historyRows = Array.isArray(payload?.history) ? payload.history : [];
+  const gpuTypeSeries = Array.isArray(payload?.gpu_type_utilization) ? payload.gpu_type_utilization : [];
+  const rowsByTimestamp = new Map(
+    historyRows.map((row) => [row.polled_at, { polled_at: row.polled_at, utilisation_pct: row.utilisation_pct }])
+  );
+  const palette = ["#34d399", "#60a5fa", "#f59e0b", "#a78bfa", "#f97316"];
+
+  gpuTypeSeries.forEach((series, index) => {
+    const key = `gpu_type_util_${index}`;
+    series.points.forEach((point) => {
+      const row = rowsByTimestamp.get(point.polled_at) || { polled_at: point.polled_at };
+      row[key] = point.utilisation_pct;
+      rowsByTimestamp.set(point.polled_at, row);
+    });
+  });
+
+  const history = [...rowsByTimestamp.values()].sort((a, b) => Date.parse(a.polled_at) - Date.parse(b.polled_at));
+  const series = [
+    { key: "__fleet__", sourceKey: "utilisation_pct", label: "Total fleet", color: "#f43f5e" },
+    ...gpuTypeSeries.map((item, index) => ({
+      key: `gpu_type_util_${index}`,
+      label: item.gpu_type,
+      sourceKey: `gpu_type_util_${index}`,
+      color: palette[index % palette.length]
+    }))
+  ];
+
+  return { history, series };
+}
+
+function updateUtilizationSelector(utilizationHistory) {
+  if (!trendUtilGpuSelect) {
+    return;
+  }
+
+  const series = Array.isArray(utilizationHistory?.series) ? utilizationHistory.series : [];
+  const availableKeys = new Set(series.map((item) => item.key));
+  if (!availableKeys.has(selectedUtilizationGpuType)) {
+    selectedUtilizationGpuType = "__fleet__";
+  }
+
+  trendUtilGpuSelect.innerHTML = series
+    .map((item) => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label)}</option>`)
+    .join("");
+
+  trendUtilGpuSelect.value = selectedUtilizationGpuType;
+}
+
 function drawMultiSeriesChart(svg, history, series, options = {}) {
   const width = 720;
   const height = 180;
@@ -793,7 +858,9 @@ function drawMultiSeriesChart(svg, history, series, options = {}) {
   const minTime = points[0].timeMs;
   const maxTime = points[points.length - 1].timeMs;
   const timeSpan = Math.max(1, maxTime - minTime);
-  const values = points.flatMap((row) => series.map((item) => Number(row[item.key]) || 0));
+  const values = points.flatMap((row) => series
+    .map((item) => Number(row[item.sourceKey || item.key]))
+    .filter((value) => Number.isFinite(value)));
   const minValue = options.min ?? 0;
   const maxValue = options.max ?? Math.max(1, ...values);
   const valueSpan = Math.max(1, maxValue - minValue);
@@ -813,10 +880,15 @@ function drawMultiSeriesChart(svg, history, series, options = {}) {
   }
 
   for (const item of series) {
+    const valueKey = item.sourceKey || item.key;
+    const seriesPoints = points.filter((row) => Number.isFinite(Number(row[valueKey])));
+    if (!seriesPoints.length) {
+      continue;
+    }
     const path = buildLinePath(
-      points,
+      seriesPoints,
       (row) => scaleX(row.timeMs),
-      (row) => scaleY(Number(row[item.key]) || 0)
+      (row) => scaleY(Number(row[valueKey]))
     );
 
     svgContent += `<path d="${path}" class="trend-line" style="stroke:${item.color}" />`;
@@ -850,8 +922,14 @@ function drawMultiSeriesChart(svg, history, series, options = {}) {
     series: series.map((item) => ({
       label: item.label,
       color: item.color,
-      getValue: (row) => Number(row[item.key]) || 0,
-      getY: (row) => scaleY(Number(row[item.key]) || 0),
+      getValue: (row) => {
+        const value = Number(row[item.sourceKey || item.key]);
+        return Number.isFinite(value) ? value : null;
+      },
+      getY: (row) => {
+        const value = Number(row[item.sourceKey || item.key]);
+        return Number.isFinite(value) ? scaleY(value) : null;
+      },
       formatValue: (value) => options.formatValue ? options.formatValue(value) : value.toFixed(0)
     }))
   });
@@ -983,7 +1061,10 @@ function loadUiSettings() {
       tableDensity: parsed.tableDensity === "compact" ? "compact" : DEFAULT_UI_SETTINGS.tableDensity,
       lowReliabilityPct: normalizeSettingNumber(parsed.lowReliabilityPct, DEFAULT_UI_SETTINGS.lowReliabilityPct, 0, 100),
       highTemperatureC: normalizeSettingNumber(parsed.highTemperatureC, DEFAULT_UI_SETTINGS.highTemperatureC, 0, 150),
-      stalePollMinutes: normalizeSettingNumber(parsed.stalePollMinutes, DEFAULT_UI_SETTINGS.stalePollMinutes, 1, 1440)
+      stalePollMinutes: normalizeSettingNumber(parsed.stalePollMinutes, DEFAULT_UI_SETTINGS.stalePollMinutes, 1, 1440),
+      selectedUtilizationGpuType: typeof parsed.selectedUtilizationGpuType === "string" && parsed.selectedUtilizationGpuType
+        ? parsed.selectedUtilizationGpuType
+        : DEFAULT_UI_SETTINGS.selectedUtilizationGpuType
     };
   } catch {
     return { ...DEFAULT_UI_SETTINGS };
@@ -1018,11 +1099,15 @@ function updateUiSettings(nextSettings) {
     ...uiSettings,
     ...nextSettings
   };
+  selectedUtilizationGpuType = uiSettings.selectedUtilizationGpuType || "__fleet__";
   saveUiSettings();
   applyUiSettings();
   renderMachinesSorted();
   if (lastKnownHealth) {
     renderHealth(lastKnownHealth);
+  }
+  if (latestFleetHistoryPayload) {
+    renderFleetTrends(latestFleetHistoryPayload);
   }
 }
 
@@ -1030,8 +1115,8 @@ function redrawChartsForCurrentLayout() {
   if (latestHourlyEarningsPayload) {
     renderHourlyEarnings(latestHourlyEarningsPayload);
   }
-  if (latestFleetHistory) {
-    renderFleetTrends(latestFleetHistory);
+  if (latestFleetHistoryPayload) {
+    renderFleetTrends(latestFleetHistoryPayload);
   }
   if (latestGpuTypePricePayload) {
     renderGpuTypePriceTrends(latestGpuTypePricePayload);
@@ -1099,11 +1184,15 @@ settingsStaleMinutes.addEventListener("change", () => {
 
 settingsReset.addEventListener("click", () => {
   uiSettings = { ...DEFAULT_UI_SETTINGS };
+  selectedUtilizationGpuType = uiSettings.selectedUtilizationGpuType;
   saveUiSettings();
   applyUiSettings();
   renderMachinesSorted();
   if (lastKnownHealth) {
     renderHealth(lastKnownHealth);
+  }
+  if (latestFleetHistoryPayload) {
+    renderFleetTrends(latestFleetHistoryPayload);
   }
 });
 
@@ -1119,6 +1208,14 @@ trendRange.querySelectorAll("[data-hours]").forEach((button) => {
     persistStateToUrl();
     loadDashboard().catch((error) => console.error(error));
   });
+});
+
+trendUtilGpuSelect.addEventListener("change", () => {
+  selectedUtilizationGpuType = trendUtilGpuSelect.value || "__fleet__";
+  updateUiSettings({ selectedUtilizationGpuType });
+  if (latestFleetHistoryPayload) {
+    renderFleetTrends(latestFleetHistoryPayload);
+  }
 });
 
 [
@@ -1176,6 +1273,7 @@ const modalNext = document.getElementById("modal-next");
 const modalTitle = document.getElementById("modal-title");
 const modalSummary = document.getElementById("modal-summary");
 const modalEarningsBreakdown = document.getElementById("modal-earnings-breakdown");
+const modalLiveNote = document.getElementById("modal-live-note");
 const modalTimeline = document.getElementById("modal-timeline");
 const modalStats = document.getElementById("modal-stats");
 const modalError = document.getElementById("modal-error");
@@ -1198,6 +1296,7 @@ const reportsPrevButton = document.getElementById("reports-prev");
 const reportsNextButton = document.getElementById("reports-next");
 const reportsProblem = document.getElementById("reports-problem");
 const reportsTime = document.getElementById("reports-time");
+const reportsLiveNote = document.getElementById("reports-live-note");
 const reportsMessage = document.getElementById("reports-message");
 
 modalClose.addEventListener("click", () => {
@@ -1322,6 +1421,8 @@ async function showMachineHistory(machineId, options = {}) {
   document.getElementById("modal-ip").textContent = "";
   modalSummary.innerHTML = "";
   modalEarningsBreakdown.innerHTML = "";
+  modalLiveNote.textContent = "";
+  modalLiveNote.classList.add("hidden");
   modalTimeline.innerHTML = "";
   modalTimeline.classList.add("hidden");
   modalError.textContent = "";
@@ -1348,13 +1449,18 @@ async function showMachineHistory(machineId, options = {}) {
       throw new Error(`History request failed (${historyResponse.status})`);
     }
     const data = await historyResponse.json();
-    const earningsData = earningsResponse.ok ? await earningsResponse.json() : { days: [], total: null };
+    const earningsData = await earningsResponse.json().catch(() => ({ days: [], total: null }));
     
     // Find IP from current machine data
     const machine = currentMachinesData.find((m) => m.machine_id === machineId);
     currentModalMachine = machine ?? null;
     currentModalHistory = Array.isArray(data.history) ? data.history : [];
     currentModalEarningsData = earningsData;
+    renderModalLiveDependencyState(earningsResponse.ok ? earningsData : {
+      error: earningsData?.error || "failed to fetch machine earnings",
+      detail: earningsData?.detail || `Request failed (${earningsResponse.status})`,
+      dependency: earningsData?.dependency || null
+    }, currentModalHistory);
     if (machine && machine.public_ipaddr) {
       document.getElementById("modal-ip").textContent = `IP: ${machine.public_ipaddr}`;
     }
@@ -1416,12 +1522,38 @@ async function showMachineReports(machineId) {
   reportsModalCounter.textContent = "Loading...";
   reportsProblem.textContent = "";
   reportsTime.textContent = "";
+  reportsLiveNote.textContent = "";
+  reportsLiveNote.classList.add("hidden");
   reportsMessage.textContent = "";
   reportsModalBackdrop.classList.remove("hidden");
   reportsNextButton.focus();
 
-  const response = await fetch(`/api/reports?machine_id=${machineId}`);
-  const data = await response.json();
+  let response;
+  let data;
+  try {
+    response = await fetch(`/api/reports?machine_id=${machineId}`);
+    data = await response.json();
+  } catch (error) {
+    reportsModalCounter.textContent = "Live fetch failed";
+    reportsProblem.textContent = "Unable to load reports";
+    reportsLiveNote.textContent = error instanceof Error ? error.message : String(error);
+    reportsLiveNote.classList.remove("hidden");
+    reportsPrevButton.disabled = true;
+    reportsNextButton.disabled = true;
+    return;
+  }
+
+  if (!response.ok) {
+    reportsModalCounter.textContent = "Live fetch failed";
+    reportsProblem.textContent = "Unable to load reports";
+    reportsLiveNote.textContent = buildDependencyFailureMessage(data, "Reports are fetched live from the Vast CLI.");
+    reportsLiveNote.classList.remove("hidden");
+    reportsMessage.textContent = data?.detail || data?.error || "";
+    reportsPrevButton.disabled = true;
+    reportsNextButton.disabled = true;
+    return;
+  }
+
   currentReports = Array.isArray(data.reports) ? data.reports : [];
   currentReportIndex = 0;
 
@@ -1448,6 +1580,50 @@ function renderCurrentReport() {
   reportsMessage.textContent = report.message || "(no message)";
   reportsPrevButton.disabled = currentReportIndex === 0;
   reportsNextButton.disabled = currentReportIndex >= currentReports.length - 1;
+}
+
+function renderModalLiveDependencyState(earningsData, machineHistory = []) {
+  if (hasLocalEstimatedEarningsHistory(machineHistory)) {
+    modalLiveNote.textContent = "";
+    modalLiveNote.classList.add("hidden");
+    return;
+  }
+
+  if (earningsData?.dependency?.ok === false || earningsData?.error) {
+    modalLiveNote.textContent = buildDependencyFailureMessage(
+      earningsData,
+      "Historical snapshots are still available, but live earnings data from the Vast CLI is unavailable."
+    );
+    modalLiveNote.classList.remove("hidden");
+    return;
+  }
+
+  modalLiveNote.textContent = "";
+  modalLiveNote.classList.add("hidden");
+}
+
+function buildDependencyFailureMessage(payload, prefix) {
+  return [
+    prefix,
+    payload?.dependency?.health?.detail,
+    summarizeDependencyDetail(payload?.detail || payload?.error)
+  ].filter(Boolean).join(" ");
+}
+
+function summarizeDependencyDetail(detail) {
+  const text = String(detail ?? "").trim();
+  if (!text) {
+    return "";
+  }
+
+  const tracebackIndex = text.indexOf("Traceback");
+  const withoutTraceback = tracebackIndex >= 0 ? text.slice(0, tracebackIndex).trim() : text;
+  const firstLine = withoutTraceback.split("\n").map((line) => line.trim()).find(Boolean) || text.split("\n").map((line) => line.trim()).find(Boolean) || "";
+  return firstLine;
+}
+
+function hasLocalEstimatedEarningsHistory(machineHistory) {
+  return Array.isArray(machineHistory) && machineHistory.some((row) => typeof row?.earn_day === "number");
 }
 
 function hasReports(machineId) {

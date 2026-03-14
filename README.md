@@ -12,6 +12,7 @@ It polls your hosted machines from Vast, enriches them with datacenter metadata,
 - Captures machine-level error messages from Vast machine state
 - Tracks current machine state, machine snapshots including `listed_gpu_cost` history, fleet snapshots, alerts, and events in SQLite
 - Detects host up/down transitions and rental activity changes
+- Emits warning alerts when the same hostname appears multiple times in a single poll
 - Computes rolling uptime for `24h`, `7d`, and `30d`
 - Shows fleet health, listed-only utilisation, earnings, trends, hoverable chart values, and datacenter tags in a browser dashboard
 - Adds local browser settings for table density and frontend-only alert thresholds
@@ -37,6 +38,8 @@ npm start
 ```
 
 Then open `http://localhost:3000`.
+
+Startup validates the configured Vast CLI path and API key file before the service begins listening. If either is missing, unreadable, or not executable where required, the process exits with a direct error.
 
 ## Configuration
 
@@ -74,11 +77,13 @@ If the initial Vast poll fails, the server stays up and keeps retrying on the no
 The dashboard includes:
 
 - Fleet summary cards
-- Header health badge (`Healthy`, `Polling`, `Stale`)
+- Header health badge (`Healthy`, `Polling`, `Stale`, `Degraded`)
+- Header health badge can also show `Degraded` when stored poll data is fresh but live Vast-dependent operations are unhealthy
 - Header `Settings` button for local browser preferences
 - Stale-data warning banner when polls are too old
 - GPU type breakdown
 - Fleet trends for `24h`, `7d`, and `30d`
+- Fleet utilisation chart with a GPU selector; default view is total fleet utilisation
 - GPU-type pricing trends using listed-only weighted averages
 - Hourly earnings with previous/next day navigation
 - Sortable machine table
@@ -92,6 +97,7 @@ The dashboard includes:
 - Per-machine history modal with tabbed `Charts` and `Recent Events` views
 - Machine modal charts for historical earnings, renter activity, reliability, and GPU rental price
 - Machine modal earnings chart prefers the machine's own stored `earn_day` history and falls back to Vast daily earnings only when local history is unavailable
+- Machine modal suppresses live earnings warnings when local `earn_day` history is available and already powering the chart
 - Cursor hover inspection for fleet trend charts and machine modal charts
 - Resize-aware chart redraw for fleet and modal charts
 
@@ -101,6 +107,7 @@ Local browser settings currently control:
 - low reliability highlight threshold
 - high temperature highlight threshold
 - stale poll age threshold for the dashboard badge/warning
+- selected GPU type for the fleet utilisation chart
 
 ## Datacenter Tagging
 
@@ -156,6 +163,8 @@ Returns service and poll health details including:
 
 - whether the latest successful poll is considered stale
 - poll age and stale threshold
+- whether live Vast-dependent operations are currently degraded
+- dependency-level readiness for the Vast CLI and API key file
 - current poll activity
 - last poll success/failure timestamps
 - last poll error, if any
@@ -195,6 +204,8 @@ Returns hourly earnings buckets for a UTC date.
 
 Returns machine earnings data from Vast for the requested window.
 
+Response also includes a `dependency` object so the UI can distinguish local-history availability from live Vast CLI failures.
+
 In the UI, the machine modal currently prefers locally stored per-machine `earn_day` snapshot history for the chart because Vast daily earnings responses may not always be machine-specific in practice.
 
 Validation:
@@ -204,7 +215,7 @@ Validation:
 
 ### `GET /api/fleet/history?hours=168`
 
-Returns fleet-wide trend points for the requested time window.
+Returns fleet-wide trend points for the requested time window, plus GPU-type utilisation series used by the utilisation selector.
 
 Validation:
 
@@ -218,6 +229,27 @@ Validation:
 
 - `hours` must be a positive number
 - `top` must be a positive number
+
+## Tests
+
+Run:
+
+```bash
+npm test
+```
+
+Current automated coverage includes:
+
+- config/runtime validation
+- Vast payload normalization and earnings-day parsing
+- monitor transition, dedupe, and alert helper behavior
+- datacenter metadata batching
+- SQLite-backed DB aggregation flows
+- HTTP API response shapes for status, health, fleet history, and live dependency failures
+
+## Notes
+
+- Live Vast CLI earnings calls may fail independently of stored history. The UI should only surface that failure in the machine modal when no local `earn_day` history is available for the selected window.
 
 ## Database
 

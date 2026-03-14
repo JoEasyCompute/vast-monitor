@@ -66,21 +66,19 @@ export class FleetMonitor {
     try {
       console.log(`[monitor] Poll started at ${timestamp}`);
       let rawMachines = await fetchMachines(this.config);
-      
-      // Deduplicate by hostname, keeping only the highest machine_id
-      const byHostname = new Map();
-      for (const m of rawMachines) {
-        if (!byHostname.has(m.hostname) || byHostname.get(m.hostname).machine_id < m.machine_id) {
-          byHostname.set(m.hostname, m);
-        }
-      }
-      rawMachines = Array.from(byHostname.values());
+      const hostnameCollisionWarnings = detectHostnameCollisions(rawMachines);
+      rawMachines = dedupeMachinesByHostname(rawMachines);
       const previousStates = new Map(this.db.getCurrentFleetStatus().machines.map((machine) => [machine.machine_id, machine]));
       const knownMachines = new Map(this.db.getKnownMachines().map((machine) => [machine.machine_id, machine]));
       const onlineMachines = [];
       const offlineMachines = [];
       const events = [];
       const alerts = [];
+
+      for (const warning of hostnameCollisionWarnings) {
+        events.push(makeFleetEvent(timestamp, "hostname_collision", "warning", warning.message, warning.payload));
+        alerts.push(makeFleetAlert(timestamp, "hostname_collision", "warning", warning.message, warning.payload));
+      }
 
       for (const machine of rawMachines) {
         const previous = previousStates.get(machine.machine_id) || null;
@@ -195,7 +193,7 @@ export class FleetMonitor {
   }
 }
 
-function buildChangeSet({ previous, current, timestamp, config }) {
+export function buildChangeSet({ previous, current, timestamp, config }) {
   const nextEvents = [];
   const nextAlerts = [];
 
@@ -248,7 +246,7 @@ function buildChangeSet({ previous, current, timestamp, config }) {
   return { nextEvents, nextAlerts };
 }
 
-function resolveIdleSince(previous, current, timestamp) {
+export function resolveIdleSince(previous, current, timestamp) {
   if (current.current_rentals_running > 0) {
     return null;
   }
@@ -260,14 +258,14 @@ function resolveIdleSince(previous, current, timestamp) {
   return timestamp;
 }
 
-function shouldKeepTempAlert(previous, current, threshold) {
+export function shouldKeepTempAlert(previous, current, threshold) {
   if ((current.gpu_max_cur_temp ?? 0) >= threshold) {
     return true;
   }
   return false;
 }
 
-function shouldKeepIdleAlert(previous, current, idleHoursThreshold, timestamp) {
+export function shouldKeepIdleAlert(previous, current, idleHoursThreshold, timestamp) {
   if (current.current_rentals_running > 0) {
     return false;
   }
@@ -284,7 +282,7 @@ function getIdleHours(idleSince, timestamp) {
   return (Date.parse(timestamp) - Date.parse(idleSince)) / (1000 * 60 * 60);
 }
 
-function resolveReportTracking(previous, current, timestamp) {
+export function resolveReportTracking(previous, current, timestamp) {
   const currentReports = current.num_reports || 0;
 
   if (!previous) {
@@ -324,6 +322,69 @@ function makeAlert(createdAt, machine, alertType, severity, message, payload) {
     created_at: createdAt,
     machine_id: machine.machine_id,
     hostname: machine.hostname,
+    alert_type: alertType,
+    severity,
+    message,
+    payload_json: JSON.stringify(payload)
+  };
+}
+
+export function dedupeMachinesByHostname(machines) {
+  const byHostname = new Map();
+
+  for (const machine of machines) {
+    const existing = byHostname.get(machine.hostname);
+    if (!existing || existing.machine_id < machine.machine_id) {
+      byHostname.set(machine.hostname, machine);
+    }
+  }
+
+  return Array.from(byHostname.values());
+}
+
+export function detectHostnameCollisions(machines) {
+  const machinesByHostname = new Map();
+
+  for (const machine of machines) {
+    if (!machinesByHostname.has(machine.hostname)) {
+      machinesByHostname.set(machine.hostname, []);
+    }
+    machinesByHostname.get(machine.hostname).push(machine);
+  }
+
+  return [...machinesByHostname.entries()]
+    .filter(([, entries]) => entries.length > 1)
+    .map(([hostname, entries]) => {
+      const machineIds = entries.map((entry) => entry.machine_id).sort((a, b) => a - b);
+      const keptMachineId = machineIds[machineIds.length - 1];
+      return {
+        message: `${hostname} appeared multiple times in the same poll (${machineIds.join(", ")}); keeping machine ${keptMachineId}`,
+        payload: {
+          hostname,
+          machine_ids: machineIds,
+          kept_machine_id: keptMachineId
+        }
+      };
+    });
+}
+
+function makeFleetEvent(createdAt, eventType, severity, message, payload) {
+  return {
+    created_at: createdAt,
+    machine_id: null,
+    hostname: null,
+    event_type: eventType,
+    severity,
+    message,
+    payload_json: JSON.stringify(payload)
+  };
+}
+
+function makeFleetAlert(createdAt, alertType, severity, message, payload) {
+  return {
+    created_at: createdAt,
+    machine_id: null,
+    hostname: null,
     alert_type: alertType,
     severity,
     message,

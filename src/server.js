@@ -1,5 +1,6 @@
 import express from "express";
 import path from "node:path";
+import { getLiveDependencyHealth } from "./config.js";
 import { fetchMachineEarnings, fetchMachineReports } from "./vast-client.js";
 
 export function createServer({ config, db, monitor }) {
@@ -48,9 +49,11 @@ export function createServer({ config, db, monitor }) {
     }
 
     const hours = Math.min(24 * 365, Math.floor(rawHours));
+    const fleetHistory = db.getFleetHistory(hours);
     res.json({
       hours,
-      history: db.getFleetHistory(hours)
+      history: fleetHistory.history,
+      gpu_type_utilization: fleetHistory.gpu_type_utilization
     });
   });
 
@@ -83,12 +86,21 @@ export function createServer({ config, db, monitor }) {
       const reports = await fetchMachineReports(config, machineId);
       res.json({
         machine_id: machineId,
-        reports
+        reports,
+        dependency: {
+          type: "vast-cli",
+          ok: true
+        }
       });
     } catch (error) {
       res.status(502).json({
         error: "failed to fetch reports",
-        detail: error instanceof Error ? error.message : String(error)
+        detail: error instanceof Error ? error.message : String(error),
+        dependency: {
+          type: "vast-cli",
+          ok: false,
+          health: getLiveDependencyHealth(config).vastCli
+        }
       });
     }
   });
@@ -108,11 +120,22 @@ export function createServer({ config, db, monitor }) {
     try {
       const hours = Math.min(24 * 365, Math.floor(rawHours));
       const earnings = await fetchMachineEarnings(config, machineId, hours);
-      res.json(earnings);
+      res.json({
+        ...earnings,
+        dependency: {
+          type: "vast-cli",
+          ok: true
+        }
+      });
     } catch (error) {
       res.status(502).json({
         error: "failed to fetch machine earnings",
-        detail: error instanceof Error ? error.message : String(error)
+        detail: error instanceof Error ? error.message : String(error),
+        dependency: {
+          type: "vast-cli",
+          ok: false,
+          health: getLiveDependencyHealth(config).vastCli
+        }
       });
     }
   });
@@ -278,14 +301,18 @@ function buildHealthResponse({ config, db, monitor }) {
     pollIntervalMs: config.pollIntervalMs
   });
   const monitorHealth = typeof monitor?.getHealthSnapshot === "function" ? monitor.getHealthSnapshot() : {};
+  const liveDependencies = getLiveDependencyHealth(config);
+  const liveOperationsOk = Object.values(liveDependencies).every((dependency) => dependency.ok);
 
   return {
     ok: !status.isStale,
-    status: status.isStale ? "stale" : "ok",
+    status: status.isStale ? "stale" : liveOperationsOk ? "ok" : "degraded",
     latestPollAt,
     pollIntervalMs: config.pollIntervalMs,
     staleThresholdMs: status.staleThresholdMs,
     pollAgeMs: status.pollAgeMs,
+    liveOperationsOk,
+    liveDependencies,
     ...monitorHealth
   };
 }

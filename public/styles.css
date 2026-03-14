@@ -105,6 +105,12 @@ body {
   color: #fed7aa;
 }
 
+.health-badge.degraded {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.16);
+  color: #fde68a;
+}
+
 h1, h2, p {
   margin: 0;
 }
@@ -237,6 +243,17 @@ h1 {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.trend-card-header > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.trend-select {
+  min-width: 180px;
+  flex: 0 0 auto;
 }
 
 .trend-chart {
@@ -825,6 +842,17 @@ tr.high-temperature td {
   font-size: 0.95rem;
   line-height: 1.4;
   white-space: pre-wrap;
+}
+
+.modal-live-note {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  background: rgba(96, 165, 250, 0.1);
+  color: #bfdbfe;
+  font-size: 0.93rem;
+  line-height: 1.4;
 }
 
 .modal-timeline {

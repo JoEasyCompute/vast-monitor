@@ -93,8 +93,13 @@
             </div>
             <div class="trend-card">
               <div class="trend-card-header">
-                <strong>Listed Utilisation</strong>
-                <span class="muted">Occupied listed GPUs</span>
+                <div>
+                  <strong>Listed Utilisation</strong>
+                  <span class="muted">Fleet total or selected GPU type</span>
+                </div>
+                <select id="trend-util-gpu-select" class="filter-select trend-select" aria-label="Select utilisation GPU type">
+                  <option value="__fleet__">Total fleet</option>
+                </select>
               </div>
               <svg id="trend-util-chart" class="trend-chart" viewBox="0 0 720 180" preserveAspectRatio="none"></svg>
             </div>
@@ -186,6 +191,7 @@
           <div id="modal-ip" class="modal-ip" style="color: var(--muted); margin-bottom: 10px; font-size: 0.95rem;"></div>
           <div id="modal-summary" class="modal-summary-grid"></div>
           <div id="modal-earnings-breakdown" class="modal-summary-grid modal-breakdown-grid"></div>
+          <div id="modal-live-note" class="modal-live-note hidden"></div>
           <div id="modal-error" class="modal-error hidden"></div>
           <div id="modal-maintenance" class="modal-maintenance hidden"></div>
           <div class="modal-tabs" id="modal-tabs">
@@ -246,6 +252,7 @@
             <button id="reports-next" class="nav-button" type="button" aria-label="Next report">&#8594;</button>
           </div>
           </div>
+          <div id="reports-live-note" class="modal-live-note hidden"></div>
           <div class="report-message-wrap">
             <pre id="reports-message" class="report-message"></pre>
           </div>
