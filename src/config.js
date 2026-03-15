@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -75,6 +76,17 @@ export function getLiveDependencyHealth(runtimeConfig) {
   };
 }
 
+export function getOptionalRuntimeWarnings(runtimeConfig) {
+  const warnings = [];
+  const dateutilStatus = getPythonDateutilStatus(runtimeConfig);
+
+  if (!dateutilStatus.ok) {
+    warnings.push(dateutilStatus.message);
+  }
+
+  return warnings;
+}
+
 function fileExists(filePath) {
   try {
     return fs.existsSync(filePath);
@@ -109,4 +121,51 @@ function getApiKeyStatus(apiKeyPath) {
       message: `Vast API key file is not readable at ${apiKeyPath}: ${error instanceof Error ? error.message : String(error)}`
     };
   }
+}
+
+function getPythonDateutilStatus(runtimeConfig) {
+  if (!fileExists(runtimeConfig.vastCliPath) || !isExecutable(runtimeConfig.vastCliPath)) {
+    return { ok: true, message: "skipped" };
+  }
+
+  try {
+    const output = execFileSync("python3", ["-c", "import dateutil; print(dateutil.__version__)"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    }).trim();
+
+    if (!isSupportedDateutilVersion(output)) {
+      return {
+        ok: false,
+        message: `Optional prereq warning: python-dateutil ${output || "unknown"} is too old for live Vast earnings; upgrade to >= 2.7 in the Python 3 environment used by the Vast CLI`
+      };
+    }
+
+    return { ok: true, message: "ready" };
+  } catch (error) {
+    return {
+      ok: false,
+      message: `Optional prereq warning: python-dateutil is missing or unreadable in the Python 3 environment used by the Vast CLI; live earnings may fail (${error instanceof Error ? error.message : String(error)})`
+    };
+  }
+}
+
+function isSupportedDateutilVersion(version) {
+  const match = String(version).trim().match(/^(\d+)\.(\d+)(?:\.(\d+))?/);
+  if (!match) {
+    return false;
+  }
+
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+
+  if (!Number.isFinite(major) || !Number.isFinite(minor)) {
+    return false;
+  }
+
+  if (major > 2) {
+    return true;
+  }
+
+  return major === 2 && minor >= 7;
 }

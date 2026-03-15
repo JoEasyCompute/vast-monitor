@@ -477,26 +477,106 @@ function renderModalDeltaText(direction, previousValue, currentValue, label, for
   </small>`;
 }
 
-function updateModalEarningsSummary(machine, earningsData) {
-  if (!machine || !earningsData || !Number.isFinite(earningsData.total)) {
+function updateModalEarningsSummary(machine, earningsData, machineHistory = [], monthlySummary = null) {
+  if (!machine) {
     return;
   }
 
-  const baseLabel = currentMachineHistoryHours <= 24 ? "Earned 24h" : currentMachineHistoryHours <= 168 ? "Earned 7d" : "Earned 30d";
-  const label = earningsData.source === "estimated"
-    ? `${baseLabel} (est)`
-    : baseLabel;
-  const summaryCard = modalSummary.querySelector(".modal-summary-card:last-child");
-  if (!summaryCard) {
+  const cards = [];
+  if (earningsData && Number.isFinite(earningsData.total)) {
+    const baseLabel = currentMachineHistoryHours <= 24 ? "Earned 24h" : currentMachineHistoryHours <= 168 ? "Earned 7d" : "Earned 30d";
+    const label = earningsData.source === "estimated"
+      ? `${baseLabel} (est)`
+      : baseLabel;
+    cards.push([label, formatPriceShort(earningsData.total)]);
+  }
+
+  cards.push(...buildCalendarMonthEarningsSummaries(earningsData, machineHistory, monthlySummary).map((item) => [
+    item.label,
+    item.total == null ? "-" : formatPriceShort(item.total)
+  ]));
+
+  if (!cards.length) {
     return;
   }
 
-  summaryCard.insertAdjacentHTML("afterend", `
+  modalSummary.insertAdjacentHTML("beforeend", cards.map(([label, value]) => `
     <article class="modal-summary-card">
       <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(formatPriceShort(earningsData.total))}</strong>
+      <strong>${escapeHtml(value)}</strong>
     </article>
-  `);
+  `).join(""));
+}
+
+function buildCalendarMonthEarningsSummaries(_earningsData, machineHistory = [], monthlySummary = null) {
+  const realizedMonths = Array.isArray(monthlySummary?.months) ? monthlySummary.months : [];
+  if (realizedMonths.length > 0) {
+    return realizedMonths.map((month) => ({
+      label: month.label,
+      total: Number.isFinite(Number(month.total)) ? Number(month.total) : null
+    }));
+  }
+
+  const now = new Date();
+  const currentMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const previousMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const estimatedTotals = aggregateEstimatedCalendarMonthRows(machineHistory, [previousMonthStart, currentMonthStart]);
+
+  return [previousMonthStart, currentMonthStart].map((monthStart) => {
+    const key = monthKeyUtc(monthStart);
+    const estimatedTotal = estimatedTotals.get(key);
+
+    return {
+      label: `${formatMonthLabelUtc(monthStart)} (est)`,
+      total: estimatedTotal
+    };
+  });
+}
+
+function monthKeyUtc(date) {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatMonthLabelUtc(date) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC"
+  }).format(date);
+}
+
+function aggregateEstimatedCalendarMonthRows(machineHistory, monthStarts) {
+  const totals = new Map(monthStarts.map((date) => [monthKeyUtc(date), null]));
+  const latestByDay = new Map();
+
+  for (const row of Array.isArray(machineHistory) ? machineHistory : []) {
+    const timeMs = Date.parse(row.polled_at);
+    const earnDay = Number(row.earn_day);
+    if (!Number.isFinite(timeMs) || !Number.isFinite(earnDay)) {
+      continue;
+    }
+
+    const dayKey = new Date(timeMs).toISOString().slice(0, 10);
+    const existing = latestByDay.get(dayKey);
+    if (!existing || timeMs > existing.timeMs) {
+      latestByDay.set(dayKey, { timeMs, earnDay });
+    }
+  }
+
+  for (const [dayKey, value] of latestByDay.entries()) {
+    const timeMs = Date.parse(`${dayKey}T00:00:00.000Z`);
+    const pointDate = new Date(timeMs);
+    const monthStart = new Date(Date.UTC(pointDate.getUTCFullYear(), pointDate.getUTCMonth(), 1));
+    const monthKey = monthKeyUtc(monthStart);
+    if (!totals.has(monthKey)) {
+      continue;
+    }
+
+    const current = totals.get(monthKey) ?? 0;
+    totals.set(monthKey, Number((current + value.earnDay).toFixed(4)));
+  }
+
+  return totals;
 }
 
 function renderModalTimeline(history) {
@@ -1441,15 +1521,17 @@ async function showMachineHistory(machineId, options = {}) {
   const previousScrollTop = preserveScroll ? modalBody?.scrollTop ?? 0 : 0;
 
   try {
-    const [historyResponse, earningsResponse] = await Promise.all([
+    const [historyResponse, earningsResponse, monthlySummaryResponse] = await Promise.all([
       fetch(`/api/history?machine_id=${machineId}&hours=${currentMachineHistoryHours}`),
-      fetch(`/api/earnings/machine?machine_id=${machineId}&hours=${currentMachineHistoryHours}`)
+      fetch(`/api/earnings/machine?machine_id=${machineId}&hours=${currentMachineHistoryHours}`),
+      fetch(`/api/earnings/machine/monthly-summary?machine_id=${machineId}`)
     ]);
     if (!historyResponse.ok) {
       throw new Error(`History request failed (${historyResponse.status})`);
     }
     const data = await historyResponse.json();
     const earningsData = await earningsResponse.json().catch(() => ({ days: [], total: null }));
+    const monthlySummary = await monthlySummaryResponse.json().catch(() => ({ months: [] }));
     
     // Find IP from current machine data
     const machine = currentMachinesData.find((m) => m.machine_id === machineId);
@@ -1506,8 +1588,13 @@ async function showMachineHistory(machineId, options = {}) {
     drawRenterChart(history);
     drawReliabilityChart(history);
     drawPriceChart(history);
-    drawMachineEarningsChart(earningsData, history);
-    updateModalEarningsSummary(machine, earningsData);
+    drawMachineEarningsChart(currentModalEarningsData, history);
+    updateModalEarningsSummary(
+      machine,
+      currentModalEarningsData,
+      history,
+      monthlySummaryResponse.ok ? monthlySummary : null
+    );
     if (preserveScroll && modalBody) {
       modalBody.scrollTop = previousScrollTop;
     }

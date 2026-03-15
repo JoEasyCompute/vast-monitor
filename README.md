@@ -23,11 +23,18 @@ It polls your hosted machines from Vast, enriches them with datacenter metadata,
 - Node.js 20+ recommended
 - A working Vast CLI install
 - A valid Vast API key file
+- Python 3 environment used by the Vast CLI must have `python-dateutil >= 2.7`
 
 Default assumptions:
 
 - Vast CLI: `~/Desktop/dev/vast/vast`
 - Vast API key: `~/.config/vastai/vast_api_key`
+
+Live machine earnings in this app depend on the Vast CLI `show earnings` command. If the CLI is using an old `python-dateutil` release such as `2.6.1`, that command can fail under newer Python versions. A known-good fix is:
+
+```bash
+python3 -m pip install --user --break-system-packages --upgrade python-dateutil
+```
 
 ## Quick Start
 
@@ -40,6 +47,8 @@ npm start
 Then open `http://localhost:3000`.
 
 Startup validates the configured Vast CLI path and API key file before the service begins listening. If either is missing, unreadable, or not executable where required, the process exits with a direct error.
+
+Startup also prints a warning if the detected `python-dateutil` version in the local `python3` environment is too old for live Vast earnings.
 
 ## Configuration
 
@@ -96,6 +105,7 @@ The dashboard includes:
 - Recent alerts
 - Per-machine history modal with tabbed `Charts` and `Recent Events` views
 - Machine modal charts for historical earnings, renter activity, reliability, and GPU rental price
+- Machine modal commercial summary includes realized previous/current calendar month machine earnings when live Vast CLI earnings are available
 - Machine modal earnings chart prefers the machine's own stored `earn_day` history and falls back to Vast daily earnings only when local history is unavailable
 - Machine modal suppresses live earnings warnings when local `earn_day` history is available and already powering the chart
 - Cursor hover inspection for fleet trend charts and machine modal charts
@@ -204,14 +214,43 @@ Returns hourly earnings buckets for a UTC date.
 
 Returns machine earnings data from Vast for the requested window.
 
+This endpoint also supports explicit ISO datetime ranges:
+
+### `GET /api/earnings/machine?machine_id=49697&start=2026-03-01T00:00:00.000Z&end=2026-03-15T00:00:00.000Z`
+
 Response also includes a `dependency` object so the UI can distinguish local-history availability from live Vast CLI failures.
 
 In the UI, the machine modal currently prefers locally stored per-machine `earn_day` snapshot history for the chart because Vast daily earnings responses may not always be machine-specific in practice.
 
+For machine modal commercial month cards, the app instead queries full calendar-month ranges and uses the machine-specific `per_machine` total for each month.
+
+Important behavior:
+
+- monthly summary cards use `per_machine` totals only
+- they do not fall back to Vast `per_day`, because `per_day` may reflect fleet-level totals in practice
+- previous month uses `previous_month_start -> current_month_start`
+- current month uses `current_month_start -> now`
+- if a machine has no realized total for a month yet, the summary should remain blank rather than showing fleet earnings
+
 Validation:
 
 - `machine_id` must be numeric
-- `hours` must be a positive number
+- either `hours` must be a positive number, or `start` and `end` must both be valid ISO datetimes with `end > start`
+
+### `GET /api/earnings/machine/monthly-summary?machine_id=49697`
+
+Returns realized previous/current calendar month totals for one machine.
+
+Implementation detail:
+
+- the server runs two machine-scoped Vast earnings range queries
+- one for the previous calendar month
+- one for the current calendar month
+- it uses the matching `per_machine` total from each response
+
+Validation:
+
+- `machine_id` must be numeric
 
 ### `GET /api/fleet/history?hours=168`
 

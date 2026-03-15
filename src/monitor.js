@@ -83,8 +83,10 @@ export class FleetMonitor {
       for (const machine of rawMachines) {
         const previous = previousStates.get(machine.machine_id) || null;
         const { prev_day_reports, reports_changed } = resolveReportTracking(previous, machine, timestamp);
+        const datacenterFields = resolveDatacenterFields(previous, machine);
         const normalized = {
           ...machine,
+          ...datacenterFields,
           prev_day_reports,
           reports_changed,
           temp_alert_active: shouldKeepTempAlert(previous, machine, this.config.alertTempThreshold) ? 1 : 0,
@@ -256,6 +258,37 @@ export function resolveIdleSince(previous, current, timestamp) {
   }
 
   return timestamp;
+}
+
+export function resolveDatacenterFields(previous, current) {
+  if (Number.isFinite(current.hosting_type) || Number.isFinite(current.host_id)) {
+    const hostingType = Number.isFinite(current.hosting_type) ? current.hosting_type : null;
+    const hostId = Number.isFinite(current.host_id) ? current.host_id : null;
+    const isDatacenter = hostingType === 1;
+
+    return {
+      host_id: hostId,
+      hosting_type: hostingType,
+      is_datacenter: isDatacenter ? 1 : 0,
+      datacenter_id: isDatacenter ? hostId : null
+    };
+  }
+
+  if (!previous) {
+    return {
+      host_id: null,
+      hosting_type: null,
+      is_datacenter: 0,
+      datacenter_id: null
+    };
+  }
+
+  return {
+    host_id: Number.isFinite(previous.host_id) ? previous.host_id : null,
+    hosting_type: Number.isFinite(previous.hosting_type) ? previous.hosting_type : null,
+    is_datacenter: previous.is_datacenter ? 1 : 0,
+    datacenter_id: previous.is_datacenter ? previous.datacenter_id ?? previous.host_id ?? null : null
+  };
 }
 
 export function shouldKeepTempAlert(previous, current, threshold) {

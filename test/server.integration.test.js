@@ -43,6 +43,16 @@ test("server integration returns expected API payloads and dependency failures",
     const health = await invokeRoute(app, "/api/health");
     const fleet = await invokeRoute(app, "/api/fleet/history", { query: { hours: "24" } });
     const reports = await invokeRoute(app, "/api/reports", { query: { machine_id: "1" } });
+    const machineEarningsRange = await invokeRoute(app, "/api/earnings/machine", {
+      query: {
+        machine_id: "1",
+        start: "2026-02-01T00:00:00.000Z",
+        end: "2026-03-01T00:00:00.000Z"
+      }
+    });
+    const machineMonthlySummary = await invokeRoute(app, "/api/earnings/machine/monthly-summary", {
+      query: { machine_id: "1" }
+    });
 
     assert.equal(status.statusCode, 200);
     assert.equal(status.body.summary.totalMachines, 2);
@@ -62,6 +72,14 @@ test("server integration returns expected API payloads and dependency failures",
     assert.equal(reports.body.error, "failed to fetch reports");
     assert.equal(reports.body.dependency.ok, false);
     assert.match(reports.body.dependency.health.detail, /CLI binary not found|not executable/i);
+
+    assert.equal(machineEarningsRange.statusCode, 502);
+    assert.equal(machineEarningsRange.body.error, "failed to fetch machine earnings");
+    assert.equal(machineEarningsRange.body.dependency.ok, false);
+
+    assert.equal(machineMonthlySummary.statusCode, 502);
+    assert.equal(machineMonthlySummary.body.error, "failed to fetch machine monthly earnings summary");
+    assert.equal(machineMonthlySummary.body.dependency.ok, false);
   } finally {
     db.db.close();
   }

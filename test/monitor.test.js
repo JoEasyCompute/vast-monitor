@@ -5,6 +5,7 @@ import {
   buildChangeSet,
   detectHostnameCollisions,
   dedupeMachinesByHostname,
+  resolveDatacenterFields,
   resolveIdleSince,
   resolveReportTracking,
   shouldKeepIdleAlert,
@@ -103,4 +104,22 @@ test("idle helpers preserve idle start until rentals resume", () => {
   assert.equal(shouldKeepIdleAlert(previous, rentedCurrent, 6, timestamp), false);
   assert.equal(shouldKeepTempAlert(previous, idleCurrent, 85), true);
   assert.equal(shouldKeepTempAlert(previous, rentedCurrent, 85), false);
+});
+
+test("resolveDatacenterFields preserves prior datacenter metadata when enrichment is missing", () => {
+  assert.deepEqual(
+    resolveDatacenterFields(
+      { host_id: 500, hosting_type: 1, is_datacenter: 1, datacenter_id: 500 },
+      { host_id: null, hosting_type: null }
+    ),
+    { host_id: 500, hosting_type: 1, is_datacenter: 1, datacenter_id: 500 }
+  );
+
+  assert.deepEqual(
+    resolveDatacenterFields(
+      { host_id: 500, hosting_type: 1, is_datacenter: 1, datacenter_id: 500 },
+      { host_id: 700, hosting_type: 0 }
+    ),
+    { host_id: 700, hosting_type: 0, is_datacenter: 0, datacenter_id: null }
+  );
 });

@@ -108,18 +108,52 @@ export function createServer({ config, db, monitor }) {
   app.get("/api/earnings/machine", async (req, res) => {
     const machineId = Number(req.query.machine_id);
     const rawHours = req.query.hours == null ? 168 : Number(req.query.hours);
+    const rawStart = typeof req.query.start === "string" ? req.query.start : null;
+    const rawEnd = typeof req.query.end === "string" ? req.query.end : null;
     if (!Number.isFinite(machineId)) {
       res.status(400).json({ error: "machine_id is required" });
       return;
     }
-    if (!Number.isFinite(rawHours) || rawHours < 1) {
+    if ((rawStart && !rawEnd) || (!rawStart && rawEnd)) {
+      res.status(400).json({ error: "start and end must be provided together" });
+      return;
+    }
+
+    const hasDateRange = Boolean(rawStart && rawEnd);
+    if (!hasDateRange && (!Number.isFinite(rawHours) || rawHours < 1)) {
       res.status(400).json({ error: "hours must be a positive number" });
       return;
     }
 
     try {
-      const hours = Math.min(24 * 365, Math.floor(rawHours));
-      const earnings = await fetchMachineEarnings(config, machineId, hours);
+      let earningsRequest;
+      if (hasDateRange) {
+        const startMs = Date.parse(rawStart);
+        const endMs = Date.parse(rawEnd);
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+          res.status(400).json({ error: "start and end must be valid ISO datetimes" });
+          return;
+        }
+        if (endMs <= startMs) {
+          res.status(400).json({ error: "end must be after start" });
+          return;
+        }
+        if ((endMs - startMs) > (24 * 365 * 60 * 60 * 1000)) {
+          res.status(400).json({ error: "date range cannot exceed 365 days" });
+          return;
+        }
+
+        earningsRequest = {
+          start: new Date(startMs).toISOString(),
+          end: new Date(endMs).toISOString()
+        };
+      } else {
+        earningsRequest = {
+          hours: Math.min(24 * 365, Math.floor(rawHours))
+        };
+      }
+
+      const earnings = await fetchMachineEarnings(config, machineId, earningsRequest);
       res.json({
         ...earnings,
         dependency: {
@@ -130,6 +164,36 @@ export function createServer({ config, db, monitor }) {
     } catch (error) {
       res.status(502).json({
         error: "failed to fetch machine earnings",
+        detail: error instanceof Error ? error.message : String(error),
+        dependency: {
+          type: "vast-cli",
+          ok: false,
+          health: getLiveDependencyHealth(config).vastCli
+        }
+      });
+    }
+  });
+
+  app.get("/api/earnings/machine/monthly-summary", async (req, res) => {
+    const machineId = Number(req.query.machine_id);
+    if (!Number.isFinite(machineId)) {
+      res.status(400).json({ error: "machine_id is required" });
+      return;
+    }
+
+    try {
+      const months = await fetchMachineCalendarMonthSummary(config, machineId);
+      res.json({
+        machine_id: machineId,
+        months,
+        dependency: {
+          type: "vast-cli",
+          ok: true
+        }
+      });
+    } catch (error) {
+      res.status(502).json({
+        error: "failed to fetch machine monthly earnings summary",
         detail: error instanceof Error ? error.message : String(error),
         dependency: {
           type: "vast-cli",
@@ -167,6 +231,49 @@ export function createServer({ config, db, monitor }) {
   });
 
   return app;
+}
+
+async function fetchMachineCalendarMonthSummary(config, machineId, now = new Date()) {
+  const currentMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const previousMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+
+  const [previousMonth, currentMonth] = await Promise.all([
+    fetchMachineEarnings(config, machineId, {
+      start: previousMonthStart.toISOString(),
+      end: currentMonthStart.toISOString(),
+      requirePerMachineTotal: true
+    }),
+    fetchMachineEarnings(config, machineId, {
+      start: currentMonthStart.toISOString(),
+      end: now.toISOString(),
+      requirePerMachineTotal: true
+    })
+  ]);
+
+  return [
+    {
+      key: "previous",
+      label: formatMonthLabel(previousMonthStart),
+      start: previousMonth.start,
+      end: previousMonth.end,
+      total: previousMonth.total
+    },
+    {
+      key: "current",
+      label: formatMonthLabel(currentMonthStart),
+      start: currentMonth.start,
+      end: currentMonth.end,
+      total: currentMonth.total
+    }
+  ];
+}
+
+function formatMonthLabel(date) {
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC"
+  }).format(date);
 }
 
 function buildFleetResponse(fleet, config) {

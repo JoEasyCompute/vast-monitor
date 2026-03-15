@@ -29,16 +29,16 @@ test("normalizeMachine derives occupancy, status, maintenance, and idle state", 
     timeout: 301,
     error_description: "failed to inject CDI devices",
     machine_maintenance: ["network"],
-    public_ipaddr: "1.2.3.4",
-    host_id: "99",
-    hosting_type: "1"
+    public_ipaddr: "1.2.3.4"
   }, "2026-03-14T12:00:00.000Z");
 
   assert.equal(normalized.machine_id, 12);
   assert.equal(normalized.occupied_gpus, 2);
   assert.equal(normalized.status, "offline");
   assert.equal(normalized.listed, 0);
-  assert.equal(normalized.datacenter_id, 99);
+  assert.equal(normalized.host_id, null);
+  assert.equal(normalized.hosting_type, null);
+  assert.equal(normalized.datacenter_id, null);
   assert.equal(normalized.idle_since, "2026-03-14T12:00:00.000Z");
   assert.equal(normalized.machine_maintenance, "[\"network\"]");
 });

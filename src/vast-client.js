@@ -26,8 +26,8 @@ export async function fetchMachines(config) {
 
   return normalizedMachines.map((machine) => {
     const metadata = datacenterMetadata[String(machine.machine_id)] || null;
-    const hostingType = metadata?.hosting_type ?? machine.hosting_type ?? null;
-    const hostId = metadata?.host_id ?? machine.host_id ?? null;
+    const hostingType = metadata?.hosting_type ?? null;
+    const hostId = metadata?.host_id ?? null;
     const isDatacenter = hostingType === 1;
 
     return {
@@ -63,10 +63,9 @@ export async function fetchMachineReports(config, machineId) {
   }));
 }
 
-export async function fetchMachineEarnings(config, machineId, hours) {
+export async function fetchMachineEarnings(config, machineId, options = {}) {
   const { vastCliPath } = config;
-  const endDate = new Date();
-  const startDate = new Date(endDate.getTime() - (hours * 60 * 60 * 1000));
+  const window = resolveEarningsWindow(options);
   const { stdout, stderr } = await execFileAsync(vastCliPath, [
     "show",
     "earnings",
@@ -74,9 +73,9 @@ export async function fetchMachineEarnings(config, machineId, hours) {
     "-m",
     String(machineId),
     "-s",
-    startDate.toISOString(),
+    window.start.toISOString(),
     "-e",
-    endDate.toISOString()
+    window.end.toISOString()
   ], {
     maxBuffer: 1024 * 1024 * 20
   });
@@ -104,13 +103,52 @@ export async function fetchMachineEarnings(config, machineId, hours) {
 
   return {
     machine_id: machineId,
-    hours,
-    total: currentMachine ? sumEarningsRow(currentMachine) : Number(days.reduce((sum, row) => sum + row.earnings, 0).toFixed(4)),
+    hours: window.hours,
+    start: window.start.toISOString(),
+    end: window.end.toISOString(),
+    total: resolveMachineEarningsTotal(currentMachine, days, options),
     gpu_earn: currentMachine ? (numberOrNull(currentMachine.gpu_earn) || 0) : 0,
     sto_earn: currentMachine ? (numberOrNull(currentMachine.sto_earn) || 0) : 0,
     bwu_earn: currentMachine ? (numberOrNull(currentMachine.bwu_earn) || 0) : 0,
     bwd_earn: currentMachine ? (numberOrNull(currentMachine.bwd_earn) || 0) : 0,
     days
+  };
+}
+
+function resolveMachineEarningsTotal(currentMachine, days, options) {
+  if (currentMachine) {
+    return sumEarningsRow(currentMachine);
+  }
+
+  if (options?.requirePerMachineTotal) {
+    return null;
+  }
+
+  return Number(days.reduce((sum, row) => sum + row.earnings, 0).toFixed(4));
+}
+
+function resolveEarningsWindow(options) {
+  if (typeof options === "number") {
+    const end = new Date();
+    const start = new Date(end.getTime() - (options * 60 * 60 * 1000));
+
+    return {
+      start,
+      end,
+      hours: options
+    };
+  }
+
+  const end = options.end ? new Date(options.end) : new Date();
+  const start = options.start
+    ? new Date(options.start)
+    : new Date(end.getTime() - ((options.hours || 168) * 60 * 60 * 1000));
+  const hours = (end.getTime() - start.getTime()) / (60 * 60 * 1000);
+
+  return {
+    start,
+    end,
+    hours: Number.isFinite(hours) ? Number(hours.toFixed(2)) : null
   };
 }
 
@@ -141,10 +179,10 @@ export function normalizeMachine(machine, now = new Date().toISOString()) {
     error_message: resolveErrorMessage(machine),
     machine_maintenance: serializeMaintenance(machine.machine_maintenance),
     public_ipaddr: machine.public_ipaddr || null,
-    host_id: intOrNull(machine.host_id),
-    hosting_type: intOrNull(machine.hosting_type),
-    is_datacenter: Number(machine.hosting_type) === 1 ? 1 : 0,
-    datacenter_id: Number(machine.hosting_type) === 1 ? intOrNull(machine.host_id) : null,
+    host_id: null,
+    hosting_type: null,
+    is_datacenter: 0,
+    datacenter_id: null,
     temp_alert_active: 0,
     idle_alert_active: 0,
     idle_since: Number(machine.current_rentals_running || 0) > 0 ? null : now

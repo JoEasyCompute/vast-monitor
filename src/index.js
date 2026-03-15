@@ -1,4 +1,4 @@
-import { config, validateRuntimeConfig } from "./config.js";
+import { config, getOptionalRuntimeWarnings, validateRuntimeConfig } from "./config.js";
 import { createDatabase } from "./db.js";
 import { AlertManager } from "./alerts/alert-manager.js";
 import { ConsoleAlertChannel } from "./alerts/console-alert-channel.js";
@@ -12,6 +12,9 @@ if (!validation.ok) {
     console.error(`[startup] ${issue}`);
   }
   process.exit(1);
+}
+for (const warning of getOptionalRuntimeWarnings(config)) {
+  console.warn(`[startup] ${warning}`);
 }
 const db = createDatabase(config.dbPath);
 console.log(`[startup] Database ready at ${config.dbPath}`);
