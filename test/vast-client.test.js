@@ -111,3 +111,56 @@ test("fetchDatacenterMetadata batches machine ids instead of calling once per ma
     global.fetch = originalFetch;
   }
 });
+
+test("fetchDatacenterMetadata retries unresolved machine ids individually when batch results are incomplete", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "vast-monitor-batch-retry-"));
+  const apiKeyPath = path.join(tempDir, "vast_api_key");
+  fs.writeFileSync(apiKeyPath, "secret-token\n");
+
+  const originalFetch = global.fetch;
+  const seenBodies = [];
+
+  global.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body);
+    seenBodies.push(body);
+    const ids = body.machine_id.in;
+
+    if (ids.length === 2) {
+      return {
+        ok: true,
+        async json() {
+          return {
+            offers: [
+              { machine_id: 101, host_id: 5001, hosting_type: 1 }
+            ]
+          };
+        }
+      };
+    }
+
+    return {
+      ok: true,
+      async json() {
+        return {
+          offers: [
+            { machine_id: ids[0], host_id: ids[0] + 5000, hosting_type: 1 }
+          ]
+        };
+      }
+    };
+  };
+
+  try {
+    const metadata = await fetchDatacenterMetadata({
+      vastApiUrl: "https://example.invalid/api/v0",
+      vastApiKeyPath: apiKeyPath
+    }, [101, 102]);
+
+    assert.deepEqual(metadata["101"], { host_id: 5001, hosting_type: 1 });
+    assert.deepEqual(metadata["102"], { host_id: 5102, hosting_type: 1 });
+    assert.equal(seenBodies.length, 2);
+    assert.deepEqual(seenBodies[1].machine_id.in, [102]);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});

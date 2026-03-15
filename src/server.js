@@ -269,8 +269,11 @@ async function fetchMachineCalendarMonthSummary(config, machineId, now = new Dat
       start: previousMonth.start,
       end: previousMonth.end,
       total: previousMonth.total,
+      source: "vast-per-machine-range",
       comparison_label: "vs Last Month",
-      comparison: buildComparisonMetric(previousMonth.total, previousPreviousMonth.total, 2)
+      comparison: buildComparisonMetric(previousMonth.total, previousPreviousMonth.total, 2),
+      comparison_start: previousPreviousMonth.start,
+      comparison_end: previousPreviousMonth.end
     },
     {
       key: "current",
@@ -278,8 +281,11 @@ async function fetchMachineCalendarMonthSummary(config, machineId, now = new Dat
       start: currentMonth.start,
       end: currentMonth.end,
       total: currentMonth.total,
+      source: "vast-per-machine-range",
       comparison_label: "vs Last Month",
-      comparison: buildComparisonMetric(currentMonth.total, previousComparablePeriod.total, 2)
+      comparison: buildComparisonMetric(currentMonth.total, previousComparablePeriod.total, 2),
+      comparison_start: previousComparablePeriod.start,
+      comparison_end: previousComparablePeriod.end
     }
   ];
 }
@@ -287,7 +293,7 @@ async function fetchMachineCalendarMonthSummary(config, machineId, now = new Dat
 function formatMonthLabel(date) {
   return new Intl.DateTimeFormat("en", {
     month: "short",
-    year: "numeric",
+    year: "2-digit",
     timeZone: "UTC"
   }).format(date);
 }

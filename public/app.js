@@ -484,21 +484,26 @@ function updateModalEarningsSummary(machine, earningsData, machineHistory = [], 
 
   const cards = [];
   if (earningsData && Number.isFinite(earningsData.total)) {
-    const baseLabel = currentMachineHistoryHours <= 24 ? "Earned 24h" : currentMachineHistoryHours <= 168 ? "Earned 7d" : "Earned 30d";
-    const label = earningsData.source === "estimated"
-      ? `${baseLabel} (est)`
-      : baseLabel;
+    const baseLabel = currentMachineHistoryHours <= 24 ? "24H EARN" : currentMachineHistoryHours <= 168 ? "7D EARN" : "30D EARN";
     cards.push({
-      label,
-      value: formatPriceShort(earningsData.total)
+      label: baseLabel,
+      value: formatPriceShort(earningsData.total),
+      badge: earningsData.source === "estimated" ? "Est." : "Real.",
+      badgeClass: earningsData.source === "estimated" ? "estimated" : "realized",
+      title: earningsData.source === "estimated"
+        ? "Source: local machine snapshot earn_day history"
+        : `Source: Vast CLI earnings response for ${formatDateWindow(earningsData.start, earningsData.end)}`
     });
   }
 
   cards.push(...buildCalendarMonthEarningsSummaries(earningsData, machineHistory, monthlySummary).map((item) => ({
     label: item.label,
     value: item.total == null ? "-" : formatPriceShort(item.total),
+    badge: item.badge,
+    badgeClass: item.badgeClass,
     comparisonLabel: item.comparisonLabel,
-    comparisonMetric: item.comparisonMetric
+    comparisonMetric: item.comparisonMetric,
+    title: item.title
   })));
 
   if (!cards.length) {
@@ -514,8 +519,11 @@ function buildCalendarMonthEarningsSummaries(_earningsData, machineHistory = [],
     return realizedMonths.map((month) => ({
       label: month.label,
       total: Number.isFinite(Number(month.total)) ? Number(month.total) : null,
+      badge: "Real.",
+      badgeClass: "realized",
       comparisonLabel: month.comparison_label || null,
-      comparisonMetric: month.comparison || null
+      comparisonMetric: month.comparison || null,
+      title: `Source: Vast CLI per_machine total. Window: ${formatDateWindow(month.start, month.end)}. Comparison window: ${formatDateWindow(month.comparison_start, month.comparison_end)}`
     }));
   }
 
@@ -531,25 +539,28 @@ function buildCalendarMonthEarningsSummaries(_earningsData, machineHistory = [],
     return {
       label: `${formatMonthLabelUtc(monthStart)} (est)`,
       total: estimatedTotal,
+      badge: "Est.",
+      badgeClass: "estimated",
       comparisonLabel: null,
-      comparisonMetric: null
+      comparisonMetric: null,
+      title: "Source: local machine snapshot earn_day history"
     };
   });
 }
 
-function renderModalSummaryCard({ label, value, comparisonLabel = null, comparisonMetric = null }) {
+function renderModalSummaryCard({ label, value, badge = null, badgeClass = "", comparisonLabel = null, comparisonMetric = null, title = "" }) {
   if (!comparisonMetric) {
     return `
-      <article class="modal-summary-card">
-        <span>${escapeHtml(label)}</span>
+      <article class="modal-summary-card" title="${escapeHtml(title)}">
+        <span>${escapeHtml(label)}${badge ? ` <em class="summary-badge ${escapeHtml(badgeClass)}">${escapeHtml(badge)}</em>` : ""}</span>
         <strong>${escapeHtml(value)}</strong>
       </article>
     `;
   }
 
   return `
-    <article class="modal-summary-card modal-summary-card-compare">
-      <span class="stat-label">${escapeHtml(label)}</span>
+    <article class="modal-summary-card modal-summary-card-compare" title="${escapeHtml(title)}">
+      <span class="stat-label">${escapeHtml(label)}${badge ? ` <em class="summary-badge ${escapeHtml(badgeClass)}">${escapeHtml(badge)}</em>` : ""}</span>
       <strong class="stat-value">${escapeHtml(value)}</strong>
       <div class="stat-compare compare-${getComparisonDirection(comparisonMetric.delta)}">
         <span class="stat-compare-label">${escapeHtml(comparisonLabel)}</span>
@@ -560,6 +571,28 @@ function renderModalSummaryCard({ label, value, comparisonLabel = null, comparis
   `;
 }
 
+function formatDateWindow(start, end) {
+  if (!start || !end) {
+    return "unknown window";
+  }
+
+  return `${formatShortDate(start)} - ${formatShortDateExclusiveEnd(end)}`;
+}
+
+function formatShortDate(value) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC"
+  }).format(new Date(value));
+}
+
+function formatShortDateExclusiveEnd(value) {
+  const endDate = new Date(Date.parse(value) - 1);
+  return formatShortDate(endDate);
+}
+
 function monthKeyUtc(date) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
@@ -567,7 +600,7 @@ function monthKeyUtc(date) {
 function formatMonthLabelUtc(date) {
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
-    year: "numeric",
+    year: "2-digit",
     timeZone: "UTC"
   }).format(date);
 }
@@ -1380,6 +1413,7 @@ const modalNext = document.getElementById("modal-next");
 const modalTitle = document.getElementById("modal-title");
 const modalSummary = document.getElementById("modal-summary");
 const modalEarningsBreakdown = document.getElementById("modal-earnings-breakdown");
+const modalEarningsStatus = document.getElementById("modal-earnings-status");
 const modalLiveNote = document.getElementById("modal-live-note");
 const modalTimeline = document.getElementById("modal-timeline");
 const modalStats = document.getElementById("modal-stats");
@@ -1528,6 +1562,8 @@ async function showMachineHistory(machineId, options = {}) {
   document.getElementById("modal-ip").textContent = "";
   modalSummary.innerHTML = "";
   modalEarningsBreakdown.innerHTML = "";
+  modalEarningsStatus.innerHTML = "";
+  modalEarningsStatus.classList.add("hidden");
   modalLiveNote.textContent = "";
   modalLiveNote.classList.add("hidden");
   modalTimeline.innerHTML = "";
@@ -1616,6 +1652,11 @@ async function showMachineHistory(machineId, options = {}) {
     drawReliabilityChart(history);
     drawPriceChart(history);
     drawMachineEarningsChart(currentModalEarningsData, history);
+    renderModalEarningsStatus(
+      currentModalEarningsData,
+      monthlySummaryResponse.ok ? monthlySummary : null,
+      earningsResponse.ok
+    );
     updateModalEarningsSummary(
       machine,
       currentModalEarningsData,
@@ -1714,6 +1755,36 @@ function renderModalLiveDependencyState(earningsData, machineHistory = []) {
 
   modalLiveNote.textContent = "";
   modalLiveNote.classList.add("hidden");
+}
+
+function renderModalEarningsStatus(earningsData, monthlySummary, liveEarningsOk) {
+  if (!modalEarningsStatus) {
+    return;
+  }
+
+  const chartSource = earningsData?.source === "estimated"
+    ? "Chart source: local machine earn/day history"
+    : `Chart source: Vast CLI daily earnings (${formatDateWindow(earningsData?.start, earningsData?.end)})`;
+  const realizedMonths = Array.isArray(monthlySummary?.months) ? monthlySummary.months.filter((month) => Number.isFinite(Number(month.total))) : [];
+  const monthSource = realizedMonths.length > 0
+    ? `Month cards: realized via Vast CLI per_machine totals`
+    : "Month cards: estimated fallback or unavailable";
+  const currentMonth = realizedMonths.find((month) => month.key === "current");
+  const compareWindow = currentMonth?.comparison_start && currentMonth?.comparison_end
+    ? `Current compare window: ${formatDateWindow(currentMonth.start, currentMonth.end)} vs ${formatDateWindow(currentMonth.comparison_start, currentMonth.comparison_end)}`
+    : "";
+  const badge = liveEarningsOk ? ["Healthy", "healthy"] : ["Degraded", "degraded"];
+
+  modalEarningsStatus.innerHTML = `
+    <div class="earnings-status-head">
+      <span class="summary-badge ${badge[1]}">${badge[0]}</span>
+      <strong>Live Earnings</strong>
+    </div>
+    <div class="earnings-status-line">${escapeHtml(monthSource)}</div>
+    <div class="earnings-status-line">${escapeHtml(chartSource)}</div>
+    ${compareWindow ? `<div class="earnings-status-line">${escapeHtml(compareWindow)}</div>` : ""}
+  `;
+  modalEarningsStatus.classList.remove("hidden");
 }
 
 function buildDependencyFailureMessage(payload, prefix) {

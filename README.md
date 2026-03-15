@@ -233,6 +233,7 @@ Important behavior:
 - current month hover comparison uses the same elapsed period from the previous month, capped at the previous month end
 - for example, March 15 compares against February 1-15; March 31 compares against February 1-28 or February 1-29 in leap years
 - comparison labels in the machine modal are intentionally shortened to keep the hover state readable
+- machine modal earnings cards use compact labels for readability, e.g. month labels like `Mar 26`, source badges `Real.` / `Est.`, and rolling labels like `7D EARN`
 - if a machine has no realized total for a month yet, the summary should remain blank rather than showing fleet earnings
 
 Validation:

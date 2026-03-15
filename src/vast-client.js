@@ -203,7 +203,8 @@ export async function fetchDatacenterMetadata(config, machineIds) {
   const batchSize = 100;
 
   for (let index = 0; index < ids.length; index += batchSize) {
-    const offers = await fetchDatacenterMetadataBatch(config, apiKey, ids.slice(index, index + batchSize));
+    const batchIds = ids.slice(index, index + batchSize);
+    const offers = await fetchDatacenterMetadataBatch(config, apiKey, batchIds);
 
     for (const offer of offers) {
       const machineId = Number(offer.machine_id);
@@ -219,6 +220,27 @@ export async function fetchDatacenterMetadata(config, machineIds) {
       const existing = metadataByMachineId[key];
       if (!existing || shouldPreferDatacenterCandidate(existing, candidate)) {
         metadataByMachineId[key] = candidate;
+      }
+    }
+
+    const unresolvedIds = batchIds.filter((machineId) => !metadataByMachineId[String(machineId)]);
+    for (const machineId of unresolvedIds) {
+      const singleOffers = await fetchDatacenterMetadataBatch(config, apiKey, [machineId]);
+      for (const offer of singleOffers) {
+        const resolvedMachineId = Number(offer.machine_id);
+        if (!Number.isFinite(resolvedMachineId)) {
+          continue;
+        }
+
+        const candidate = {
+          host_id: intOrNull(offer.host_id),
+          hosting_type: intOrNull(offer.hosting_type)
+        };
+        const key = String(resolvedMachineId);
+        const existing = metadataByMachineId[key];
+        if (!existing || shouldPreferDatacenterCandidate(existing, candidate)) {
+          metadataByMachineId[key] = candidate;
+        }
       }
     }
   }
