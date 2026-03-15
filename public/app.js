@@ -396,12 +396,9 @@ function renderModalSummary(machine) {
     ["Rentals", renderModalRentals(machine)],
     ["Reliability", machine.reliability == null ? "-" : renderModalReliability(machine)],
     ["Temp", escapeHtml(machine.gpu_max_cur_temp == null ? "-" : `${machine.gpu_max_cur_temp}C`)],
-    ["Uptime 24h", escapeHtml(machine.uptime?.["24h"] == null ? "-" : `${machine.uptime["24h"]}%`)],
-    ["DC", escapeHtml(machine.is_datacenter ? "Yes" : "No")]
+    ["Uptime 24h", escapeHtml(machine.uptime?.["24h"] == null ? "-" : `${machine.uptime["24h"]}%`)]
   ];
   const commercialItems = [
-    ["GPU Type", escapeHtml(machine.gpu_type || "Unknown")],
-    ["GPUs", escapeHtml(machine.num_gpus ?? "-")],
     ["Price", machine.listed_gpu_cost == null ? "-" : renderSummaryPrice(machine)],
     ["Earn/day", escapeHtml(machine.earn_day == null ? "-" : formatPriceShort(machine.earn_day))]
   ];
@@ -410,6 +407,21 @@ function renderModalSummary(machine) {
     ${renderModalSummarySection("Operational", operationalItems)}
     ${renderModalSummarySection("Commercial", commercialItems)}
   `;
+}
+
+function formatGpuMachineLabel(machine) {
+  const gpuCount = machine?.num_gpus ?? null;
+  const gpuType = machine?.gpu_type || "Unknown";
+  return Number.isFinite(gpuCount) ? `${gpuCount}x${gpuType}` : gpuType;
+}
+
+function renderModalHeader(machineId, machine = null) {
+  const dcTag = machine?.is_datacenter ? ' <span class="dc-pill">DC</span>' : "";
+  const gpuTag = machine ? ` <span class="modal-header-gpu">${escapeHtml(formatGpuMachineLabel(machine))}</span>` : "";
+  const ipTag = machine?.public_ipaddr
+    ? ` <button class="modal-header-ip" type="button" title="Copy IP address" onclick="copyMachineIpAddress('${escapeHtml(machine.public_ipaddr)}')">${escapeHtml(machine.public_ipaddr)}</button>`
+    : "";
+  modalTitle.innerHTML = `Machine #${escapeHtml(String(machineId))}${dcTag}${gpuTag}${ipTag}`;
 }
 
 function renderSummaryPrice(machine) {
@@ -750,8 +762,7 @@ function renderModalEarningsBreakdown(earningsData) {
   const items = [
     ["GPU", earningsData?.gpu_earn],
     ["Storage", earningsData?.sto_earn],
-    ["BW Up", earningsData?.bwu_earn],
-    ["BW Down", earningsData?.bwd_earn]
+    ["BW Up/Down", sumBandwidthEarnings(earningsData)]
   ].filter(([, value]) => Number.isFinite(value));
 
   if (!items.length) {
@@ -767,6 +778,13 @@ function renderModalEarningsBreakdown(earningsData) {
       </article>
     `)
     .join("");
+}
+
+function sumBandwidthEarnings(earningsData) {
+  const up = Number(earningsData?.bwu_earn);
+  const down = Number(earningsData?.bwd_earn);
+  const total = (Number.isFinite(up) ? up : 0) + (Number.isFinite(down) ? down : 0);
+  return Number.isFinite(total) ? total : null;
 }
 
 function getStatusTooltip(row) {
@@ -1549,6 +1567,14 @@ window.showMachineRow = function (event, machineId) {
   showMachineHistory(machineId);
 };
 
+window.copyMachineIpAddress = async function (ipAddress) {
+  try {
+    await navigator.clipboard.writeText(ipAddress);
+  } catch (error) {
+    console.error("Failed to copy IP address:", error);
+  }
+};
+
 async function showMachineHistory(machineId, options = {}) {
   const { preserveScroll = false } = options;
   const modalBody = modalBackdrop.querySelector(".modal-body");
@@ -1557,9 +1583,8 @@ async function showMachineHistory(machineId, options = {}) {
   currentModalHistory = [];
   currentModalEarningsData = null;
   setModalTab(preserveScroll ? currentModalTab : "charts");
-  modalTitle.textContent = `Machine #${machineId} History`;
+  renderModalHeader(machineId);
   modalStats.textContent = "Loading...";
-  document.getElementById("modal-ip").textContent = "";
   modalSummary.innerHTML = "";
   modalEarningsBreakdown.innerHTML = "";
   modalEarningsStatus.innerHTML = "";
@@ -1596,7 +1621,6 @@ async function showMachineHistory(machineId, options = {}) {
     const earningsData = await earningsResponse.json().catch(() => ({ days: [], total: null }));
     const monthlySummary = await monthlySummaryResponse.json().catch(() => ({ months: [] }));
     
-    // Find IP from current machine data
     const machine = currentMachinesData.find((m) => m.machine_id === machineId);
     currentModalMachine = machine ?? null;
     currentModalHistory = Array.isArray(data.history) ? data.history : [];
@@ -1606,9 +1630,7 @@ async function showMachineHistory(machineId, options = {}) {
       detail: earningsData?.detail || `Request failed (${earningsResponse.status})`,
       dependency: earningsData?.dependency || null
     }, currentModalHistory);
-    if (machine && machine.public_ipaddr) {
-      document.getElementById("modal-ip").textContent = `IP: ${machine.public_ipaddr}`;
-    }
+    renderModalHeader(machineId, machine);
     if (machine) {
       renderModalSummary(machine);
     }

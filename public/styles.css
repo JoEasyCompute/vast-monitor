@@ -1084,18 +1084,49 @@ tr.high-temperature td {
 
 .modal-header h2 {
   font-size: 1.2rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .modal-title-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
   min-width: 0;
+  flex: 1;
 }
 
 .modal-nav-group {
   display: inline-flex;
   gap: 8px;
+  margin-left: auto;
+}
+
+.modal-header-ip {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 400;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  font-family: "Space Grotesk", sans-serif;
+  line-height: 1.2;
+}
+
+.modal-header-ip:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.modal-header-gpu {
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 500;
 }
 
 .modal-close {

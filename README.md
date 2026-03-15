@@ -104,8 +104,10 @@ The dashboard includes:
 - Configurable frontend highlighting thresholds for low reliability and high temperature
 - Recent alerts
 - Per-machine history modal with tabbed `Charts` and `Recent Events` views
+- Machine modal header shows the machine ID plus compact context badges/labels such as `DC`, GPU label, and clickable IP address
 - Machine modal charts for historical earnings, renter activity, reliability, and GPU rental price
 - Machine modal commercial summary includes realized previous/current calendar month machine earnings when live Vast CLI earnings are available
+- Machine modal includes a compact live-earnings status panel showing source, health, and effective comparison windows
 - Machine modal earnings chart prefers the machine's own stored `earn_day` history and falls back to Vast daily earnings only when local history is unavailable
 - Machine modal suppresses live earnings warnings when local `earn_day` history is available and already powering the chart
 - Cursor hover inspection for fleet trend charts and machine modal charts
@@ -127,6 +129,7 @@ This project derives it from Vast bundle metadata using:
 
 - `hosting_type === 1` -> machine is treated as datacenter-tagged
 - `host_id` -> stored as the datacenter ID internally
+- unresolved bundle lookups are retried per machine when batch responses are incomplete
 
 In the dashboard, datacenter machines are shown with a blue `DC` pill.
 
@@ -234,6 +237,7 @@ Important behavior:
 - for example, March 15 compares against February 1-15; March 31 compares against February 1-28 or February 1-29 in leap years
 - comparison labels in the machine modal are intentionally shortened to keep the hover state readable
 - machine modal earnings cards use compact labels for readability, e.g. month labels like `Mar 26`, source badges `Real.` / `Est.`, and rolling labels like `7D EARN`
+- machine modal commercial fields are compacted, e.g. GPU count/type is shown in the header and bandwidth earnings are merged into `BW Up/Down`
 - if a machine has no realized total for a month yet, the summary should remain blank rather than showing fleet earnings
 
 Validation:
@@ -247,10 +251,9 @@ Returns realized previous/current calendar month totals for one machine.
 
 Implementation detail:
 
-- the server runs two machine-scoped Vast earnings range queries
-- one for the previous calendar month
-- one for the current calendar month
-- it uses the matching `per_machine` total from each response
+- the server runs machine-scoped Vast earnings range queries and uses the matching `per_machine` total from each response
+- previous month is compared against the month before it
+- current month is compared against the same calendar-day span from the previous month, capped at the previous month end
 
 Validation:
 
