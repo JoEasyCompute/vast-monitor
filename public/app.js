@@ -488,24 +488,24 @@ function updateModalEarningsSummary(machine, earningsData, machineHistory = [], 
     const label = earningsData.source === "estimated"
       ? `${baseLabel} (est)`
       : baseLabel;
-    cards.push([label, formatPriceShort(earningsData.total)]);
+    cards.push({
+      label,
+      value: formatPriceShort(earningsData.total)
+    });
   }
 
-  cards.push(...buildCalendarMonthEarningsSummaries(earningsData, machineHistory, monthlySummary).map((item) => [
-    item.label,
-    item.total == null ? "-" : formatPriceShort(item.total)
-  ]));
+  cards.push(...buildCalendarMonthEarningsSummaries(earningsData, machineHistory, monthlySummary).map((item) => ({
+    label: item.label,
+    value: item.total == null ? "-" : formatPriceShort(item.total),
+    comparisonLabel: item.comparisonLabel,
+    comparisonMetric: item.comparisonMetric
+  })));
 
   if (!cards.length) {
     return;
   }
 
-  modalSummary.insertAdjacentHTML("beforeend", cards.map(([label, value]) => `
-    <article class="modal-summary-card">
-      <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(value)}</strong>
-    </article>
-  `).join(""));
+  modalSummary.insertAdjacentHTML("beforeend", cards.map((card) => renderModalSummaryCard(card)).join(""));
 }
 
 function buildCalendarMonthEarningsSummaries(_earningsData, machineHistory = [], monthlySummary = null) {
@@ -513,7 +513,9 @@ function buildCalendarMonthEarningsSummaries(_earningsData, machineHistory = [],
   if (realizedMonths.length > 0) {
     return realizedMonths.map((month) => ({
       label: month.label,
-      total: Number.isFinite(Number(month.total)) ? Number(month.total) : null
+      total: Number.isFinite(Number(month.total)) ? Number(month.total) : null,
+      comparisonLabel: month.comparison_label || null,
+      comparisonMetric: month.comparison || null
     }));
   }
 
@@ -528,9 +530,34 @@ function buildCalendarMonthEarningsSummaries(_earningsData, machineHistory = [],
 
     return {
       label: `${formatMonthLabelUtc(monthStart)} (est)`,
-      total: estimatedTotal
+      total: estimatedTotal,
+      comparisonLabel: null,
+      comparisonMetric: null
     };
   });
+}
+
+function renderModalSummaryCard({ label, value, comparisonLabel = null, comparisonMetric = null }) {
+  if (!comparisonMetric) {
+    return `
+      <article class="modal-summary-card">
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(value)}</strong>
+      </article>
+    `;
+  }
+
+  return `
+    <article class="modal-summary-card modal-summary-card-compare">
+      <span class="stat-label">${escapeHtml(label)}</span>
+      <strong class="stat-value">${escapeHtml(value)}</strong>
+      <div class="stat-compare compare-${getComparisonDirection(comparisonMetric.delta)}">
+        <span class="stat-compare-label">${escapeHtml(comparisonLabel)}</span>
+        <strong class="stat-compare-value">${escapeHtml(formatComparisonDelta("Daily Earnings", comparisonMetric.delta))}</strong>
+        ${comparisonMetric.pct_delta == null ? "" : `<small class="stat-compare-pct">${escapeHtml(`${comparisonMetric.pct_delta > 0 ? "+" : ""}${comparisonMetric.pct_delta}%`)}</small>`}
+      </div>
+    </article>
+  `;
 }
 
 function monthKeyUtc(date) {

@@ -236,11 +236,23 @@ export function createServer({ config, db, monitor }) {
 async function fetchMachineCalendarMonthSummary(config, machineId, now = new Date()) {
   const currentMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const previousMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const previousPreviousMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 2, 1));
+  const previousComparableEndExclusive = getPreviousComparableEndExclusive(currentMonthStart, previousMonthStart, now);
 
-  const [previousMonth, currentMonth] = await Promise.all([
+  const [previousPreviousMonth, previousMonth, previousComparablePeriod, currentMonth] = await Promise.all([
+    fetchMachineEarnings(config, machineId, {
+      start: previousPreviousMonthStart.toISOString(),
+      end: previousMonthStart.toISOString(),
+      requirePerMachineTotal: true
+    }),
     fetchMachineEarnings(config, machineId, {
       start: previousMonthStart.toISOString(),
       end: currentMonthStart.toISOString(),
+      requirePerMachineTotal: true
+    }),
+    fetchMachineEarnings(config, machineId, {
+      start: previousMonthStart.toISOString(),
+      end: previousComparableEndExclusive.toISOString(),
       requirePerMachineTotal: true
     }),
     fetchMachineEarnings(config, machineId, {
@@ -256,14 +268,18 @@ async function fetchMachineCalendarMonthSummary(config, machineId, now = new Dat
       label: formatMonthLabel(previousMonthStart),
       start: previousMonth.start,
       end: previousMonth.end,
-      total: previousMonth.total
+      total: previousMonth.total,
+      comparison_label: "vs Last Month",
+      comparison: buildComparisonMetric(previousMonth.total, previousPreviousMonth.total, 2)
     },
     {
       key: "current",
       label: formatMonthLabel(currentMonthStart),
       start: currentMonth.start,
       end: currentMonth.end,
-      total: currentMonth.total
+      total: currentMonth.total,
+      comparison_label: "vs Last Month",
+      comparison: buildComparisonMetric(currentMonth.total, previousComparablePeriod.total, 2)
     }
   ];
 }
@@ -274,6 +290,45 @@ function formatMonthLabel(date) {
     year: "numeric",
     timeZone: "UTC"
   }).format(date);
+}
+
+function getPreviousComparableEndExclusive(currentMonthStart, previousMonthStart, now) {
+  const nextDayOfMonth = now.getUTCDate() + 1;
+  const previousMonthNextDayStart = new Date(Date.UTC(
+    previousMonthStart.getUTCFullYear(),
+    previousMonthStart.getUTCMonth(),
+    nextDayOfMonth
+  ));
+  const previousMonthEnd = currentMonthStart;
+
+  if (previousMonthNextDayStart.getTime() >= previousMonthEnd.getTime()) {
+    return previousMonthEnd;
+  }
+
+  return previousMonthNextDayStart;
+}
+
+function buildComparisonMetric(current, previous, decimals = 2) {
+  if (!Number.isFinite(current) || !Number.isFinite(previous)) {
+    return {
+      current: Number.isFinite(current) ? Number(current.toFixed(decimals)) : null,
+      previous: Number.isFinite(previous) ? Number(previous.toFixed(decimals)) : null,
+      delta: null,
+      pct_delta: null
+    };
+  }
+
+  const roundedCurrent = Number(current.toFixed(decimals));
+  const roundedPrevious = Number(previous.toFixed(decimals));
+  const delta = Number((current - previous).toFixed(decimals));
+  const pctDelta = previous === 0 ? null : Number((((current - previous) / previous) * 100).toFixed(2));
+
+  return {
+    current: roundedCurrent,
+    previous: roundedPrevious,
+    delta,
+    pct_delta: pctDelta
+  };
 }
 
 function buildFleetResponse(fleet, config) {

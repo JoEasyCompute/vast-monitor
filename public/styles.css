@@ -1159,6 +1159,46 @@ tr.high-temperature td {
   font-size: 0.98rem;
 }
 
+.modal-summary-card-compare {
+  position: relative;
+  overflow: hidden;
+  min-height: 78px;
+}
+
+.modal-summary-card-compare .stat-label,
+.modal-summary-card-compare .stat-value {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.modal-summary-card-compare:hover .stat-label,
+.modal-summary-card-compare:hover .stat-value {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+.modal-summary-card-compare:hover .stat-compare {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.modal-summary-card-compare .stat-compare {
+  padding: 12px 14px;
+}
+
+.modal-summary-card-compare .stat-compare-label {
+  font-size: 0.62rem;
+  margin-bottom: 4px;
+}
+
+.modal-summary-card-compare .stat-compare-value {
+  font-size: 0.92rem;
+}
+
+.modal-summary-card-compare .stat-compare-pct {
+  font-size: 0.7rem;
+  margin-top: 4px;
+}
+
 .modal-inline-value {
   display: inline-flex;
   flex-direction: column;

@@ -230,6 +230,9 @@ Important behavior:
 - they do not fall back to Vast `per_day`, because `per_day` may reflect fleet-level totals in practice
 - previous month uses `previous_month_start -> current_month_start`
 - current month uses `current_month_start -> now`
+- current month hover comparison uses the same elapsed period from the previous month, capped at the previous month end
+- for example, March 15 compares against February 1-15; March 31 compares against February 1-28 or February 1-29 in leap years
+- comparison labels in the machine modal are intentionally shortened to keep the hover state readable
 - if a machine has no realized total for a month yet, the summary should remain blank rather than showing fleet earnings
 
 Validation:
