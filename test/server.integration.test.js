@@ -85,6 +85,62 @@ test("server integration returns expected API payloads and dependency failures",
   }
 });
 
+test("status excludes machines offline for more than 24 hours from fleet summary but keeps them in the machine list", async () => {
+  const dbPath = makeTempDbPath("vast-monitor-server-offline-");
+  const db = createDatabase(dbPath);
+  const now = new Date();
+  const oldOfflineAt = new Date(now.getTime() - (30 * 60 * 60 * 1000)).toISOString();
+
+  db.recordPoll({
+    timestamp: now.toISOString(),
+    machines: [
+      makeMachine({ machine_id: 1, hostname: "alpha", gpu_type: "A100", num_gpus: 4, occupied_gpus: 2, listed_gpu_cost: 1.25, earn_day: 25 })
+    ],
+    offlineMachines: [
+      makeMachine({
+        machine_id: 2,
+        hostname: "beta",
+        gpu_type: "H100",
+        num_gpus: 2,
+        listed: 0,
+        occupied_gpus: 0,
+        current_rentals_running: 0,
+        listed_gpu_cost: null,
+        earn_day: 0,
+        status: "offline",
+        last_online_at: oldOfflineAt,
+        last_seen_at: oldOfflineAt
+      })
+    ],
+    events: [],
+    alerts: []
+  });
+
+  const app = createServer({
+    config: {
+      projectRoot: path.resolve("."),
+      pollIntervalMs: 5 * 60 * 1000,
+      vastCliPath: "/definitely/missing/vast",
+      vastApiKeyPath: "/definitely/missing/api_key"
+    },
+    db,
+    monitor: null
+  });
+
+  try {
+    const status = await invokeRoute(app, "/api/status");
+
+    assert.equal(status.statusCode, 200);
+    assert.equal(status.body.summary.totalMachines, 1);
+    assert.equal(status.body.summary.unlistedMachines, 0);
+    assert.equal(status.body.summary.unlistedGpus, 0);
+    assert.equal(status.body.machines.length, 2);
+    assert.equal(status.body.machines.find((machine) => machine.machine_id === 2)?.status, "offline");
+  } finally {
+    db.db.close();
+  }
+});
+
 async function invokeRoute(app, routePath, { query = {} } = {}) {
   const layer = app.router.stack.find((entry) => entry.route?.path === routePath);
   assert.ok(layer, `Route ${routePath} not found`);

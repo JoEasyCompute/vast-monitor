@@ -1,6 +1,7 @@
 import express from "express";
 import path from "node:path";
 import { getLiveDependencyHealth } from "./config.js";
+import { buildFleetAggregate } from "./fleet-metrics.js";
 import { fetchMachineEarnings, fetchMachineReports } from "./vast-client.js";
 
 export function createServer({ config, db, monitor }) {
@@ -388,20 +389,19 @@ function buildFleetResponse(fleet, config) {
     uptime: machine.uptime
   }));
 
-  const totalMachines = machines.length;
-  const datacenterMachines = machines.reduce((sum, machine) => sum + (machine.is_datacenter ? 1 : 0), 0);
-  const unlistedMachines = machines.reduce((sum, machine) => sum + (machine.listed ? 0 : 1), 0);
-  const listedGpus = machines.reduce((sum, machine) => sum + (machine.listed ? machine.num_gpus || 0 : 0), 0);
-  const unlistedGpus = machines.reduce((sum, machine) => sum + (machine.listed ? 0 : machine.num_gpus || 0), 0);
-  const occupiedGpus = machines.reduce(
-    (sum, machine) => sum + (machine.listed && machine.status === "online" ? machine.occupied_gpus || 0 : 0),
-    0
-  );
-  const totalDailyEarnings = machines.reduce((sum, machine) => sum + (machine.earn_day || 0), 0);
-  const utilisationPct = listedGpus > 0 ? Number(((occupiedGpus / listedGpus) * 100).toFixed(2)) : 0;
+  const fleetAggregate = buildFleetAggregate(machines);
+  const fleetMachines = fleetAggregate.machines;
+  const totalMachines = fleetAggregate.summary.total_machines;
+  const datacenterMachines = fleetAggregate.summary.datacenter_machines;
+  const unlistedMachines = fleetAggregate.summary.unlisted_machines;
+  const listedGpus = fleetAggregate.summary.listed_gpus;
+  const unlistedGpus = fleetAggregate.summary.unlisted_gpus;
+  const occupiedGpus = fleetAggregate.summary.occupied_gpus;
+  const totalDailyEarnings = fleetAggregate.summary.total_daily_earnings;
+  const utilisationPct = fleetAggregate.summary.utilisation_pct;
 
   const gpuTypes = new Map();
-  for (const machine of machines) {
+  for (const machine of fleetMachines) {
     const key = machine.gpu_type || "Unknown";
     const current = gpuTypes.get(key) || {
       gpu_type: key,
@@ -454,7 +454,7 @@ function buildFleetResponse(fleet, config) {
       unlistedGpus,
       occupiedGpus,
       utilisationPct,
-      totalDailyEarnings: Number(totalDailyEarnings.toFixed(2)),
+      totalDailyEarnings,
       comparison24h: fleet.comparison24h ?? null
     },
     gpuTypeBreakdown: breakdown,

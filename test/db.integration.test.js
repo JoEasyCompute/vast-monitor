@@ -70,3 +70,49 @@ test("database integration returns fleet history, gpu utilization, price history
     store.db.close();
   }
 });
+
+test("fleet snapshots exclude machines offline for more than 24 hours", () => {
+  const dbPath = makeTempDbPath("vast-monitor-db-offline-");
+  const store = createDatabase(dbPath);
+  const now = new Date();
+  const pollAt = now.toISOString();
+  const oldOfflineAt = new Date(now.getTime() - (30 * 60 * 60 * 1000)).toISOString();
+
+  try {
+    store.recordPoll({
+      timestamp: pollAt,
+      machines: [
+        makeMachine({ machine_id: 1, hostname: "alpha", gpu_type: "A100", num_gpus: 4, occupied_gpus: 2, listed_gpu_cost: 1.2, earn_day: 20 })
+      ],
+      offlineMachines: [
+        makeMachine({
+          machine_id: 2,
+          hostname: "beta",
+          gpu_type: "H100",
+          num_gpus: 2,
+          listed: 0,
+          occupied_gpus: 0,
+          current_rentals_running: 0,
+          listed_gpu_cost: null,
+          earn_day: 0,
+          status: "offline",
+          last_online_at: oldOfflineAt,
+          last_seen_at: oldOfflineAt
+        })
+      ],
+      events: [],
+      alerts: []
+    });
+
+    const fleet = store.getCurrentFleetStatus();
+    const fleetHistory = store.getFleetHistory(24);
+
+    assert.equal(fleet.machines.length, 2);
+    assert.equal(fleetHistory.history.length, 1);
+    assert.equal(fleetHistory.history[0].total_machines, 1);
+    assert.equal(fleetHistory.history[0].unlisted_machines, 0);
+    assert.equal(fleetHistory.history[0].unlisted_gpus, 0);
+  } finally {
+    store.db.close();
+  }
+});

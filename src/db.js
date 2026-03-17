@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
+import { buildFleetAggregate, isFleetEligibleMachine } from "./fleet-metrics.js";
 
 const UPTIME_WINDOWS = {
   "24h": 24,
@@ -100,6 +101,8 @@ export function createDatabase(dbPath) {
       num_recent_reports REAL,
       error_message TEXT,
       machine_maintenance TEXT,
+      last_seen_at TEXT,
+      last_online_at TEXT,
       host_id INTEGER,
       hosting_type INTEGER,
       is_datacenter INTEGER NOT NULL DEFAULT 0,
@@ -177,6 +180,12 @@ export function createDatabase(dbPath) {
   if (!machineSnapshotColumns.has("machine_maintenance")) {
     db.exec("ALTER TABLE machine_snapshots ADD COLUMN machine_maintenance TEXT");
   }
+  if (!machineSnapshotColumns.has("last_seen_at")) {
+    db.exec("ALTER TABLE machine_snapshots ADD COLUMN last_seen_at TEXT");
+  }
+  if (!machineSnapshotColumns.has("last_online_at")) {
+    db.exec("ALTER TABLE machine_snapshots ADD COLUMN last_online_at TEXT");
+  }
   if (!machineSnapshotColumns.has("hosting_type")) {
     db.exec("ALTER TABLE machine_snapshots ADD COLUMN hosting_type INTEGER");
   }
@@ -199,6 +208,9 @@ export function createDatabase(dbPath) {
         @poll_id, @polled_at, @total_machines, @datacenter_machines, @unlisted_machines,
         @listed_gpus, @unlisted_gpus, @occupied_gpus, @utilisation_pct, @total_daily_earnings
       )
+    `),
+    deleteFleetSnapshots: db.prepare(`
+      DELETE FROM fleet_snapshots
     `),
     upsertRegistry: db.prepare(`
       INSERT INTO machine_registry (machine_id, hostname, gpu_type, num_gpus, created_at, updated_at)
@@ -258,12 +270,12 @@ export function createDatabase(dbPath) {
       INSERT INTO machine_snapshots (
         poll_id, polled_at, machine_id, hostname, gpu_type, num_gpus, occupancy,
         occupied_gpus, current_rentals_running, listed, listed_gpu_cost, reliability,
-        gpu_max_cur_temp, earn_day, num_reports, num_recent_reports, error_message, machine_maintenance, host_id, hosting_type,
+        gpu_max_cur_temp, earn_day, num_reports, num_recent_reports, error_message, machine_maintenance, last_seen_at, last_online_at, host_id, hosting_type,
         is_datacenter, datacenter_id, status
       ) VALUES (
         @poll_id, @polled_at, @machine_id, @hostname, @gpu_type, @num_gpus, @occupancy,
         @occupied_gpus, @current_rentals_running, @listed, @listed_gpu_cost, @reliability,
-        @gpu_max_cur_temp, @earn_day, @num_reports, @num_recent_reports, @error_message, @machine_maintenance, @host_id, @hosting_type,
+        @gpu_max_cur_temp, @earn_day, @num_reports, @num_recent_reports, @error_message, @machine_maintenance, @last_seen_at, @last_online_at, @host_id, @hosting_type,
         @is_datacenter, @datacenter_id, @status
       )
     `),
@@ -310,7 +322,7 @@ export function createDatabase(dbPath) {
     `),
     selectAllMachineSnapshots: db.prepare(`
       SELECT poll_id, polled_at, machine_id, hostname, num_gpus, status, occupied_gpus,
-             listed, earn_day, is_datacenter
+             listed, earn_day, is_datacenter, last_seen_at, last_online_at
       FROM machine_snapshots
       ORDER BY poll_id ASC, machine_id ASC
     `),
@@ -322,7 +334,7 @@ export function createDatabase(dbPath) {
       ORDER BY polled_at ASC
     `),
     selectGpuTypeUtilizationSnapshotsSince: db.prepare(`
-      SELECT polled_at, gpu_type, num_gpus, occupied_gpus, listed, status
+      SELECT polled_at, gpu_type, num_gpus, occupied_gpus, listed, status, last_seen_at, last_online_at
       FROM machine_snapshots
       WHERE polled_at >= ?
         AND num_gpus IS NOT NULL
@@ -374,7 +386,13 @@ export function createDatabase(dbPath) {
         last_online_at: machine.last_online_at,
         updated_at: timestamp
       });
-      statements.insertSnapshot.run({ ...machine, poll_id: pollId, polled_at: timestamp });
+      statements.insertSnapshot.run({
+        ...machine,
+        poll_id: pollId,
+        polled_at: timestamp,
+        last_seen_at: timestamp,
+        last_online_at: machine.last_online_at
+      });
     }
 
     for (const machine of offlineMachines) {
@@ -624,6 +642,10 @@ export function createDatabase(dbPath) {
         continue;
       }
 
+      if (!isFleetEligibleMachine(row, row.polled_at)) {
+        continue;
+      }
+
       const polledAt = row.polled_at;
       const gpuType = row.gpu_type || "Unknown";
       const listedGpus = Number(row.num_gpus) || 0;
@@ -794,39 +816,7 @@ export function createDatabase(dbPath) {
 }
 
 function buildFleetSnapshot(machines) {
-  const byHostname = new Map();
-  for (const machine of machines) {
-    const existing = byHostname.get(machine.hostname);
-    if (!existing || machine.machine_id > existing.machine_id) {
-      byHostname.set(machine.hostname, machine);
-    }
-  }
-
-  const uniqueMachines = [...byHostname.values()];
-  const totalMachines = uniqueMachines.length;
-  const datacenterMachines = uniqueMachines.reduce((sum, machine) => sum + (machine.is_datacenter ? 1 : 0), 0);
-  const unlistedMachines = uniqueMachines.reduce((sum, machine) => sum + (machine.listed ? 0 : 1), 0);
-  const listedGpus = uniqueMachines.reduce((sum, machine) => sum + (machine.listed ? machine.num_gpus || 0 : 0), 0);
-  const unlistedGpus = uniqueMachines.reduce((sum, machine) => sum + (machine.listed ? 0 : machine.num_gpus || 0), 0);
-  const occupiedGpus = uniqueMachines.reduce(
-    (sum, machine) => sum + (machine.listed && machine.status === "online" ? machine.occupied_gpus || 0 : 0),
-    0
-  );
-  const utilisationPct = listedGpus > 0 ? Number(((occupiedGpus / listedGpus) * 100).toFixed(2)) : 0;
-  const totalDailyEarnings = Number(
-    uniqueMachines.reduce((sum, machine) => sum + (machine.earn_day || 0), 0).toFixed(2)
-  );
-
-  return {
-    total_machines: totalMachines,
-    datacenter_machines: datacenterMachines,
-    unlisted_machines: unlistedMachines,
-    listed_gpus: listedGpus,
-    unlisted_gpus: unlistedGpus,
-    occupied_gpus: occupiedGpus,
-    utilisation_pct: utilisationPct,
-    total_daily_earnings: totalDailyEarnings
-  };
+  return buildFleetAggregate(machines).summary;
 }
 
 function buildComparisonMetric(current, previous, decimals = 2) {
@@ -925,9 +915,6 @@ function getGpuTypePriceBucketHours(hours) {
 }
 
 function backfillFleetSnapshots(statements) {
-  const existingPollIds = new Set(
-    statements.selectFleetSnapshotPollIds.all().map((row) => Number(row.poll_id))
-  );
   const rows = statements.selectAllMachineSnapshots.all();
   if (!rows.length) {
     return;
@@ -936,10 +923,6 @@ function backfillFleetSnapshots(statements) {
   const snapshotsByPollId = new Map();
   for (const row of rows) {
     const pollId = Number(row.poll_id);
-    if (existingPollIds.has(pollId)) {
-      continue;
-    }
-
     if (!snapshotsByPollId.has(pollId)) {
       snapshotsByPollId.set(pollId, {
         polled_at: row.polled_at,
@@ -955,9 +938,13 @@ function backfillFleetSnapshots(statements) {
       occupied_gpus: row.occupied_gpus,
       listed: row.listed,
       earn_day: row.earn_day,
-      is_datacenter: row.is_datacenter
+      is_datacenter: row.is_datacenter,
+      last_seen_at: row.last_seen_at,
+      last_online_at: row.last_online_at
     });
   }
+
+  statements.deleteFleetSnapshots.run();
 
   for (const [pollId, snapshot] of snapshotsByPollId.entries()) {
     statements.insertFleetSnapshot.run({

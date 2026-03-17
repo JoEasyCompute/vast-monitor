@@ -9,6 +9,7 @@ It polls your hosted machines from Vast, enriches them with datacenter metadata,
 - Polls `vast show machines --raw` on a schedule
 - Enriches machines with Vast datacenter metadata from the Vast API
 - Tracks listed vs unlisted machines and maintenance windows
+- Excludes machines that have been offline for more than 24 hours from fleet totals and trend charts while keeping them visible in the machine list
 - Captures machine-level error messages from Vast machine state
 - Tracks current machine state, machine snapshots including `listed_gpu_cost` history, fleet snapshots, alerts, and events in SQLite
 - Detects host up/down transitions and rental activity changes
@@ -50,6 +51,8 @@ Startup validates the configured Vast CLI path and API key file before the servi
 
 Startup also prints a warning if the detected `python-dateutil` version in the local `python3` environment is too old for live Vast earnings.
 
+On startup, additive SQLite schema changes are applied automatically. Existing `fleet_snapshots` are also rebuilt from `machine_snapshots` so historical fleet charts stay consistent with the current aggregation rules.
+
 ## Configuration
 
 Environment variables:
@@ -80,6 +83,8 @@ vast-monitor listening on http://localhost:3000
 The HTTP server starts before the initial poll finishes, so the process becomes visibly healthy earlier.
 
 If the initial Vast poll fails, the server stays up and keeps retrying on the normal poll interval. The dashboard and `/api/health` will show stale state until a poll succeeds.
+
+The fleet snapshot rebuild happens before polling starts. On older or larger databases, first startup after a pull may take a little longer while historical fleet trend rows are recomputed.
 
 ## Dashboard
 
@@ -141,6 +146,8 @@ To avoid misleading utilisation numbers:
 
 - `Listed GPUs` and `Unlisted GPUs` are tracked separately
 - `Occupied GPUs` and `Utilisation` are calculated against listed capacity only
+- machines that have been offline for more than 24 hours are removed from fleet totals and fleet trend charts
+- those long-offline machines are still retained in the machine list for reference
 - fleet trend charts follow the same rule
 
 ## Machine Errors
