@@ -139,7 +139,7 @@
               <option value="non-dc">Non-DC only</option>
             </select>
             <label class="filter-toggle"><input id="filter-errors" type="checkbox" /> Errors</label>
-            <label class="filter-toggle"><input id="filter-reports" type="checkbox" /> Reports</label>
+            <label class="filter-toggle"><input id="filter-reports" type="checkbox" /> New Report</label>
             <label class="filter-toggle"><input id="filter-maint" type="checkbox" /> Maint</label>
             <div class="density-toggle" id="density-toggle">
               <button class="density-button active" type="button" data-density="comfortable">Comfortable</button>
@@ -232,6 +232,10 @@
             <div class="modal-chart-title">GPU Rental Price</div>
             <div class="modal-chart-wrap">
               <svg id="price-chart" width="100%" height="200"></svg>
+            </div>
+            <div class="modal-chart-title">GPU Count</div>
+            <div class="modal-chart-wrap">
+              <svg id="gpu-count-chart" width="100%" height="200"></svg>
             </div>
           </div>
           <div id="modal-tab-events" class="modal-tab-panel">

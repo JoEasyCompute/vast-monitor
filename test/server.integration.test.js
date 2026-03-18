@@ -18,7 +18,17 @@ test("server integration returns expected API payloads and dependency failures",
     ],
     offlineMachines: [],
     events: [],
-    alerts: []
+    alerts: [
+      {
+        created_at: new Date().toISOString(),
+        machine_id: 1,
+        hostname: "alpha",
+        alert_type: "new_reports",
+        severity: "warning",
+        message: "alpha has 1 new report",
+        payload_json: "{}"
+      }
+    ]
   });
 
   const config = {
@@ -42,6 +52,7 @@ test("server integration returns expected API payloads and dependency failures",
     const status = await invokeRoute(app, "/api/status");
     const health = await invokeRoute(app, "/api/health");
     const fleet = await invokeRoute(app, "/api/fleet/history", { query: { hours: "24" } });
+    const history = await invokeRoute(app, "/api/history", { query: { machine_id: "1", hours: "24" } });
     const reports = await invokeRoute(app, "/api/reports", { query: { machine_id: "1" } });
     const machineEarningsRange = await invokeRoute(app, "/api/earnings/machine", {
       query: {
@@ -58,6 +69,8 @@ test("server integration returns expected API payloads and dependency failures",
     assert.equal(status.body.summary.totalMachines, 2);
     assert.equal(status.body.summary.listedGpus, 6);
     assert.equal(status.body.gpuTypeBreakdown.length, 2);
+    assert.equal(status.body.machines.find((machine) => machine.machine_id === 1)?.has_new_report_72h, true);
+    assert.equal(status.body.machines.find((machine) => machine.machine_id === 2)?.has_new_report_72h, false);
 
     assert.equal(health.statusCode, 200);
     assert.equal(health.body.status, "degraded");
@@ -67,6 +80,9 @@ test("server integration returns expected API payloads and dependency failures",
     assert.equal(fleet.statusCode, 200);
     assert.ok(Array.isArray(fleet.body.history));
     assert.ok(Array.isArray(fleet.body.gpu_type_utilization));
+
+    assert.equal(history.statusCode, 200);
+    assert.equal(history.body.history[0].num_gpus, 4);
 
     assert.equal(reports.statusCode, 502);
     assert.equal(reports.body.error, "failed to fetch reports");

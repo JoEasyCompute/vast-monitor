@@ -375,15 +375,15 @@ h1 {
 .machine-filters {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 18px;
-  margin-bottom: 14px;
+  gap: 8px;
+  margin-top: 16px;
+  margin-bottom: 12px;
 }
 
 .machine-view-tabs {
   display: inline-flex;
-  gap: 8px;
-  padding: 4px;
+  gap: 6px;
+  padding: 3px;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   background: rgba(15, 23, 42, 0.82);
@@ -394,8 +394,9 @@ h1 {
   border-radius: 999px;
   background: transparent;
   color: var(--muted);
-  padding: 8px 14px;
+  padding: 7px 12px;
   font: inherit;
+  font-size: 0.92rem;
   cursor: pointer;
   transition: background 0.2s ease, color 0.2s ease;
 }
@@ -412,38 +413,40 @@ h1 {
 .filter-input,
 .filter-select,
 .filter-reset {
-  height: 38px;
-  border-radius: 12px;
+  height: 34px;
+  border-radius: 10px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   background: rgba(15, 23, 42, 0.82);
   color: var(--text);
   font: inherit;
+  font-size: 0.9rem;
 }
 
 .filter-input,
 .filter-select {
-  padding: 0 12px;
+  padding: 0 10px;
 }
 
 .filter-input {
-  min-width: 240px;
-  flex: 1 1 260px;
+  min-width: 200px;
+  flex: 1 1 220px;
 }
 
 .filter-select {
-  min-width: 140px;
+  min-width: 116px;
 }
 
 .filter-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 0 12px;
-  border-radius: 12px;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 10px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   background: rgba(15, 23, 42, 0.82);
   color: var(--text);
+  font-size: 0.9rem;
 }
 
 .filter-toggle input {
@@ -451,7 +454,7 @@ h1 {
 }
 
 .filter-reset {
-  padding: 0 14px;
+  padding: 0 12px;
   cursor: pointer;
   transition: border-color 0.2s ease, background 0.2s ease;
 }
@@ -464,7 +467,7 @@ h1 {
 .density-toggle {
   display: inline-flex;
   gap: 4px;
-  padding: 4px;
+  padding: 3px;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   background: rgba(15, 23, 42, 0.82);
@@ -475,8 +478,9 @@ h1 {
   border-radius: 999px;
   background: transparent;
   color: var(--muted);
-  padding: 6px 10px;
+  padding: 5px 9px;
   font: inherit;
+  font-size: 0.88rem;
   cursor: pointer;
 }
 

@@ -39,6 +39,15 @@ test("database integration returns fleet history, gpu utilization, price history
       alerts: [
         {
           created_at: secondDate,
+          machine_id: 1,
+          hostname: "alpha",
+          alert_type: "new_reports",
+          severity: "warning",
+          message: "alpha has 1 new report",
+          payload_json: "{}"
+        },
+        {
+          created_at: secondDate,
           machine_id: null,
           hostname: null,
           alert_type: "hostname_collision",
@@ -57,6 +66,8 @@ test("database integration returns fleet history, gpu utilization, price history
 
     assert.equal(fleet.machines.length, 3);
     assert.equal(fleet.latestPollAt, secondDate);
+    assert.equal(fleet.machines.find((machine) => machine.machine_id === 1)?.has_new_report_72h, true);
+    assert.equal(fleet.machines.find((machine) => machine.machine_id === 2)?.has_new_report_72h, false);
     assert.equal(fleetHistory.history.length, 2);
     assert.equal(fleetHistory.gpu_type_utilization.length, 2);
     assert.equal(fleetHistory.gpu_type_utilization[0].gpu_type, "A100");
@@ -65,7 +76,7 @@ test("database integration returns fleet history, gpu utilization, price history
     assert.equal(priceHistory.series[0].gpu_type, "A100");
     assert.equal(hourly.total, 4.8);
     assert.equal(hourly.hours[firstHour].earnings, 4.8);
-    assert.equal(alerts[0].alert_type, "hostname_collision");
+    assert.ok(alerts.some((alert) => alert.alert_type === "hostname_collision"));
   } finally {
     store.db.close();
   }

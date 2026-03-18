@@ -46,6 +46,7 @@ const DEFAULT_UI_SETTINGS = {
   selectedUtilizationGpuType: "__fleet__"
 };
 const UI_SETTINGS_KEY = "vast-monitor-ui-settings";
+const MACHINE_FILTERS_KEY = "vast-monitor-machine-filters";
 let uiSettings = loadUiSettings();
 
 let currentMachinesData = [];
@@ -178,7 +179,7 @@ function getFilteredMachines() {
       return false;
     }
 
-    if (filterReports.checked && (row.num_reports || 0) === 0) {
+    if (filterReports.checked && !row.has_new_report_72h) {
       return false;
     }
 
@@ -1243,6 +1244,7 @@ function escapeHtml(value) {
 
 function initializeStateFromUrl() {
   const params = new URLSearchParams(window.location.search);
+  const savedMachineFilters = loadMachineFilters();
 
   sortCol = params.get("sort") || sortCol;
   sortDesc = params.get("desc") === "1";
@@ -1257,20 +1259,23 @@ function initializeStateFromUrl() {
     selectedEarningsDate = earningsDate;
   }
 
-  filterSearch.value = params.get("search") || "";
-  filterStatus.value = params.get("status") || "all";
-  filterListed.value = params.get("listed") || "all";
-  filterDc.value = params.get("dc") || "all";
-  filterErrors.checked = params.get("errors") === "1";
-  filterReports.checked = params.get("reports") === "1";
-  filterMaint.checked = params.get("maint") === "1";
-  activeMachineView = params.get("machine_tab") === "archived" ? "archived" : "active";
+  filterSearch.value = params.has("search") ? (params.get("search") || "") : savedMachineFilters.search;
+  filterStatus.value = params.has("status") ? (params.get("status") || "all") : savedMachineFilters.status;
+  filterListed.value = params.has("listed") ? (params.get("listed") || "all") : savedMachineFilters.listed;
+  filterDc.value = params.has("dc") ? (params.get("dc") || "all") : savedMachineFilters.dc;
+  filterErrors.checked = params.has("errors") ? params.get("errors") === "1" : savedMachineFilters.errors;
+  filterReports.checked = params.has("reports") ? params.get("reports") === "1" : savedMachineFilters.reports;
+  filterMaint.checked = params.has("maint") ? params.get("maint") === "1" : savedMachineFilters.maint;
+  activeMachineView = params.has("machine_tab")
+    ? (params.get("machine_tab") === "archived" ? "archived" : "active")
+    : savedMachineFilters.machineTab;
 
   trendRange.querySelectorAll("[data-hours]").forEach((button) => {
     button.classList.toggle("active", Number(button.dataset.hours) === selectedTrendHours);
   });
 
   applyUiSettings();
+  saveMachineFilters();
 }
 
 function persistStateToUrl() {
@@ -1290,6 +1295,7 @@ function persistStateToUrl() {
 
   const nextUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
   window.history.replaceState({}, "", nextUrl);
+  saveMachineFilters();
 }
 
 function capitalize(value) {
@@ -1316,6 +1322,47 @@ function loadUiSettings() {
 
 function saveUiSettings() {
   window.localStorage.setItem(UI_SETTINGS_KEY, JSON.stringify(uiSettings));
+}
+
+function loadMachineFilters() {
+  try {
+    const raw = window.localStorage.getItem(MACHINE_FILTERS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return {
+      search: typeof parsed.search === "string" ? parsed.search : "",
+      status: ["all", "online", "offline"].includes(parsed.status) ? parsed.status : "all",
+      listed: ["all", "listed", "unlisted"].includes(parsed.listed) ? parsed.listed : "all",
+      dc: ["all", "dc", "non-dc"].includes(parsed.dc) ? parsed.dc : "all",
+      errors: parsed.errors === true,
+      reports: parsed.reports === true,
+      maint: parsed.maint === true,
+      machineTab: parsed.machineTab === "archived" ? "archived" : "active"
+    };
+  } catch {
+    return {
+      search: "",
+      status: "all",
+      listed: "all",
+      dc: "all",
+      errors: false,
+      reports: false,
+      maint: false,
+      machineTab: "active"
+    };
+  }
+}
+
+function saveMachineFilters() {
+  window.localStorage.setItem(MACHINE_FILTERS_KEY, JSON.stringify({
+    search: filterSearch.value,
+    status: filterStatus.value,
+    listed: filterListed.value,
+    dc: filterDc.value,
+    errors: filterErrors.checked,
+    reports: filterReports.checked,
+    maint: filterMaint.checked,
+    machineTab: activeMachineView
+  }));
 }
 
 function normalizeSettingNumber(value, fallback, min, max) {
@@ -1370,6 +1417,7 @@ function redrawChartsForCurrentLayout() {
     drawRenterChart(currentModalHistory);
     drawReliabilityChart(currentModalHistory);
     drawPriceChart(currentModalHistory);
+    drawGpuCountChart(currentModalHistory);
     drawMachineEarningsChart(currentModalEarningsData || { days: [], total: null }, currentModalHistory);
     updateModalEarningsPresentation(currentModalEarningsData || { days: [] });
   }
@@ -1544,6 +1592,7 @@ const earningsChartNote = document.getElementById("earnings-chart-note");
 const renterChart = document.getElementById("renter-chart");
 const reliabilityChart = document.getElementById("reliability-chart");
 const priceChart = document.getElementById("price-chart");
+const gpuCountChart = document.getElementById("gpu-count-chart");
 const earningsChart = document.getElementById("earnings-chart");
 const reportsModalBackdrop = document.getElementById("reports-modal-backdrop");
 const reportsModalClose = document.getElementById("reports-modal-close");
@@ -1700,6 +1749,7 @@ async function showMachineHistory(machineId, options = {}) {
   renterChart.innerHTML = "";
   reliabilityChart.innerHTML = "";
   priceChart.innerHTML = "";
+  gpuCountChart.innerHTML = "";
   earningsChart.innerHTML = "";
   clearChartSyncGroup("machine-modal");
   modalBackdrop.classList.remove("hidden");
@@ -1771,6 +1821,7 @@ async function showMachineHistory(machineId, options = {}) {
     drawRenterChart(history);
     drawReliabilityChart(history);
     drawPriceChart(history);
+    drawGpuCountChart(history);
     drawMachineEarningsChart(currentModalEarningsData, history);
     renderModalEarningsStatus(
       currentModalEarningsData,
@@ -2046,6 +2097,26 @@ function drawPriceChart(history) {
     syncGroup: "machine-modal",
     annotationPoints: changePoints,
     formatAnnotation: (point) => formatCurrency(point.value)
+  });
+}
+
+function drawGpuCountChart(history) {
+  drawSingleSeriesChart(gpuCountChart, {
+    history,
+    key: "num_gpus",
+    label: "GPUs",
+    color: "#a78bfa",
+    width: gpuCountChart.clientWidth || 600,
+    height: 200,
+    padding: { top: 20, right: 20, bottom: 30, left: 30 },
+    min: 0,
+    max: Math.max(1, ...history.map((row) => row.num_gpus || 0)),
+    tickCount: Math.min(Math.max(1, Math.max(...history.map((row) => row.num_gpus || 0))), 6),
+    stepped: true,
+    syncGroup: "machine-modal",
+    formatAxisValue: (value) => `${Math.round(value)}`,
+    formatHoverValue: (value) => `${Math.round(value)} GPU${Math.round(value) === 1 ? "" : "s"}`,
+    emptyMessage: "No GPU count history yet"
   });
 }
 

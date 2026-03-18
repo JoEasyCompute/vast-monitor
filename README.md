@@ -17,6 +17,7 @@ It polls your hosted machines from Vast, enriches them with datacenter metadata,
 - Computes rolling uptime for `24h`, `7d`, and `30d`
 - Shows fleet health, listed-only utilisation, earnings, trends, hoverable chart values, and datacenter tags in a browser dashboard
 - Adds local browser settings for table density and frontend-only alert thresholds
+- Persists machine table filters and the active/archive machine tab with a hybrid URL + local browser storage approach
 - Exposes JSON endpoints for status, health, history, alerts, fleet trends, and hourly earnings
 
 ## Requirements
@@ -84,6 +85,8 @@ The HTTP server starts before the initial poll finishes, so the process becomes 
 
 If the initial Vast poll fails, the server stays up and keeps retrying on the normal poll interval. The dashboard and `/api/health` will show stale state until a poll succeeds.
 
+Vast API enrichment and Vast CLI subprocess calls are also bounded by timeouts so transient network hangs do not leave polling stuck indefinitely. After a timeout or failure, the service retries on the normal poll interval.
+
 The fleet snapshot rebuild happens before polling starts. On older or larger databases, first startup after a pull may take a little longer while historical fleet trend rows are recomputed.
 
 ## Dashboard
@@ -101,7 +104,8 @@ The dashboard includes:
 - GPU-type pricing trends using listed-only weighted averages
 - Hourly earnings with previous/next day navigation
 - Sortable machine table
-- Machine table filters for search, status, listed/unlisted, datacenter, errors, reports, and maintenance
+- Machine table split into `Main View` and `Archived` tabs, where archived machines are offline for more than 24 hours
+- Machine table filters for search, status, listed/unlisted, datacenter, errors, `New Report` (new report alert within 72 hours), and maintenance
 - Machine table density toggle (`Comfortable` / `Compact`)
 - Datacenter `DC` indicator column
 - Listed status and maintenance columns
@@ -110,7 +114,7 @@ The dashboard includes:
 - Recent alerts
 - Per-machine history modal with tabbed `Charts` and `Recent Events` views
 - Machine modal header shows the machine ID plus compact context badges/labels such as `DC`, GPU label, and clickable IP address
-- Machine modal charts for historical earnings, renter activity, reliability, and GPU rental price
+- Machine modal charts for historical earnings, renter activity, reliability, GPU rental price, and GPU count
 - Machine modal commercial summary includes realized previous/current calendar month machine earnings when live Vast CLI earnings are available
 - Machine modal includes a compact live-earnings status panel showing source, health, and effective comparison windows
 - Machine modal earnings chart prefers the machine's own stored `earn_day` history and falls back to Vast daily earnings only when local history is unavailable
@@ -125,6 +129,7 @@ Local browser settings currently control:
 - high temperature highlight threshold
 - stale poll age threshold for the dashboard badge/warning
 - selected GPU type for the fleet utilisation chart
+- machine table filters and the selected `Main View` / `Archived` tab when those values are not explicitly set in the URL
 
 ## Datacenter Tagging
 
@@ -196,6 +201,7 @@ Returns historical snapshots for one machine.
 Snapshot fields include:
 
 - machine status and occupancy
+- GPU count
 - renter count
 - reliability
 - GPU temperature

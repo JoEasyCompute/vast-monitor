@@ -297,7 +297,7 @@ export function createDatabase(dbPath) {
       SELECT machine_id, hostname, gpu_type, num_gpus FROM machine_registry
     `),
     selectSnapshotsSince: db.prepare(`
-      SELECT polled_at, status, occupancy, occupied_gpus, current_rentals_running, reliability, gpu_max_cur_temp, listed_gpu_cost, earn_day
+      SELECT polled_at, status, occupancy, num_gpus, occupied_gpus, current_rentals_running, reliability, gpu_max_cur_temp, listed_gpu_cost, earn_day
       FROM machine_snapshots
       WHERE machine_id = ? AND polled_at >= ?
       ORDER BY polled_at ASC
@@ -310,6 +310,13 @@ export function createDatabase(dbPath) {
       FROM alerts
       ORDER BY created_at DESC
       LIMIT ?
+    `),
+    selectMachineIdsWithNewReportsSince: db.prepare(`
+      SELECT DISTINCT machine_id
+      FROM alerts
+      WHERE alert_type = 'new_reports'
+        AND machine_id IS NOT NULL
+        AND created_at >= ?
     `),
     selectSnapshotsForDate: db.prepare(`
       SELECT polled_at, machine_id, occupied_gpus, listed_gpu_cost
@@ -544,6 +551,10 @@ export function createDatabase(dbPath) {
   function getCurrentFleetStatus() {
     const now = new Date();
     const cutoff = new Date(now.getTime() - UPTIME_WINDOWS["30d"] * 60 * 60 * 1000).toISOString();
+    const newReportCutoff = new Date(now.getTime() - (72 * 60 * 60 * 1000)).toISOString();
+    const machineIdsWithNewReports72h = new Set(
+      statements.selectMachineIdsWithNewReportsSince.all(newReportCutoff).map((row) => row.machine_id)
+    );
     const machines = getMachineStates().map((state) => {
       const history = statements.selectSnapshotsSince.all(state.machine_id, cutoff);
       const uptime = {};
@@ -555,6 +566,7 @@ export function createDatabase(dbPath) {
         ...state,
         ...computePriceContext(history),
         ...computeMachineDeltaContext(history),
+        has_new_report_72h: machineIdsWithNewReports72h.has(state.machine_id),
         uptime
       };
     });

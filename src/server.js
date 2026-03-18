@@ -377,6 +377,7 @@ function buildFleetResponse(fleet, config) {
     num_reports: machine.num_reports || 0,
     num_recent_reports: machine.num_recent_reports,
     reports_changed: machine.reports_changed || 0,
+    has_new_report_72h: Boolean(machine.has_new_report_72h),
     status: machine.status,
     error_message: sanitizeErrorMessage(machine.error_message),
     machine_maintenance: parseMaintenance(machine.machine_maintenance),
