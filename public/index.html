@@ -117,35 +117,35 @@
           <div class="panel-title-row">
             <h2>Machines</h2>
             <div class="machine-view-tabs" id="machine-view-tabs">
-              <button id="machine-tab-active" class="machine-view-tab active" type="button" data-tab="active">Main View</button>
-              <button id="machine-tab-archived" class="machine-view-tab" type="button" data-tab="archived">Archived</button>
+              <button id="machine-tab-active" class="machine-view-tab active" type="button" data-tab="active" title="Show online machines and recently offline machines. Machines offline for more than 24 hours are excluded from this view.">Main View</button>
+              <button id="machine-tab-archived" class="machine-view-tab" type="button" data-tab="archived" title="Show archived machines: machines that have been offline for more than 24 hours.">Archived</button>
             </div>
           </div>
           <div class="machine-filters" id="machine-filters">
-            <input id="filter-search" class="filter-input" type="search" placeholder="Search hostname, ID, GPU..." />
-            <select id="filter-status" class="filter-select">
+            <input id="filter-search" class="filter-input" type="search" placeholder="Search hostname, ID, GPU..." title="Filter machines by hostname, machine ID, or GPU type." />
+            <select id="filter-status" class="filter-select" title="Filter by current machine status.">
               <option value="all">All status</option>
               <option value="online">Online</option>
               <option value="offline">Offline</option>
             </select>
-            <select id="filter-listed" class="filter-select">
+            <select id="filter-listed" class="filter-select" title="Filter by whether the machine is currently listed on Vast.">
               <option value="all">Listed + unlisted</option>
               <option value="listed">Listed only</option>
               <option value="unlisted">Unlisted only</option>
             </select>
-            <select id="filter-dc" class="filter-select">
+            <select id="filter-dc" class="filter-select" title="Filter by datacenter-tagged machines versus non-datacenter machines.">
               <option value="all">All DC</option>
               <option value="dc">DC only</option>
               <option value="non-dc">Non-DC only</option>
             </select>
-            <label class="filter-toggle"><input id="filter-errors" type="checkbox" /> Errors</label>
-            <label class="filter-toggle"><input id="filter-reports" type="checkbox" /> New Report</label>
-            <label class="filter-toggle"><input id="filter-maint" type="checkbox" /> Maint</label>
+            <label class="filter-toggle" title="Show only machines with an active machine-level error message."><input id="filter-errors" type="checkbox" /> Errors</label>
+            <label class="filter-toggle" title="Show only machines with a stored new-report alert from the last 72 hours."><input id="filter-reports" type="checkbox" /> New Report</label>
+            <label class="filter-toggle" title="Show only machines with active maintenance windows."><input id="filter-maint" type="checkbox" /> Maint</label>
             <div class="density-toggle" id="density-toggle">
-              <button class="density-button active" type="button" data-density="comfortable">Comfortable</button>
-              <button class="density-button" type="button" data-density="compact">Compact</button>
+              <button class="density-button active" type="button" data-density="comfortable" title="Use the default row height and spacing in the machine table.">Comfortable</button>
+              <button class="density-button" type="button" data-density="compact" title="Use tighter row spacing so more machines fit on screen.">Compact</button>
             </div>
-            <button id="filter-reset" class="filter-reset" type="button">Reset</button>
+            <button id="filter-reset" class="filter-reset" type="button" title="Clear all machine-table filters and return to the default filter state.">Reset</button>
           </div>
           <div class="table-wrap machines-scroll" id="machines-scroll">
             <table>
