@@ -3,11 +3,14 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
+const VAST_CLI_TIMEOUT_MS = 2 * 60 * 1000;
+const VAST_API_TIMEOUT_MS = 30 * 1000;
 
 export async function fetchMachines(config) {
   const { vastCliPath } = config;
   const { stdout, stderr } = await execFileAsync(vastCliPath, ["show", "machines", "--raw"], {
-    maxBuffer: 1024 * 1024 * 20
+    maxBuffer: 1024 * 1024 * 20,
+    timeout: VAST_CLI_TIMEOUT_MS
   });
 
   if (stderr && stderr.trim()) {
@@ -43,7 +46,8 @@ export async function fetchMachines(config) {
 export async function fetchMachineReports(config, machineId) {
   const { vastCliPath } = config;
   const { stdout, stderr } = await execFileAsync(vastCliPath, ["reports", String(machineId)], {
-    maxBuffer: 1024 * 1024 * 20
+    maxBuffer: 1024 * 1024 * 20,
+    timeout: VAST_CLI_TIMEOUT_MS
   });
 
   if (stderr && stderr.trim()) {
@@ -77,7 +81,8 @@ export async function fetchMachineEarnings(config, machineId, options = {}) {
     "-e",
     window.end.toISOString()
   ], {
-    maxBuffer: 1024 * 1024 * 20
+    maxBuffer: 1024 * 1024 * 20,
+    timeout: VAST_CLI_TIMEOUT_MS
   });
 
   if (stderr && stderr.trim()) {
@@ -249,22 +254,32 @@ export async function fetchDatacenterMetadata(config, machineIds) {
 }
 
 export async function fetchDatacenterMetadataBatch(config, apiKey, machineIds) {
-  const response = await fetch(`${config.vastApiUrl}/bundles/?api_key=${encodeURIComponent(apiKey)}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      machine_id: { in: machineIds },
-      order: [["score", "desc"]],
-      type: "on-demand",
-      allocated_storage: 5.0,
-      rented: { eq: "any" },
-      verified: { eq: "any" },
-      external: { eq: true }
-    })
-  });
+  let response;
+  try {
+    response = await fetch(`${config.vastApiUrl}/bundles/?api_key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        machine_id: { in: machineIds },
+        order: [["score", "desc"]],
+        type: "on-demand",
+        allocated_storage: 5.0,
+        rented: { eq: "any" },
+        verified: { eq: "any" },
+        external: { eq: true }
+      }),
+      signal: AbortSignal.timeout(VAST_API_TIMEOUT_MS)
+    });
+  } catch (error) {
+    if (error?.name === "TimeoutError") {
+      throw new Error(`Timed out fetching Vast bundle metadata after ${Math.round(VAST_API_TIMEOUT_MS / 1000)}s`);
+    }
+
+    throw error;
+  }
 
   if (!response.ok) {
     throw new Error(`Failed to fetch Vast bundle metadata (${response.status})`);

@@ -114,7 +114,13 @@
         </section>
 
         <section class="panel wide">
-          <h2>Machines</h2>
+          <div class="panel-title-row">
+            <h2>Machines</h2>
+            <div class="machine-view-tabs" id="machine-view-tabs">
+              <button id="machine-tab-active" class="machine-view-tab active" type="button" data-tab="active">Main View</button>
+              <button id="machine-tab-archived" class="machine-view-tab" type="button" data-tab="archived">Archived</button>
+            </div>
+          </div>
           <div class="machine-filters" id="machine-filters">
             <input id="filter-search" class="filter-input" type="search" placeholder="Search hostname, ID, GPU..." />
             <select id="filter-status" class="filter-select">
@@ -166,6 +172,7 @@
               <tbody id="machines-body"></tbody>
             </table>
           </div>
+          <p id="machines-empty-state" class="machines-empty-state hidden"></p>
         </section>
 
         <section class="panel">

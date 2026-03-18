@@ -6,6 +6,7 @@ import path from "node:path";
 
 import {
   fetchDatacenterMetadata,
+  fetchDatacenterMetadataBatch,
   normalizeEarningsDay,
   normalizeMachine,
   resolveErrorMessage
@@ -161,6 +162,36 @@ test("fetchDatacenterMetadata retries unresolved machine ids individually when b
     assert.equal(seenBodies.length, 2);
     assert.deepEqual(seenBodies[1].machine_id.in, [102]);
   } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("fetchDatacenterMetadataBatch times out hung Vast API requests", async () => {
+  const originalFetch = global.fetch;
+  const originalAbortSignalTimeout = AbortSignal.timeout;
+
+  AbortSignal.timeout = () => AbortSignal.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+
+  global.fetch = (_url, options) => new Promise((_resolve, reject) => {
+    if (options.signal.aborted) {
+      reject(options.signal.reason);
+      return;
+    }
+
+    options.signal.addEventListener("abort", () => {
+      reject(options.signal.reason);
+    }, { once: true });
+  });
+
+  try {
+    await assert.rejects(
+      fetchDatacenterMetadataBatch({
+        vastApiUrl: "https://example.invalid/api/v0"
+      }, "secret-token", [101]),
+      /Timed out fetching Vast bundle metadata after 30s/
+    );
+  } finally {
+    AbortSignal.timeout = originalAbortSignalTimeout;
     global.fetch = originalFetch;
   }
 });

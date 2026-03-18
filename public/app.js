@@ -2,6 +2,7 @@ const summaryGrid = document.getElementById("summary-grid");
 const summaryCompareGrid = document.getElementById("summary-compare-grid");
 const breakdownBody = document.getElementById("breakdown-body");
 const machinesBody = document.getElementById("machines-body");
+const machinesEmptyState = document.getElementById("machines-empty-state");
 const alertsList = document.getElementById("alerts-list");
 const lastUpdated = document.getElementById("last-updated");
 const hourlyChart = document.getElementById("hourly-chart");
@@ -27,6 +28,7 @@ const filterMaint = document.getElementById("filter-maint");
 const filterReset = document.getElementById("filter-reset");
 const densityToggle = document.getElementById("density-toggle");
 const machinesScroll = document.getElementById("machines-scroll");
+const machineViewTabs = document.getElementById("machine-view-tabs");
 const settingsButton = document.getElementById("settings-button");
 const settingsBackdrop = document.getElementById("settings-backdrop");
 const settingsClose = document.getElementById("settings-close");
@@ -65,6 +67,7 @@ let currentModalMachine = null;
 let currentModalHistory = [];
 let currentModalEarningsData = null;
 let currentModalTab = "charts";
+let activeMachineView = "active";
 initializeStateFromUrl();
 
 async function loadDashboard() {
@@ -130,13 +133,15 @@ function updateSortHeaders() {
 function renderMachinesSorted() {
   const sorted = getSortedMachines();
   renderMachines(sorted);
+  renderMachineEmptyState(sorted.length);
+  updateMachineViewTabs();
   updateModalNavigation();
 }
 
 function getFilteredMachines() {
   const searchTerm = filterSearch.value.trim().toLowerCase();
 
-  return currentMachinesData.filter((row) => {
+  return getMachinesForActiveView().filter((row) => {
     if (searchTerm) {
       const haystack = [
         row.hostname,
@@ -183,6 +188,35 @@ function getFilteredMachines() {
 
     return true;
   });
+}
+
+function getMachinesForActiveView() {
+  return currentMachinesData.filter((row) => isArchivedMachine(row) === (activeMachineView === "archived"));
+}
+
+function isArchivedMachine(row) {
+  if (row.status !== "offline") {
+    return false;
+  }
+
+  const offlineSinceMs = resolveOfflineSinceMs(row);
+  if (!Number.isFinite(offlineSinceMs)) {
+    return false;
+  }
+
+  return (Date.now() - offlineSinceMs) > (24 * 60 * 60 * 1000);
+}
+
+function resolveOfflineSinceMs(row) {
+  const candidates = [row.last_online_at, row.last_seen_at, row.updated_at];
+  for (const value of candidates) {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
 }
 
 function getSortedMachines() {
@@ -312,6 +346,55 @@ function renderMachines(rows) {
       </tr>
     `})
     .join("");
+}
+
+function renderMachineEmptyState(count) {
+  if (!machinesEmptyState) {
+    return;
+  }
+
+  if (count > 0) {
+    machinesEmptyState.textContent = "";
+    machinesEmptyState.classList.add("hidden");
+    return;
+  }
+
+  const hasFilters = Boolean(
+    filterSearch.value.trim()
+    || filterStatus.value !== "all"
+    || filterListed.value !== "all"
+    || filterDc.value !== "all"
+    || filterErrors.checked
+    || filterReports.checked
+    || filterMaint.checked
+  );
+
+  machinesEmptyState.textContent = hasFilters
+    ? `No ${activeMachineView === "archived" ? "archived" : "main-view"} machines match the current filters.`
+    : activeMachineView === "archived"
+      ? "No archived machines yet."
+      : "No machines in the main view.";
+  machinesEmptyState.classList.remove("hidden");
+}
+
+function updateMachineViewTabs() {
+  if (!machineViewTabs) {
+    return;
+  }
+
+  const activeCount = currentMachinesData.filter((row) => !isArchivedMachine(row)).length;
+  const archivedCount = currentMachinesData.length - activeCount;
+
+  machineViewTabs.querySelectorAll("[data-tab]").forEach((button) => {
+    const isActive = button.dataset.tab === activeMachineView;
+    button.classList.toggle("active", isActive);
+
+    if (button.dataset.tab === "archived") {
+      button.textContent = `Archived (${archivedCount})`;
+    } else {
+      button.textContent = `Main View (${activeCount})`;
+    }
+  });
 }
 
 function renderPriceCell(row) {
@@ -1181,6 +1264,7 @@ function initializeStateFromUrl() {
   filterErrors.checked = params.get("errors") === "1";
   filterReports.checked = params.get("reports") === "1";
   filterMaint.checked = params.get("maint") === "1";
+  activeMachineView = params.get("machine_tab") === "archived" ? "archived" : "active";
 
   trendRange.querySelectorAll("[data-hours]").forEach((button) => {
     button.classList.toggle("active", Number(button.dataset.hours) === selectedTrendHours);
@@ -1202,6 +1286,7 @@ function persistStateToUrl() {
   if (filterErrors.checked) params.set("errors", "1");
   if (filterReports.checked) params.set("reports", "1");
   if (filterMaint.checked) params.set("maint", "1");
+  if (activeMachineView !== "active") params.set("machine_tab", activeMachineView);
 
   const nextUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
   window.history.replaceState({}, "", nextUrl);
@@ -1307,6 +1392,19 @@ window.addEventListener("resize", () => {
   resizeRedrawTimer = window.setTimeout(() => {
     redrawChartsForCurrentLayout();
   }, 120);
+});
+
+machineViewTabs?.querySelectorAll("[data-tab]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const nextView = button.dataset.tab === "archived" ? "archived" : "active";
+    if (nextView === activeMachineView) {
+      return;
+    }
+
+    activeMachineView = nextView;
+    persistStateToUrl();
+    renderMachinesSorted();
+  });
 });
 
 densityToggle.querySelectorAll("[data-density]").forEach((button) => {

@@ -380,6 +380,35 @@ h1 {
   margin-bottom: 14px;
 }
 
+.machine-view-tabs {
+  display: inline-flex;
+  gap: 8px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.82);
+}
+
+.machine-view-tab {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  padding: 8px 14px;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.machine-view-tab:hover {
+  color: var(--text);
+}
+
+.machine-view-tab.active {
+  background: rgba(96, 165, 250, 0.18);
+  color: #bfdbfe;
+}
+
 .filter-input,
 .filter-select,
 .filter-reset {
@@ -459,6 +488,12 @@ h1 {
 .panel.wide .table-wrap.machines-scroll {
   overflow: auto;
   max-height: 80vh;
+}
+
+.machines-empty-state {
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 0.95rem;
 }
 
 .panel.wide .table-wrap.machines-scroll.compact-density th,
@@ -1519,5 +1554,15 @@ tr.machine-row:hover {
 
   .modal-toolbar {
     align-items: flex-start;
+  }
+
+  .machine-view-tabs {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .machine-view-tab {
+    flex: 1 1 0;
+    text-align: center;
   }
 }
