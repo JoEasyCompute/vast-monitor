@@ -69,6 +69,10 @@ let currentModalHistory = [];
 let currentModalEarningsData = null;
 let currentModalTab = "charts";
 let activeMachineView = "active";
+const REPORT_LONG_PRESS_MS = 550;
+let reportLongPressTimer = null;
+let reportLongPressActiveMachineId = null;
+let suppressRowClickUntil = 0;
 initializeStateFromUrl();
 
 async function loadDashboard() {
@@ -1201,9 +1205,9 @@ function renderReports(row) {
   const count = row.num_reports || 0;
   if (count === 0) return '<span class="muted">0</span>';
   if (row.reports_changed) {
-    return `<span class="report-badge changed" title="New reports since yesterday">⚠ ${count}</span>`;
+    return `<span class="report-badge changed" data-report-trigger="1" data-machine-id="${row.machine_id}" title="New reports since yesterday">⚠ ${count}</span>`;
   }
-  return `<span class="report-badge">${count}</span>`;
+  return `<span class="report-badge" data-report-trigger="1" data-machine-id="${row.machine_id}">${count}</span>`;
 }
 
 function renderDatacenter(row) {
@@ -1706,6 +1710,10 @@ window.addEventListener("keydown", (event) => {
 });
 
 window.showMachineRow = function (event, machineId) {
+  if (Date.now() < suppressRowClickUntil) {
+    return;
+  }
+
   if ((event.ctrlKey || event.metaKey) && hasReports(machineId)) {
     showMachineReports(machineId).catch((error) => console.error(error));
     return;
@@ -1987,6 +1995,46 @@ function hasReports(machineId) {
   return Boolean(machine && (machine.num_reports || 0) > 0);
 }
 
+function getReportTriggerFromEventTarget(target) {
+  return target instanceof Element ? target.closest("[data-report-trigger='1']") : null;
+}
+
+function clearReportLongPress() {
+  if (reportLongPressTimer) {
+    window.clearTimeout(reportLongPressTimer);
+    reportLongPressTimer = null;
+  }
+  reportLongPressActiveMachineId = null;
+}
+
+function beginReportLongPress(event) {
+  const trigger = getReportTriggerFromEventTarget(event.target);
+  if (!trigger) {
+    return;
+  }
+
+  if (event.pointerType !== "touch" && event.pointerType !== "pen") {
+    return;
+  }
+
+  const machineId = Number(trigger.dataset.machineId);
+  if (!Number.isFinite(machineId) || !hasReports(machineId)) {
+    return;
+  }
+
+  clearReportLongPress();
+  reportLongPressActiveMachineId = machineId;
+  reportLongPressTimer = window.setTimeout(() => {
+    suppressRowClickUntil = Date.now() + 750;
+    clearReportLongPress();
+    showMachineReports(machineId).catch((error) => console.error(error));
+  }, REPORT_LONG_PRESS_MS);
+}
+
+function cancelReportLongPress() {
+  clearReportLongPress();
+}
+
 function updateModalNavigation() {
   if (!modalPrev || !modalNext) {
     return;
@@ -2036,6 +2084,26 @@ reportsNextButton.addEventListener("click", () => {
 
   currentReportIndex += 1;
   renderCurrentReport();
+});
+
+machinesBody.addEventListener("pointerdown", (event) => {
+  beginReportLongPress(event);
+});
+
+machinesBody.addEventListener("pointerup", cancelReportLongPress);
+machinesBody.addEventListener("pointercancel", cancelReportLongPress);
+machinesBody.addEventListener("pointermove", cancelReportLongPress);
+machinesBody.addEventListener("pointerleave", cancelReportLongPress);
+
+machinesBody.addEventListener("contextmenu", (event) => {
+  const trigger = getReportTriggerFromEventTarget(event.target);
+  if (!trigger) {
+    return;
+  }
+
+  if (reportLongPressActiveMachineId != null || Date.now() < suppressRowClickUntil) {
+    event.preventDefault();
+  }
 });
 
 function drawRenterChart(history) {
