@@ -113,7 +113,10 @@ The dashboard includes:
 - Configurable frontend highlighting thresholds for low reliability and high temperature
 - Recent alerts
 - Per-machine history modal with tabbed `Charts` and `Recent Events` views
+- Clicking a machine row opens the machine history modal
+- Report badges support `Ctrl`/`Cmd`-click on desktop and long-press on touch devices to open the reports modal
 - Machine modal header shows the machine ID plus compact context badges/labels such as `DC`, GPU label, and clickable IP address
+- Machine modal machine ID and IP address support click-to-copy
 - Machine modal charts for historical earnings, renter activity, reliability, GPU rental price, and GPU count
 - Machine modal commercial summary includes realized previous/current calendar month machine earnings when live Vast CLI earnings are available
 - Machine modal includes a compact live-earnings status panel showing source, health, and effective comparison windows
@@ -305,6 +308,8 @@ Current automated coverage includes:
 - datacenter metadata batching
 - SQLite-backed DB aggregation flows
 - HTTP API response shapes for status, health, fleet history, and live dependency failures
+- frontend machine-table filtering, sorting, archive classification, and markup behavior
+- frontend URL/local-storage UI state loading and persistence behavior
 
 ## Notes
 
@@ -361,7 +366,8 @@ src/
 
 public/
   index.html        dashboard shell
-  app.js            dashboard rendering
+  app.js            dashboard orchestration
+  app/              frontend modules for charts, tables, modal controllers, UI state, and event wiring
   styles.css        dashboard styling
 
 data/
