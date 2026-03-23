@@ -134,7 +134,7 @@ export function buildMachineRowsMarkup(rows, uiSettings) {
         .join(" ");
 
       return `
-      <tr class="machine-row ${rowClass}" onclick="showMachineRow(event, ${row.machine_id})">
+      <tr class="machine-row ${rowClass}" data-machine-row="1" data-machine-id="${row.machine_id}">
         <td class="muted">${index + 1}</td>
         <td class="muted">#${row.machine_id}</td>
         <td class="dc-cell">${renderDatacenter(row)}</td>
@@ -277,11 +277,12 @@ function renderOccupancy(row) {
 
 function renderReports(row) {
   const count = row.num_reports || 0;
+  const interactionHint = "Click row for history. Ctrl/Cmd-click or long-press for reports.";
   if (count === 0) return '<span class="muted">0</span>';
   if (row.reports_changed) {
-    return `<span class="report-badge changed" data-report-trigger="1" data-machine-id="${row.machine_id}" title="New reports since yesterday">⚠ ${count}</span>`;
+    return `<span class="report-badge changed" data-report-trigger="1" data-machine-id="${row.machine_id}" title="New reports since yesterday. ${interactionHint}">⚠ ${count}</span>`;
   }
-  return `<span class="report-badge" data-report-trigger="1" data-machine-id="${row.machine_id}">${count}</span>`;
+  return `<span class="report-badge" data-report-trigger="1" data-machine-id="${row.machine_id}" title="${interactionHint}">${count}</span>`;
 }
 
 function renderDatacenter(row) {

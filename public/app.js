@@ -24,6 +24,7 @@ import {
 } from "./app/charts.js";
 import {
   bindDashboardControls,
+  bindMachineInteractions,
   bindModalControls,
   bindReportGestureHandlers,
   bindWindowResize
@@ -341,11 +342,11 @@ function renderModalSummary(machine) {
 }
 
 function renderModalHeader(machineId, machine = null) {
-  const machineIdTag = `<button class="modal-header-id" type="button" title="Copy machine ID" onclick="copyMachineId(event, '${escapeHtml(String(machineId))}')">Machine #${escapeHtml(String(machineId))}</button>`;
+  const machineIdTag = `<button class="modal-header-id" type="button" title="Tap to copy machine ID" data-copy-machine-id="${escapeHtml(String(machineId))}">Machine #${escapeHtml(String(machineId))}</button>`;
   const dcTag = machine?.is_datacenter ? ' <span class="dc-pill">DC</span>' : "";
   const gpuTag = machine ? ` <span class="modal-header-gpu">${escapeHtml(formatGpuMachineLabel(machine))}</span>` : "";
   const ipTag = machine?.public_ipaddr
-    ? ` <button class="modal-header-ip" type="button" title="Copy IP address" onclick="copyMachineIpAddress(event, '${escapeHtml(machine.public_ipaddr)}')">${escapeHtml(machine.public_ipaddr)}</button>`
+    ? ` <button class="modal-header-ip" type="button" title="Tap to copy IP address" data-copy-ip-address="${escapeHtml(machine.public_ipaddr)}">${escapeHtml(machine.public_ipaddr)}</button>`
     : "";
   modalTitle.innerHTML = `${machineIdTag}${dcTag}${gpuTag}${ipTag}`;
 }
@@ -821,7 +822,7 @@ const reportsController = createReportsController({
   }
 });
 
-window.showMachineRow = function (event, machineId) {
+function handleMachineRowClick(event, machineId) {
   if (Date.now() < suppressRowClickUntil) {
     return;
   }
@@ -832,29 +833,23 @@ window.showMachineRow = function (event, machineId) {
   }
 
   showMachineHistory(machineId);
-};
+}
 
-window.copyMachineIpAddress = async function (event, ipAddress) {
-  event?.preventDefault?.();
-  event?.stopPropagation?.();
-
+async function copyMachineIpAddress(ipAddress) {
   try {
     await copyTextToClipboard(ipAddress);
   } catch (error) {
     console.error("Failed to copy IP address:", error);
   }
-};
+}
 
-window.copyMachineId = async function (event, machineId) {
-  event?.preventDefault?.();
-  event?.stopPropagation?.();
-
+async function copyMachineId(machineId) {
   try {
     await copyTextToClipboard(machineId);
   } catch (error) {
     console.error("Failed to copy machine ID:", error);
   }
-};
+}
 
 async function showMachineHistory(machineId, options = {}) {
   return machineModalController.showMachineHistory(machineId, options);
@@ -1037,6 +1032,18 @@ bindDashboardControls({
     selectedEarningsDate = nextDate;
     persistStateToUrl();
     loadDashboard().catch((error) => console.error(error));
+  }
+});
+
+bindMachineInteractions({
+  machinesBody,
+  modalTitle,
+  onMachineRowClick: handleMachineRowClick,
+  onCopyMachineId: (machineId) => {
+    copyMachineId(machineId).catch((error) => console.error(error));
+  },
+  onCopyIpAddress: (ipAddress) => {
+    copyMachineIpAddress(ipAddress).catch((error) => console.error(error));
   }
 });
 

@@ -225,3 +225,52 @@ export function bindReportGestureHandlers({
     }
   });
 }
+
+export function bindMachineInteractions({
+  machinesBody,
+  modalTitle,
+  onMachineRowClick,
+  onCopyMachineId,
+  onCopyIpAddress
+}) {
+  machinesBody.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+
+    const row = target.closest("[data-machine-row='1']");
+    if (!row) {
+      return;
+    }
+
+    const machineId = Number(row.dataset.machineId);
+    if (!Number.isFinite(machineId)) {
+      return;
+    }
+
+    onMachineRowClick(event, machineId);
+  });
+
+  modalTitle.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+
+    const machineIdButton = target.closest("[data-copy-machine-id]");
+    if (machineIdButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      onCopyMachineId(machineIdButton.dataset.copyMachineId || "");
+      return;
+    }
+
+    const ipButton = target.closest("[data-copy-ip-address]");
+    if (ipButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      onCopyIpAddress(ipButton.dataset.copyIpAddress || "");
+    }
+  });
+}
