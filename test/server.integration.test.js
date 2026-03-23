@@ -41,7 +41,16 @@ test("server integration returns expected API payloads and dependency failures",
     getHealthSnapshot() {
       return {
         isPolling: false,
-        lastPollSucceededAt: db.getCurrentFleetStatus().latestPollAt
+        lastPollSucceededAt: db.getCurrentFleetStatus().latestPollAt,
+        lastPollDurationMs: 3200,
+        lastFetchDurationMs: 1400,
+        lastPersistDurationMs: 700,
+        lastAlertDispatchDurationMs: 90,
+        lastOnlineMachineCount: 2,
+        lastOfflineMachineCount: 0,
+        lastEventCount: 0,
+        lastAlertCount: 1,
+        lastHostnameCollisionCount: 0
       };
     }
   };
@@ -69,6 +78,7 @@ test("server integration returns expected API payloads and dependency failures",
     assert.equal(status.body.summary.totalMachines, 2);
     assert.equal(status.body.summary.listedGpus, 6);
     assert.equal(status.body.gpuTypeBreakdown.length, 2);
+    assert.equal(status.body.observability.lastPollDurationMs, 3200);
     assert.equal(status.body.machines.find((machine) => machine.machine_id === 1)?.has_new_report_72h, true);
     assert.equal(status.body.machines.find((machine) => machine.machine_id === 2)?.has_new_report_72h, false);
 
@@ -76,6 +86,8 @@ test("server integration returns expected API payloads and dependency failures",
     assert.equal(health.body.status, "degraded");
     assert.equal(health.body.liveOperationsOk, false);
     assert.equal(health.body.liveDependencies.vastCli.ok, false);
+    assert.equal(health.body.observability.lastFetchDurationMs, 1400);
+    assert.equal(health.body.observability.lastAlertCount, 1);
 
     assert.equal(fleet.statusCode, 200);
     assert.ok(Array.isArray(fleet.body.history));

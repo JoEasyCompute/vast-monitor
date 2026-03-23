@@ -1,5 +1,6 @@
 import {
   escapeHtml,
+  formatChartTimestamp,
   formatCurrency,
   formatDateWindow,
   formatDuration,
@@ -69,22 +70,30 @@ const breakdownBody = document.getElementById("breakdown-body");
 const machinesBody = document.getElementById("machines-body");
 const machinesEmptyState = document.getElementById("machines-empty-state");
 const alertsList = document.getElementById("alerts-list");
+const alertsMeta = document.getElementById("alerts-meta");
 const lastUpdated = document.getElementById("last-updated");
+const refreshButton = document.getElementById("refresh-button");
 const hourlyChart = document.getElementById("hourly-chart");
 const earningsTotal = document.getElementById("earnings-total");
 const earningsDate = document.getElementById("earnings-date");
 const earningsPrevButton = document.getElementById("earnings-prev");
 const earningsNextButton = document.getElementById("earnings-next");
+const summaryMeta = document.getElementById("summary-meta");
+const breakdownMeta = document.getElementById("breakdown-meta");
+const earningsMeta = document.getElementById("earnings-meta");
 const dashboardNotice = document.getElementById("dashboard-notice");
 const dashboardToast = document.getElementById("dashboard-toast");
 const staleWarning = document.getElementById("stale-warning");
 const healthBadge = document.getElementById("health-badge");
 const trendRange = document.getElementById("trend-range");
+const fleetTrendsMeta = document.getElementById("fleet-trends-meta");
 const trendGpusChart = document.getElementById("trend-gpus-chart");
 const trendFleetChart = document.getElementById("trend-fleet-chart");
 const trendUtilChart = document.getElementById("trend-util-chart");
 const trendUtilGpuSelect = document.getElementById("trend-util-gpu-select");
 const trendPriceChart = document.getElementById("trend-price-chart");
+const pollMonitorGrid = document.getElementById("poll-monitor-grid");
+const pollMonitorMeta = document.getElementById("poll-monitor-meta");
 const filterSearch = document.getElementById("filter-search");
 const filterStatus = document.getElementById("filter-status");
 const filterListed = document.getElementById("filter-listed");
@@ -135,12 +144,14 @@ let currentModalHistory = [];
 let currentModalEarningsData = null;
 let currentModalTab = "charts";
 let activeMachineView = "active";
+let latestObservability = null;
 const REPORT_LONG_PRESS_MS = 550;
 let reportLongPressTimer = null;
 let reportLongPressActiveMachineId = null;
 let suppressRowClickUntil = 0;
 const copyFeedbackTimers = new WeakMap();
 let dashboardToastTimer = null;
+let manualRefreshInFlight = false;
 initializeStateFromUrl();
 
 function handleSort(col) {
@@ -222,6 +233,10 @@ function renderSummary(summary) {
     .join("");
 }
 
+function renderSummaryMeta(latestPollAt) {
+  summaryMeta.textContent = buildSectionMeta("SQLite fleet snapshot", latestPollAt);
+}
+
 function renderSummaryComparison(comparison) {
   if (summaryCompareGrid) {
     summaryCompareGrid.innerHTML = "";
@@ -264,6 +279,10 @@ function renderBreakdown(rows) {
       </tr>
     `)
     .join("");
+}
+
+function renderBreakdownMeta(latestPollAt) {
+  breakdownMeta.textContent = buildSectionMeta("Grouped from latest poll", latestPollAt);
 }
 
 function renderMachines(rows) {
@@ -459,6 +478,7 @@ function renderHourlyEarnings(data) {
       `;
     })
     .join("");
+  earningsMeta.textContent = buildSectionMeta(`Stored hourly estimate for ${data.date}`, data.generated_at || null);
 }
 
 function renderHourlyEarningsUnavailable() {
@@ -466,11 +486,13 @@ function renderHourlyEarningsUnavailable() {
   earningsDate.textContent = selectedEarningsDate;
   hourlyChart.innerHTML = '<div class="section-placeholder"><p class="muted">Hourly earnings are temporarily unavailable.</p></div>';
   earningsNextButton.disabled = selectedEarningsDate === todayUtcDateString();
+  earningsMeta.textContent = "Stored hourly estimates unavailable";
 }
 
 function renderAlerts(rows) {
   if (rows.length === 0) {
     alertsList.innerHTML = '<p class="muted">No alerts yet.</p>';
+    alertsMeta.textContent = "Source: recent alert history";
     return;
   }
 
@@ -485,10 +507,12 @@ function renderAlerts(rows) {
       </article>
     `)
     .join("");
+  alertsMeta.textContent = "Source: recent alert history";
 }
 
 function renderAlertsUnavailable() {
   alertsList.innerHTML = '<div class="section-placeholder"><p class="muted">Alerts are temporarily unavailable.</p></div>';
+  alertsMeta.textContent = "Recent alert feed unavailable";
 }
 
 function renderHealth(health) {
@@ -578,6 +602,7 @@ function renderFleetTrends(payload) {
     max: 100,
     formatValue: (value) => `${Math.round(value)}%`
   });
+  fleetTrendsMeta.textContent = buildSectionMeta(`SQLite snapshots, ${selectedTrendHours}h window`, payload?.history?.at?.(-1)?.polled_at || null);
 }
 
 function renderGpuTypePriceTrends(payload) {
@@ -590,6 +615,40 @@ function renderGpuTypePriceTrends(payload) {
   drawMultiSeriesChart(trendPriceChart, normalized.history, normalized.series, {
     formatValue: (value) => formatCurrency(value)
   });
+}
+
+function renderPollMonitor(observability, latestPollAt) {
+  latestObservability = observability || null;
+  const items = [
+    ["Poll", formatMetricDuration(observability?.lastPollDurationMs)],
+    ["Fetch", formatMetricDuration(observability?.lastFetchDurationMs)],
+    ["Persist", formatMetricDuration(observability?.lastPersistDurationMs)],
+    ["Alerts", formatMetricDuration(observability?.lastAlertDispatchDurationMs)],
+    ["Online", observability?.lastOnlineMachineCount ?? 0],
+    ["Offline", observability?.lastOfflineMachineCount ?? 0],
+    ["Events", observability?.lastEventCount ?? 0],
+    ["Sent", observability?.lastAlertCount ?? 0]
+  ];
+
+  pollMonitorGrid.innerHTML = items.map(([label, value]) => `
+    <article class="stat-card">
+      <span class="stat-label">${escapeHtml(label)}</span>
+      <strong class="stat-value">${escapeHtml(String(value))}</strong>
+    </article>
+  `).join("");
+  pollMonitorMeta.textContent = buildSectionMeta("Last completed poll", latestPollAt);
+}
+
+function buildSectionMeta(sourceLabel, timestamp) {
+  if (!timestamp) {
+    return `Source: ${sourceLabel}`;
+  }
+
+  return `Source: ${sourceLabel}. Updated ${formatChartTimestamp(timestamp)}`;
+}
+
+function formatMetricDuration(value) {
+  return Number.isFinite(value) ? formatDuration(value) : "-";
 }
 
 function initializeStateFromUrl() {
@@ -828,11 +887,14 @@ const dashboardController = createDashboardController({
   applyStatusPayload: (status) => {
     currentMachinesData = Array.isArray(status.machines) ? status.machines : [];
     renderSummary(status.summary);
+    renderSummaryMeta(status.latestPollAt);
     renderSummaryComparison(status.summary?.comparison24h);
     renderBreakdown(Array.isArray(status.gpuTypeBreakdown) ? status.gpuTypeBreakdown : []);
+    renderBreakdownMeta(status.latestPollAt);
     renderMachinesSorted();
     lastKnownHealth = status.health;
     renderHealth(status.health);
+    renderPollMonitor(status.observability, status.latestPollAt);
     lastUpdated.textContent = status.latestPollAt
       ? `Last updated ${new Date(status.latestPollAt).toLocaleString()}`
       : "No poll data yet";
@@ -874,8 +936,28 @@ const dashboardController = createDashboardController({
   }
 });
 
-dashboardController.refreshDashboard().catch((error) => console.error(error));
+refreshDashboard();
 dashboardController.startAutoRefresh(5 * 60 * 1000);
+
+function refreshDashboard() {
+  if (manualRefreshInFlight) {
+    return Promise.resolve();
+  }
+
+  manualRefreshInFlight = true;
+  if (refreshButton) {
+    refreshButton.disabled = true;
+    refreshButton.textContent = "Refreshing...";
+  }
+
+  return dashboardController.refreshDashboard().finally(() => {
+    manualRefreshInFlight = false;
+    if (refreshButton) {
+      refreshButton.disabled = false;
+      refreshButton.textContent = "Refresh";
+    }
+  });
+}
 
 function handleMachineRowClick(event, machineId) {
   if (Date.now() < suppressRowClickUntil) {
@@ -1097,7 +1179,7 @@ bindDashboardControls({
     trendRange.querySelectorAll("[data-hours]").forEach((item) => item.classList.remove("active"));
     button.classList.add("active");
     persistStateToUrl();
-    dashboardController.refreshDashboard().catch((error) => console.error(error));
+    refreshDashboard().catch((error) => console.error(error));
   },
   onTrendGpuChange: () => {
     selectedUtilizationGpuType = trendUtilGpuSelect.value || "__fleet__";
@@ -1124,7 +1206,7 @@ bindDashboardControls({
   onEarningsPrev: () => {
     selectedEarningsDate = shiftUtcDate(selectedEarningsDate, -1);
     persistStateToUrl();
-    dashboardController.refreshDashboard().catch((error) => console.error(error));
+    refreshDashboard().catch((error) => console.error(error));
   },
   onEarningsNext: () => {
     const nextDate = shiftUtcDate(selectedEarningsDate, 1);
@@ -1134,8 +1216,12 @@ bindDashboardControls({
 
     selectedEarningsDate = nextDate;
     persistStateToUrl();
-    dashboardController.refreshDashboard().catch((error) => console.error(error));
+    refreshDashboard().catch((error) => console.error(error));
   }
+});
+
+refreshButton?.addEventListener("click", () => {
+  refreshDashboard().catch((error) => console.error(error));
 });
 
 bindMachineInteractions({

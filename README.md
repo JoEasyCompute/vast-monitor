@@ -96,6 +96,7 @@ The dashboard includes:
 - Fleet summary cards
 - Header health badge (`Healthy`, `Polling`, `Stale`, `Degraded`)
 - Header health badge can also show `Degraded` when stored poll data is fresh but live Vast-dependent operations are unhealthy
+- Header `Refresh` button for manual dashboard reloads
 - Header `Settings` button for local browser preferences
 - Dashboard shows a visible notice when one or more API-backed sections fail to refresh, instead of collapsing the whole page into a generic failure state
 - Stale-data warning banner when polls are too old
@@ -104,6 +105,7 @@ The dashboard includes:
 - Fleet utilisation chart with a GPU selector; default view is total fleet utilisation
 - GPU-type pricing trends using listed-only weighted averages
 - Hourly earnings with previous/next day navigation
+- Per-section source/freshness labels for summary, breakdown, hourly earnings, fleet trends, alerts, and poll monitor
 - Sortable machine table
 - Machine table split into `Main View` and `Archived` tabs, where archived machines are offline for more than 24 hours
 - Machine table filters for search, status, listed/unlisted, datacenter, errors, `New Report` (new report alert within 72 hours), and maintenance
@@ -113,6 +115,7 @@ The dashboard includes:
 - Bright orange highlighting for machines with active error messages
 - Configurable frontend highlighting thresholds for low reliability and high temperature
 - Recent alerts
+- Compact poll monitor panel with latest poll timings and counts
 - Per-machine history modal with tabbed `Charts` and `Recent Events` views
 - Clicking a machine row opens the machine history modal
 - Report badges support `Ctrl`/`Cmd`-click on desktop and long-press on touch devices to open the reports modal
@@ -312,6 +315,7 @@ Current automated coverage includes:
 - datacenter metadata batching
 - SQLite-backed DB aggregation flows
 - HTTP API response shapes for status, health, fleet history, and live dependency failures
+- poll observability metrics in monitor health snapshots and API responses
 - frontend machine-table filtering, sorting, archive classification, and markup behavior
 - frontend URL/local-storage UI state loading and persistence behavior
 - frontend delegated interaction wiring and clipboard fallback behavior

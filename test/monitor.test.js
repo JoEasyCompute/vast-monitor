@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  FleetMonitor,
   buildChangeSet,
   detectHostnameCollisions,
   dedupeMachinesByHostname,
@@ -57,6 +58,36 @@ test("resolveReportTracking keeps baseline on same day and resets on next day", 
     resolveReportTracking(previous, { num_reports: 6 }, "2026-03-14T00:05:00.000Z"),
     { prev_day_reports: 5, reports_changed: 1 }
   );
+});
+
+test("FleetMonitor health snapshot includes poll observability metrics", () => {
+  const monitor = new FleetMonitor({
+    config: { pollIntervalMs: 300000 },
+    db: {},
+    alertManager: { send() {} }
+  });
+
+  monitor.lastPollDurationMs = 4200;
+  monitor.lastFetchDurationMs = 1800;
+  monitor.lastPersistDurationMs = 900;
+  monitor.lastAlertDispatchDurationMs = 120;
+  monitor.lastOnlineMachineCount = 12;
+  monitor.lastOfflineMachineCount = 3;
+  monitor.lastEventCount = 7;
+  monitor.lastAlertCount = 2;
+  monitor.lastHostnameCollisionCount = 1;
+
+  const snapshot = monitor.getHealthSnapshot();
+
+  assert.equal(snapshot.lastPollDurationMs, 4200);
+  assert.equal(snapshot.lastFetchDurationMs, 1800);
+  assert.equal(snapshot.lastPersistDurationMs, 900);
+  assert.equal(snapshot.lastAlertDispatchDurationMs, 120);
+  assert.equal(snapshot.lastOnlineMachineCount, 12);
+  assert.equal(snapshot.lastOfflineMachineCount, 3);
+  assert.equal(snapshot.lastEventCount, 7);
+  assert.equal(snapshot.lastAlertCount, 2);
+  assert.equal(snapshot.lastHostnameCollisionCount, 1);
 });
 
 test("change set emits startup, rental, temperature, and idle alerts from current state", () => {

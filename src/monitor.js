@@ -13,6 +13,15 @@ export class FleetMonitor {
     this.lastPollFailedAt = null;
     this.lastPollError = null;
     this.lastSuccessfulMachineCount = 0;
+    this.lastPollDurationMs = null;
+    this.lastFetchDurationMs = null;
+    this.lastPersistDurationMs = null;
+    this.lastAlertDispatchDurationMs = null;
+    this.lastOnlineMachineCount = 0;
+    this.lastOfflineMachineCount = 0;
+    this.lastEventCount = 0;
+    this.lastAlertCount = 0;
+    this.lastHostnameCollisionCount = 0;
   }
 
   async start() {
@@ -49,7 +58,16 @@ export class FleetMonitor {
       lastPollSucceededAt: this.lastPollSucceededAt,
       lastPollFailedAt: this.lastPollFailedAt,
       lastPollError: this.lastPollError,
-      lastSuccessfulMachineCount: this.lastSuccessfulMachineCount
+      lastSuccessfulMachineCount: this.lastSuccessfulMachineCount,
+      lastPollDurationMs: this.lastPollDurationMs,
+      lastFetchDurationMs: this.lastFetchDurationMs,
+      lastPersistDurationMs: this.lastPersistDurationMs,
+      lastAlertDispatchDurationMs: this.lastAlertDispatchDurationMs,
+      lastOnlineMachineCount: this.lastOnlineMachineCount,
+      lastOfflineMachineCount: this.lastOfflineMachineCount,
+      lastEventCount: this.lastEventCount,
+      lastAlertCount: this.lastAlertCount,
+      lastHostnameCollisionCount: this.lastHostnameCollisionCount
     };
   }
 
@@ -62,10 +80,13 @@ export class FleetMonitor {
     const timestamp = new Date().toISOString();
     this.lastPollStartedAt = timestamp;
     this.lastPollError = null;
+    const pollStartedMs = Date.now();
 
     try {
       console.log(`[monitor] Poll started at ${timestamp}`);
+      const fetchStartedMs = Date.now();
       let rawMachines = await fetchMachines(this.config);
+      this.lastFetchDurationMs = Date.now() - fetchStartedMs;
       const hostnameCollisionWarnings = detectHostnameCollisions(rawMachines);
       rawMachines = dedupeMachinesByHostname(rawMachines);
       const previousStates = new Map(this.db.getCurrentFleetStatus().machines.map((machine) => [machine.machine_id, machine]));
@@ -166,6 +187,7 @@ export class FleetMonitor {
         }
       }
 
+      const persistStartedMs = Date.now();
       this.db.recordPoll({
         timestamp,
         machines: onlineMachines,
@@ -173,16 +195,25 @@ export class FleetMonitor {
         events,
         alerts
       });
+      this.lastPersistDurationMs = Date.now() - persistStartedMs;
 
+      const alertDispatchStartedMs = Date.now();
       for (const alert of alerts) {
         await this.alertManager.send(alert);
       }
+      this.lastAlertDispatchDurationMs = Date.now() - alertDispatchStartedMs;
 
       this.lastPollCompletedAt = timestamp;
       this.lastPollSucceededAt = timestamp;
       this.lastPollFailedAt = null;
       this.lastPollError = null;
+      this.lastPollDurationMs = Date.now() - pollStartedMs;
       this.lastSuccessfulMachineCount = rawMachines.length;
+      this.lastOnlineMachineCount = onlineMachines.length;
+      this.lastOfflineMachineCount = offlineMachines.length;
+      this.lastEventCount = events.length;
+      this.lastAlertCount = alerts.length;
+      this.lastHostnameCollisionCount = hostnameCollisionWarnings.length;
       console.log(`Poll complete at ${timestamp}: ${rawMachines.length} online machines`);
     } catch (error) {
       this.lastPollCompletedAt = new Date().toISOString();

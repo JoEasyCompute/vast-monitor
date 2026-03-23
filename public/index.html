@@ -18,6 +18,7 @@
           <p class="hero-copy">Live fleet health, utilisation, alerts, and uptime across your hosted GPUs.</p>
         </div>
         <div class="hero-meta">
+          <button id="refresh-button" class="settings-button" type="button">Refresh</button>
           <button id="settings-button" class="settings-button" type="button">Settings</button>
           <span id="health-badge" class="health-badge">Loading</span>
           <span id="last-updated">Loading...</span>
@@ -29,13 +30,19 @@
         <section id="stale-warning" class="warning-banner hidden"></section>
 
         <section class="panel">
-          <h2>Fleet Summary</h2>
+          <div class="panel-title-row">
+            <h2>Fleet Summary</h2>
+            <span id="summary-meta" class="section-meta"></span>
+          </div>
           <div class="summary-grid" id="summary-grid"></div>
           <div class="summary-compare-grid" id="summary-compare-grid"></div>
         </section>
 
         <section class="panel">
-          <h2>GPU Type Breakdown</h2>
+          <div class="panel-title-row">
+            <h2>GPU Type Breakdown</h2>
+            <span id="breakdown-meta" class="section-meta"></span>
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -57,6 +64,7 @@
           <div class="panel-title-row">
             <h2>Hourly Earnings</h2>
             <div class="earnings-nav">
+              <span id="earnings-meta" class="section-meta"></span>
               <button id="earnings-prev" class="nav-button" type="button" aria-label="Previous day">&#8592;</button>
               <button id="earnings-next" class="nav-button" type="button" aria-label="Next day">&#8594;</button>
             </div>
@@ -72,6 +80,7 @@
           <div class="panel-title-row">
             <h2>Fleet Trends</h2>
             <div class="trend-range" id="trend-range">
+              <span id="fleet-trends-meta" class="section-meta"></span>
               <button class="range-button active" type="button" data-hours="24">24h</button>
               <button class="range-button" type="button" data-hours="168">7d</button>
               <button class="range-button" type="button" data-hours="720">30d</button>
@@ -178,8 +187,19 @@
         </section>
 
         <section class="panel">
-          <h2>Recent Alerts</h2>
+          <div class="panel-title-row">
+            <h2>Recent Alerts</h2>
+            <span id="alerts-meta" class="section-meta"></span>
+          </div>
           <div id="alerts-list" class="alerts-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-title-row">
+            <h2>Poll Monitor</h2>
+            <span id="poll-monitor-meta" class="section-meta"></span>
+          </div>
+          <div id="poll-monitor-grid" class="summary-grid summary-grid-compact"></div>
         </section>
       </main>
     </div>

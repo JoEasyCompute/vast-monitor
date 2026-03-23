@@ -11,7 +11,7 @@ export function createServer({ config, db, monitor }) {
 
   app.get("/api/status", (_req, res) => {
     const fleet = db.getCurrentFleetStatus();
-    res.json(buildFleetResponse(fleet, config));
+    res.json(buildFleetResponse(fleet, config, monitor));
   });
 
   app.get("/api/health", (_req, res) => {
@@ -338,7 +338,7 @@ function buildComparisonMetric(current, previous, decimals = 2) {
   };
 }
 
-function buildFleetResponse(fleet, config) {
+function buildFleetResponse(fleet, config, monitor) {
   // Deduplicate machines by hostname to avoid double counting old offline machine IDs
   const byHostname = new Map();
   for (const m of fleet.machines) {
@@ -447,6 +447,9 @@ function buildFleetResponse(fleet, config) {
       latestPollAt: fleet.latestPollAt,
       pollIntervalMs: config.pollIntervalMs
     }),
+    observability: normalizeMonitorObservability(
+      typeof monitor?.getHealthSnapshot === "function" ? monitor.getHealthSnapshot() : {}
+    ),
     summary: {
       totalMachines,
       datacenterMachines,
@@ -482,7 +485,23 @@ function buildHealthResponse({ config, db, monitor }) {
     pollAgeMs: status.pollAgeMs,
     liveOperationsOk,
     liveDependencies,
+    observability: normalizeMonitorObservability(monitorHealth),
     ...monitorHealth
+  };
+}
+
+function normalizeMonitorObservability(monitorHealth = {}) {
+  return {
+    lastPollDurationMs: monitorHealth.lastPollDurationMs ?? null,
+    lastFetchDurationMs: monitorHealth.lastFetchDurationMs ?? null,
+    lastPersistDurationMs: monitorHealth.lastPersistDurationMs ?? null,
+    lastAlertDispatchDurationMs: monitorHealth.lastAlertDispatchDurationMs ?? null,
+    lastSuccessfulMachineCount: monitorHealth.lastSuccessfulMachineCount ?? 0,
+    lastOnlineMachineCount: monitorHealth.lastOnlineMachineCount ?? 0,
+    lastOfflineMachineCount: monitorHealth.lastOfflineMachineCount ?? 0,
+    lastEventCount: monitorHealth.lastEventCount ?? 0,
+    lastAlertCount: monitorHealth.lastAlertCount ?? 0,
+    lastHostnameCollisionCount: monitorHealth.lastHostnameCollisionCount ?? 0
   };
 }
 
