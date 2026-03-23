@@ -97,6 +97,7 @@ The dashboard includes:
 - Header health badge (`Healthy`, `Polling`, `Stale`, `Degraded`)
 - Header health badge can also show `Degraded` when stored poll data is fresh but live Vast-dependent operations are unhealthy
 - Header `Settings` button for local browser preferences
+- Dashboard shows a visible notice when one or more API-backed sections fail to refresh, instead of collapsing the whole page into a generic failure state
 - Stale-data warning banner when polls are too old
 - GPU type breakdown
 - Fleet trends for `24h`, `7d`, and `30d`
@@ -120,6 +121,8 @@ The dashboard includes:
 - Machine modal charts for historical earnings, renter activity, reliability, GPU rental price, and GPU count
 - Machine modal commercial summary includes realized previous/current calendar month machine earnings when live Vast CLI earnings are available
 - Machine modal includes a compact live-earnings status panel showing source, health, and effective comparison windows
+- Machine and reports modals now show explicit loading states while live data is being fetched
+- Machine and reports modals keep clearer degraded/failure details visible when live requests fail
 - Machine modal earnings chart prefers the machine's own stored `earn_day` history and falls back to Vast daily earnings only when local history is unavailable
 - Machine modal suppresses live earnings warnings when local `earn_day` history is available and already powering the chart
 - Cursor hover inspection for fleet trend charts and machine modal charts
@@ -310,6 +313,9 @@ Current automated coverage includes:
 - HTTP API response shapes for status, health, fleet history, and live dependency failures
 - frontend machine-table filtering, sorting, archive classification, and markup behavior
 - frontend URL/local-storage UI state loading and persistence behavior
+- frontend delegated interaction wiring and clipboard fallback behavior
+- frontend dashboard loader partial-failure handling
+- frontend machine and reports modal controller loading/failure flows
 
 ## Notes
 

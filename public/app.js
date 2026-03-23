@@ -11,6 +11,10 @@ import {
 } from "./app/formatters.js";
 import { copyTextToClipboard } from "./app/clipboard.js";
 import {
+  buildDashboardNoticeMessage,
+  fetchDashboardPayload
+} from "./app/dashboard-loader.js";
+import {
   clearChartSyncGroup,
   drawGpuCountChart,
   drawMachineEarningsChart,
@@ -70,6 +74,7 @@ const earningsTotal = document.getElementById("earnings-total");
 const earningsDate = document.getElementById("earnings-date");
 const earningsPrevButton = document.getElementById("earnings-prev");
 const earningsNextButton = document.getElementById("earnings-next");
+const dashboardNotice = document.getElementById("dashboard-notice");
 const staleWarning = document.getElementById("stale-warning");
 const healthBadge = document.getElementById("health-badge");
 const trendRange = document.getElementById("trend-range");
@@ -136,38 +141,58 @@ const copyFeedbackTimers = new WeakMap();
 initializeStateFromUrl();
 
 async function loadDashboard() {
-  const [statusResponse, alertsResponse, earningsResponse, fleetHistoryResponse, gpuTypePriceResponse] = await Promise.all([
-    fetch("/api/status"),
-    fetch("/api/alerts?limit=10"),
-    fetch(`/api/earnings/hourly?date=${selectedEarningsDate}`),
-    fetch(`/api/fleet/history?hours=${selectedTrendHours}`),
-    fetch(`/api/gpu-type/price-history?hours=${selectedTrendHours}&top=6`)
-  ]);
+  const result = await fetchDashboardPayload({
+    selectedEarningsDate,
+    selectedTrendHours
+  });
+  renderDashboardNotice(result.failures);
 
-  const status = await statusResponse.json();
-  const alertsPayload = await alertsResponse.json();
-  const earningsPayload = await earningsResponse.json();
-  const fleetHistoryPayload = await fleetHistoryResponse.json();
-  const gpuTypePricePayload = await gpuTypePriceResponse.json();
-  latestHourlyEarningsPayload = earningsPayload;
-  latestFleetHistoryPayload = fleetHistoryPayload;
-  latestGpuTypePricePayload = gpuTypePricePayload;
+  const status = result.payload.status;
+  if (status) {
+    currentMachinesData = Array.isArray(status.machines) ? status.machines : [];
+    renderSummary(status.summary);
+    renderSummaryComparison(status.summary?.comparison24h);
+    renderBreakdown(Array.isArray(status.gpuTypeBreakdown) ? status.gpuTypeBreakdown : []);
+    renderMachinesSorted();
+    lastKnownHealth = status.health;
+    renderHealth(status.health);
+    lastUpdated.textContent = status.latestPollAt
+      ? `Last updated ${new Date(status.latestPollAt).toLocaleString()}`
+      : "No poll data yet";
+  } else if (!lastKnownHealth) {
+    healthBadge.className = "health-badge degraded";
+    healthBadge.textContent = "Degraded";
+    lastUpdated.textContent = "Dashboard refresh incomplete";
+  }
 
-  currentMachinesData = status.machines;
+  if (result.payload.fleetHistory) {
+    latestFleetHistoryPayload = result.payload.fleetHistory;
+    renderFleetTrends(latestFleetHistoryPayload);
+  } else if (!latestFleetHistoryPayload) {
+    renderTrendUnavailable(trendGpusChart, "Fleet trends unavailable");
+    renderTrendUnavailable(trendFleetChart, "Fleet trends unavailable");
+    renderTrendUnavailable(trendUtilChart, "Utilisation unavailable");
+  }
 
-  renderSummary(status.summary);
-  renderSummaryComparison(status.summary?.comparison24h);
-  renderBreakdown(status.gpuTypeBreakdown);
-  renderFleetTrends(latestFleetHistoryPayload);
-  renderGpuTypePriceTrends(latestGpuTypePricePayload);
-  renderHourlyEarnings(latestHourlyEarningsPayload);
-  renderMachinesSorted();
-  renderAlerts(alertsPayload.alerts);
-  lastKnownHealth = status.health;
-  renderHealth(status.health);
-  lastUpdated.textContent = status.latestPollAt
-    ? `Last updated ${new Date(status.latestPollAt).toLocaleString()}`
-    : "No poll data yet";
+  if (result.payload.gpuTypePrice) {
+    latestGpuTypePricePayload = result.payload.gpuTypePrice;
+    renderGpuTypePriceTrends(latestGpuTypePricePayload);
+  } else if (!latestGpuTypePricePayload) {
+    renderTrendUnavailable(trendPriceChart, "GPU pricing unavailable");
+  }
+
+  if (result.payload.earnings) {
+    latestHourlyEarningsPayload = result.payload.earnings;
+    renderHourlyEarnings(latestHourlyEarningsPayload);
+  } else if (!latestHourlyEarningsPayload) {
+    renderHourlyEarningsUnavailable();
+  }
+
+  if (result.payload.alerts) {
+    renderAlerts(Array.isArray(result.payload.alerts.alerts) ? result.payload.alerts.alerts : []);
+  } else if (!alertsList.innerHTML) {
+    renderAlertsUnavailable();
+  }
 
   if (currentMachineHistoryId != null && !modalBackdrop.classList.contains("hidden")) {
     showMachineHistory(currentMachineHistoryId, { preserveScroll: true }).catch((error) => console.error(error));
@@ -492,6 +517,13 @@ function renderHourlyEarnings(data) {
     .join("");
 }
 
+function renderHourlyEarningsUnavailable() {
+  earningsTotal.textContent = "--";
+  earningsDate.textContent = selectedEarningsDate;
+  hourlyChart.innerHTML = '<p class="muted">Hourly earnings are temporarily unavailable.</p>';
+  earningsNextButton.disabled = selectedEarningsDate === todayUtcDateString();
+}
+
 function renderAlerts(rows) {
   if (rows.length === 0) {
     alertsList.innerHTML = '<p class="muted">No alerts yet.</p>';
@@ -509,6 +541,10 @@ function renderAlerts(rows) {
       </article>
     `)
     .join("");
+}
+
+function renderAlertsUnavailable() {
+  alertsList.innerHTML = '<p class="muted">Alerts are temporarily unavailable.</p>';
 }
 
 function renderHealth(health) {
@@ -541,6 +577,22 @@ function renderHealth(health) {
     : `Last successful poll is ${formatDuration(health.pollAgeMs)} old (threshold ${uiSettings.stalePollMinutes} min).`;
   staleWarning.textContent = `Stale data warning. ${ageText}`;
   staleWarning.classList.remove("hidden");
+}
+
+function renderDashboardNotice(failures) {
+  const message = buildDashboardNoticeMessage(failures);
+  if (!message) {
+    dashboardNotice.classList.add("hidden");
+    dashboardNotice.textContent = "";
+    return;
+  }
+
+  dashboardNotice.textContent = message;
+  dashboardNotice.classList.remove("hidden");
+}
+
+function renderTrendUnavailable(chartElement, message) {
+  chartElement.innerHTML = `<text x="360" y="90" text-anchor="middle" class="chart-empty">${escapeHtml(message)}</text>`;
 }
 
 function renderFleetTrends(payload) {
@@ -702,7 +754,10 @@ function redrawChartsForCurrentLayout() {
 
 loadDashboard().catch((error) => {
   console.error(error);
-  lastUpdated.textContent = "Failed to load dashboard";
+  renderDashboardNotice([{ label: "dashboard data", critical: true }]);
+  healthBadge.className = "health-badge degraded";
+  healthBadge.textContent = "Degraded";
+  lastUpdated.textContent = "Dashboard refresh incomplete";
 });
 
 updateSortHeaders();

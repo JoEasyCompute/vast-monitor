@@ -211,6 +211,12 @@ h1 {
   box-shadow: var(--shadow);
 }
 
+.info-banner {
+  border-color: rgba(96, 165, 250, 0.32);
+  background: rgba(96, 165, 250, 0.14);
+  color: #bfdbfe;
+}
+
 .panel.wide {
 }
 
