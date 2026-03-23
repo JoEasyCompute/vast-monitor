@@ -1174,6 +1174,7 @@ tr.high-temperature td {
   cursor: pointer;
   font-family: "Space Grotesk", sans-serif;
   line-height: 1.2;
+  transition: color 0.18s ease;
 }
 
 .modal-header-id:hover {
@@ -1183,6 +1184,11 @@ tr.high-temperature td {
 .modal-header-ip:hover {
   color: var(--text);
   text-decoration: none;
+}
+
+.modal-header-id.copied,
+.modal-header-ip.copied {
+  color: #86efac;
 }
 
 .modal-header-gpu {

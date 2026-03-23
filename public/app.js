@@ -132,6 +132,7 @@ const REPORT_LONG_PRESS_MS = 550;
 let reportLongPressTimer = null;
 let reportLongPressActiveMachineId = null;
 let suppressRowClickUntil = 0;
+const copyFeedbackTimers = new WeakMap();
 initializeStateFromUrl();
 
 async function loadDashboard() {
@@ -835,20 +836,48 @@ function handleMachineRowClick(event, machineId) {
   showMachineHistory(machineId);
 }
 
-async function copyMachineIpAddress(ipAddress) {
+async function copyMachineIpAddress(ipAddress, button = null) {
   try {
     await copyTextToClipboard(ipAddress);
+    flashCopyFeedback(button);
   } catch (error) {
     console.error("Failed to copy IP address:", error);
   }
 }
 
-async function copyMachineId(machineId) {
+async function copyMachineId(machineId, button = null) {
   try {
     await copyTextToClipboard(machineId);
+    flashCopyFeedback(button);
   } catch (error) {
     console.error("Failed to copy machine ID:", error);
   }
+}
+
+function flashCopyFeedback(button) {
+  if (!button) {
+    return;
+  }
+
+  if (!button.dataset.copyTitle) {
+    button.dataset.copyTitle = button.getAttribute("title") || "";
+  }
+
+  const priorTimer = copyFeedbackTimers.get(button);
+  if (priorTimer) {
+    window.clearTimeout(priorTimer);
+  }
+
+  button.classList.add("copied");
+  button.setAttribute("title", "Copied");
+
+  const timer = window.setTimeout(() => {
+    button.classList.remove("copied");
+    button.setAttribute("title", button.dataset.copyTitle || "");
+    copyFeedbackTimers.delete(button);
+  }, 1200);
+
+  copyFeedbackTimers.set(button, timer);
 }
 
 async function showMachineHistory(machineId, options = {}) {
@@ -1039,11 +1068,11 @@ bindMachineInteractions({
   machinesBody,
   modalTitle,
   onMachineRowClick: handleMachineRowClick,
-  onCopyMachineId: (machineId) => {
-    copyMachineId(machineId).catch((error) => console.error(error));
+  onCopyMachineId: (machineId, button) => {
+    copyMachineId(machineId, button).catch((error) => console.error(error));
   },
-  onCopyIpAddress: (ipAddress) => {
-    copyMachineIpAddress(ipAddress).catch((error) => console.error(error));
+  onCopyIpAddress: (ipAddress, button) => {
+    copyMachineIpAddress(ipAddress, button).catch((error) => console.error(error));
   }
 });
 

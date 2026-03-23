@@ -262,7 +262,7 @@ export function bindMachineInteractions({
     if (machineIdButton) {
       event.preventDefault();
       event.stopPropagation();
-      onCopyMachineId(machineIdButton.dataset.copyMachineId || "");
+      onCopyMachineId(machineIdButton.dataset.copyMachineId || "", machineIdButton);
       return;
     }
 
@@ -270,7 +270,7 @@ export function bindMachineInteractions({
     if (ipButton) {
       event.preventDefault();
       event.stopPropagation();
-      onCopyIpAddress(ipButton.dataset.copyIpAddress || "");
+      onCopyIpAddress(ipButton.dataset.copyIpAddress || "", ipButton);
     }
   });
 }
