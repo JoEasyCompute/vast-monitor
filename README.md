@@ -64,6 +64,8 @@ Environment variables:
 - `VAST_API_KEY_PATH`: path to the Vast API key file
 - `ALERT_TEMP_THRESHOLD`: GPU temperature alert threshold, default `85`
 - `ALERT_IDLE_HOURS`: idle alert threshold in hours, default `6`
+- `ALERT_COOLDOWN_MINUTES`: cooldown for repeated noisy alerts such as `new_reports`, `high_temp`, and `idle`, default `60`
+- `ALERT_HOSTNAME_COLLISION_COOLDOWN_MINUTES`: longer cooldown for repeated hostname-collision alerts, default `360`
 - `PORT`: HTTP port, default `3000`
 - `DB_PATH`: SQLite database path, default `./data/vast-monitor.db`
 
@@ -363,6 +365,15 @@ As long as the process can write to the SQLite file, an existing DB should upgra
 Alerts are currently delivered to the console through the channel abstraction in [`src/alerts`](./src/alerts).
 
 That makes it easy to add Telegram, webhook, or other delivery backends later.
+
+To reduce alert spam, console delivery applies cooldown-based dedupe for repeated noisy alerts:
+
+- `new_reports`
+- `high_temp`
+- `idle`
+- `hostname_collision`
+
+`host_up` and `host_down` alerts are not cooldown-suppressed, so real state transitions still notify immediately.
 
 ## Repo Layout
 

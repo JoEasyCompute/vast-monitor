@@ -18,7 +18,10 @@ for (const warning of getOptionalRuntimeWarnings(config)) {
 }
 const db = createDatabase(config.dbPath);
 console.log(`[startup] Database ready at ${config.dbPath}`);
-const alertManager = new AlertManager([new ConsoleAlertChannel()]);
+const alertManager = new AlertManager([new ConsoleAlertChannel()], {
+  defaultCooldownMinutes: config.alertCooldownMinutes,
+  hostnameCollisionCooldownMinutes: config.alertHostnameCollisionCooldownMinutes
+});
 const monitor = new FleetMonitor({ config, db, alertManager });
 const app = createServer({ config, db, monitor });
 

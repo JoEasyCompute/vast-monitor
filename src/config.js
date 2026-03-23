@@ -30,6 +30,8 @@ export const config = {
   vastApiKeyPath: process.env.VAST_API_KEY_PATH || path.join(os.homedir(), ".config/vastai/vast_api_key"),
   alertTempThreshold: numberFromEnv("ALERT_TEMP_THRESHOLD", 85),
   alertIdleHours: numberFromEnv("ALERT_IDLE_HOURS", 6),
+  alertCooldownMinutes: numberFromEnv("ALERT_COOLDOWN_MINUTES", 60),
+  alertHostnameCollisionCooldownMinutes: numberFromEnv("ALERT_HOSTNAME_COLLISION_COOLDOWN_MINUTES", 360),
   dbPath: process.env.DB_PATH ? path.resolve(projectRoot, process.env.DB_PATH) : path.resolve(projectRoot, "data/vast-monitor.db")
 };
 
