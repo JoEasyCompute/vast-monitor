@@ -118,6 +118,7 @@ The dashboard includes:
 - Report badges support `Ctrl`/`Cmd`-click on desktop and long-press on touch devices to open the reports modal
 - Machine modal header shows the machine ID plus compact context badges/labels such as `DC`, GPU label, and clickable IP address
 - Machine modal machine ID and IP address support click-to-copy
+- Copy actions now show a small transient copied confirmation
 - Machine modal charts for historical earnings, renter activity, reliability, GPU rental price, and GPU count
 - Machine modal commercial summary includes realized previous/current calendar month machine earnings when live Vast CLI earnings are available
 - Machine modal includes a compact live-earnings status panel showing source, health, and effective comparison windows
@@ -315,6 +316,7 @@ Current automated coverage includes:
 - frontend URL/local-storage UI state loading and persistence behavior
 - frontend delegated interaction wiring and clipboard fallback behavior
 - frontend dashboard loader partial-failure handling
+- frontend dashboard controller refresh/timer behavior and open-modal refresh handling
 - frontend machine and reports modal controller loading/failure flows
 
 ## Notes

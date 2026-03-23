@@ -14,6 +14,7 @@ import {
   buildDashboardNoticeMessage,
   fetchDashboardPayload
 } from "./app/dashboard-loader.js";
+import { createDashboardController } from "./app/dashboard-controller.js";
 import {
   clearChartSyncGroup,
   drawGpuCountChart,
@@ -75,6 +76,7 @@ const earningsDate = document.getElementById("earnings-date");
 const earningsPrevButton = document.getElementById("earnings-prev");
 const earningsNextButton = document.getElementById("earnings-next");
 const dashboardNotice = document.getElementById("dashboard-notice");
+const dashboardToast = document.getElementById("dashboard-toast");
 const staleWarning = document.getElementById("stale-warning");
 const healthBadge = document.getElementById("health-badge");
 const trendRange = document.getElementById("trend-range");
@@ -138,66 +140,8 @@ let reportLongPressTimer = null;
 let reportLongPressActiveMachineId = null;
 let suppressRowClickUntil = 0;
 const copyFeedbackTimers = new WeakMap();
+let dashboardToastTimer = null;
 initializeStateFromUrl();
-
-async function loadDashboard() {
-  const result = await fetchDashboardPayload({
-    selectedEarningsDate,
-    selectedTrendHours
-  });
-  renderDashboardNotice(result.failures);
-
-  const status = result.payload.status;
-  if (status) {
-    currentMachinesData = Array.isArray(status.machines) ? status.machines : [];
-    renderSummary(status.summary);
-    renderSummaryComparison(status.summary?.comparison24h);
-    renderBreakdown(Array.isArray(status.gpuTypeBreakdown) ? status.gpuTypeBreakdown : []);
-    renderMachinesSorted();
-    lastKnownHealth = status.health;
-    renderHealth(status.health);
-    lastUpdated.textContent = status.latestPollAt
-      ? `Last updated ${new Date(status.latestPollAt).toLocaleString()}`
-      : "No poll data yet";
-  } else if (!lastKnownHealth) {
-    healthBadge.className = "health-badge degraded";
-    healthBadge.textContent = "Degraded";
-    lastUpdated.textContent = "Dashboard refresh incomplete";
-  }
-
-  if (result.payload.fleetHistory) {
-    latestFleetHistoryPayload = result.payload.fleetHistory;
-    renderFleetTrends(latestFleetHistoryPayload);
-  } else if (!latestFleetHistoryPayload) {
-    renderTrendUnavailable(trendGpusChart, "Fleet trends unavailable");
-    renderTrendUnavailable(trendFleetChart, "Fleet trends unavailable");
-    renderTrendUnavailable(trendUtilChart, "Utilisation unavailable");
-  }
-
-  if (result.payload.gpuTypePrice) {
-    latestGpuTypePricePayload = result.payload.gpuTypePrice;
-    renderGpuTypePriceTrends(latestGpuTypePricePayload);
-  } else if (!latestGpuTypePricePayload) {
-    renderTrendUnavailable(trendPriceChart, "GPU pricing unavailable");
-  }
-
-  if (result.payload.earnings) {
-    latestHourlyEarningsPayload = result.payload.earnings;
-    renderHourlyEarnings(latestHourlyEarningsPayload);
-  } else if (!latestHourlyEarningsPayload) {
-    renderHourlyEarningsUnavailable();
-  }
-
-  if (result.payload.alerts) {
-    renderAlerts(Array.isArray(result.payload.alerts.alerts) ? result.payload.alerts.alerts : []);
-  } else if (!alertsList.innerHTML) {
-    renderAlertsUnavailable();
-  }
-
-  if (currentMachineHistoryId != null && !modalBackdrop.classList.contains("hidden")) {
-    showMachineHistory(currentMachineHistoryId, { preserveScroll: true }).catch((error) => console.error(error));
-  }
-}
 
 function handleSort(col) {
   if (sortCol === col) {
@@ -520,7 +464,7 @@ function renderHourlyEarnings(data) {
 function renderHourlyEarningsUnavailable() {
   earningsTotal.textContent = "--";
   earningsDate.textContent = selectedEarningsDate;
-  hourlyChart.innerHTML = '<p class="muted">Hourly earnings are temporarily unavailable.</p>';
+  hourlyChart.innerHTML = '<div class="section-placeholder"><p class="muted">Hourly earnings are temporarily unavailable.</p></div>';
   earningsNextButton.disabled = selectedEarningsDate === todayUtcDateString();
 }
 
@@ -544,7 +488,7 @@ function renderAlerts(rows) {
 }
 
 function renderAlertsUnavailable() {
-  alertsList.innerHTML = '<p class="muted">Alerts are temporarily unavailable.</p>';
+  alertsList.innerHTML = '<div class="section-placeholder"><p class="muted">Alerts are temporarily unavailable.</p></div>';
 }
 
 function renderHealth(health) {
@@ -593,6 +537,16 @@ function renderDashboardNotice(failures) {
 
 function renderTrendUnavailable(chartElement, message) {
   chartElement.innerHTML = `<text x="360" y="90" text-anchor="middle" class="chart-empty">${escapeHtml(message)}</text>`;
+}
+
+function renderFleetHistoryUnavailable() {
+  renderTrendUnavailable(trendGpusChart, "Fleet trends unavailable");
+  renderTrendUnavailable(trendFleetChart, "Fleet trends unavailable");
+  renderTrendUnavailable(trendUtilChart, "Utilisation unavailable");
+}
+
+function renderGpuTypePriceUnavailable() {
+  renderTrendUnavailable(trendPriceChart, "GPU pricing unavailable");
 }
 
 function renderFleetTrends(payload) {
@@ -752,19 +706,7 @@ function redrawChartsForCurrentLayout() {
   }
 }
 
-loadDashboard().catch((error) => {
-  console.error(error);
-  renderDashboardNotice([{ label: "dashboard data", critical: true }]);
-  healthBadge.className = "health-badge degraded";
-  healthBadge.textContent = "Degraded";
-  lastUpdated.textContent = "Dashboard refresh incomplete";
-});
-
 updateSortHeaders();
-
-setInterval(() => {
-  loadDashboard().catch((error) => console.error(error));
-}, 5 * 60 * 1000);
 
 const modalBackdrop = document.getElementById("modal-backdrop");
 const modalClose = document.getElementById("modal-close");
@@ -878,6 +820,63 @@ const reportsController = createReportsController({
   }
 });
 
+const dashboardController = createDashboardController({
+  getSelectedEarningsDate: () => selectedEarningsDate,
+  getSelectedTrendHours: () => selectedTrendHours,
+  fetchDashboardPayload,
+  renderDashboardNotice,
+  applyStatusPayload: (status) => {
+    currentMachinesData = Array.isArray(status.machines) ? status.machines : [];
+    renderSummary(status.summary);
+    renderSummaryComparison(status.summary?.comparison24h);
+    renderBreakdown(Array.isArray(status.gpuTypeBreakdown) ? status.gpuTypeBreakdown : []);
+    renderMachinesSorted();
+    lastKnownHealth = status.health;
+    renderHealth(status.health);
+    lastUpdated.textContent = status.latestPollAt
+      ? `Last updated ${new Date(status.latestPollAt).toLocaleString()}`
+      : "No poll data yet";
+  },
+  applyFleetHistoryPayload: (payload) => {
+    latestFleetHistoryPayload = payload;
+    renderFleetTrends(payload);
+  },
+  applyGpuTypePricePayload: (payload) => {
+    latestGpuTypePricePayload = payload;
+    renderGpuTypePriceTrends(payload);
+  },
+  applyHourlyEarningsPayload: (payload) => {
+    latestHourlyEarningsPayload = payload;
+    renderHourlyEarnings(payload);
+  },
+  applyAlertsPayload: (payload) => {
+    renderAlerts(Array.isArray(payload.alerts) ? payload.alerts : []);
+  },
+  renderFleetHistoryUnavailable,
+  renderGpuTypePriceUnavailable,
+  renderHourlyEarningsUnavailable,
+  renderAlertsUnavailable,
+  hasFleetHistoryPayload: () => Boolean(latestFleetHistoryPayload),
+  hasGpuTypePricePayload: () => Boolean(latestGpuTypePricePayload),
+  hasHourlyEarningsPayload: () => Boolean(latestHourlyEarningsPayload),
+  hasAlertsRendered: () => Boolean(alertsList.innerHTML),
+  isMachineModalOpen: () => !modalBackdrop.classList.contains("hidden"),
+  getCurrentMachineHistoryId: () => currentMachineHistoryId,
+  refreshCurrentMachineModal: (machineId) => {
+    showMachineHistory(machineId, { preserveScroll: true }).catch((error) => console.error(error));
+  },
+  handleRefreshFailure: (error) => {
+    console.error(error);
+    renderDashboardNotice([{ label: "dashboard data", critical: true }]);
+    healthBadge.className = "health-badge degraded";
+    healthBadge.textContent = "Degraded";
+    lastUpdated.textContent = "Dashboard refresh incomplete";
+  }
+});
+
+dashboardController.refreshDashboard().catch((error) => console.error(error));
+dashboardController.startAutoRefresh(5 * 60 * 1000);
+
 function handleMachineRowClick(event, machineId) {
   if (Date.now() < suppressRowClickUntil) {
     return;
@@ -925,6 +924,7 @@ function flashCopyFeedback(button) {
 
   button.classList.add("copied");
   button.setAttribute("title", "Copied");
+  showDashboardToast("Copied");
 
   const timer = window.setTimeout(() => {
     button.classList.remove("copied");
@@ -933,6 +933,25 @@ function flashCopyFeedback(button) {
   }, 1200);
 
   copyFeedbackTimers.set(button, timer);
+}
+
+function showDashboardToast(message) {
+  if (!dashboardToast) {
+    return;
+  }
+
+  if (dashboardToastTimer) {
+    window.clearTimeout(dashboardToastTimer);
+  }
+
+  dashboardToast.textContent = message;
+  dashboardToast.classList.add("visible");
+  dashboardToast.classList.remove("hidden");
+
+  dashboardToastTimer = window.setTimeout(() => {
+    dashboardToast.classList.remove("visible");
+    dashboardToast.classList.add("hidden");
+  }, 1400);
 }
 
 async function showMachineHistory(machineId, options = {}) {
@@ -1078,7 +1097,7 @@ bindDashboardControls({
     trendRange.querySelectorAll("[data-hours]").forEach((item) => item.classList.remove("active"));
     button.classList.add("active");
     persistStateToUrl();
-    loadDashboard().catch((error) => console.error(error));
+    dashboardController.refreshDashboard().catch((error) => console.error(error));
   },
   onTrendGpuChange: () => {
     selectedUtilizationGpuType = trendUtilGpuSelect.value || "__fleet__";
@@ -1105,7 +1124,7 @@ bindDashboardControls({
   onEarningsPrev: () => {
     selectedEarningsDate = shiftUtcDate(selectedEarningsDate, -1);
     persistStateToUrl();
-    loadDashboard().catch((error) => console.error(error));
+    dashboardController.refreshDashboard().catch((error) => console.error(error));
   },
   onEarningsNext: () => {
     const nextDate = shiftUtcDate(selectedEarningsDate, 1);
@@ -1115,7 +1134,7 @@ bindDashboardControls({
 
     selectedEarningsDate = nextDate;
     persistStateToUrl();
-    loadDashboard().catch((error) => console.error(error));
+    dashboardController.refreshDashboard().catch((error) => console.error(error));
   }
 });
 
