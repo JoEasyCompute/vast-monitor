@@ -36,13 +36,13 @@ export function createMachineModalController({
     setCurrentModalEarningsData(null);
     setModalTab(preserveScroll ? getCurrentModalTab() : "charts");
     renderModalHeader(machineId);
-    elements.modalStats.textContent = "Loading...";
+    elements.modalStats.textContent = "Loading machine history...";
+    setLoadingState(elements.modalStats, true);
     elements.modalSummary.innerHTML = "";
     elements.modalEarningsBreakdown.innerHTML = "";
     elements.modalEarningsStatus.innerHTML = "";
     elements.modalEarningsStatus.classList.add("hidden");
-    elements.modalLiveNote.textContent = "";
-    elements.modalLiveNote.classList.add("hidden");
+    showLoadingNotice(elements.modalLiveNote, "Fetching machine history and live earnings...");
     elements.modalTimeline.innerHTML = "";
     elements.modalTimeline.classList.add("hidden");
     elements.modalError.textContent = "";
@@ -80,6 +80,7 @@ export function createMachineModalController({
       setCurrentModalMachine(machine ?? null);
       setCurrentModalHistory(currentModalHistory);
       setCurrentModalEarningsData(earningsData);
+      setLoadingState(elements.modalStats, false);
 
       renderModalLiveDependencyState(elements.modalLiveNote, earningsResponse.ok ? earningsData : {
         error: earningsData?.error || "failed to fetch machine earnings",
@@ -144,6 +145,12 @@ export function createMachineModalController({
     } catch (error) {
       console.error(error);
       elements.modalStats.textContent = "Failed to load history.";
+      setLoadingState(elements.modalStats, false);
+      elements.modalLiveNote.textContent = "";
+      elements.modalLiveNote.classList.add("hidden");
+      elements.modalLiveNote.classList.remove("loading-state");
+      elements.modalError.textContent = error instanceof Error ? error.message : String(error);
+      elements.modalError.classList.remove("hidden");
     }
   }
 
@@ -194,12 +201,15 @@ export function createReportsController({
   async function showMachineReports(machineId) {
     elements.reportsModalTitle.textContent = `#${machineId}:`;
     elements.reportsModalCounter.textContent = "Loading...";
+    setLoadingState(elements.reportsModalCounter, true);
     elements.reportsProblem.textContent = "";
     elements.reportsTime.textContent = "";
-    elements.reportsLiveNote.textContent = "";
-    elements.reportsLiveNote.classList.add("hidden");
-    elements.reportsMessage.textContent = "";
+    showLoadingNotice(elements.reportsLiveNote, "Fetching live reports from Vast...");
+    elements.reportsMessage.textContent = "Loading report details...";
+    setLoadingState(elements.reportsMessage, true);
     elements.reportsModalBackdrop.classList.remove("hidden");
+    elements.reportsPrevButton.disabled = true;
+    elements.reportsNextButton.disabled = true;
     elements.reportsNextButton.focus();
 
     let response;
@@ -209,9 +219,13 @@ export function createReportsController({
       data = await response.json();
     } catch (error) {
       elements.reportsModalCounter.textContent = "Live fetch failed";
+      setLoadingState(elements.reportsModalCounter, false);
       elements.reportsProblem.textContent = "Unable to load reports";
       elements.reportsLiveNote.textContent = error instanceof Error ? error.message : String(error);
       elements.reportsLiveNote.classList.remove("hidden");
+      elements.reportsLiveNote.classList.remove("loading-state");
+      setLoadingState(elements.reportsMessage, false);
+      elements.reportsMessage.textContent = "Live report fetch failed.";
       elements.reportsPrevButton.disabled = true;
       elements.reportsNextButton.disabled = true;
       return;
@@ -219,9 +233,12 @@ export function createReportsController({
 
     if (!response.ok) {
       elements.reportsModalCounter.textContent = "Live fetch failed";
+      setLoadingState(elements.reportsModalCounter, false);
       elements.reportsProblem.textContent = "Unable to load reports";
       elements.reportsLiveNote.textContent = buildDependencyFailureMessage(data, "Reports are fetched live from the Vast CLI.");
       elements.reportsLiveNote.classList.remove("hidden");
+      elements.reportsLiveNote.classList.remove("loading-state");
+      setLoadingState(elements.reportsMessage, false);
       elements.reportsMessage.textContent = data?.detail || data?.error || "";
       elements.reportsPrevButton.disabled = true;
       elements.reportsNextButton.disabled = true;
@@ -233,8 +250,13 @@ export function createReportsController({
 
     if (getCurrentReports().length === 0) {
       elements.reportsModalCounter.textContent = "No reports";
+      setLoadingState(elements.reportsModalCounter, false);
       elements.reportsProblem.textContent = "No reports";
       elements.reportsTime.textContent = "";
+      elements.reportsLiveNote.textContent = "";
+      elements.reportsLiveNote.classList.add("hidden");
+      elements.reportsLiveNote.classList.remove("loading-state");
+      setLoadingState(elements.reportsMessage, false);
       elements.reportsMessage.textContent = "";
       elements.reportsPrevButton.disabled = true;
       elements.reportsNextButton.disabled = true;
@@ -248,10 +270,15 @@ export function createReportsController({
     const reports = getCurrentReports();
     const report = reports[getCurrentReportIndex()];
     elements.reportsModalCounter.textContent = `${getCurrentReportIndex() + 1} / ${reports.length}`;
+    setLoadingState(elements.reportsModalCounter, false);
     elements.reportsProblem.textContent = report.problem || "Unknown";
     elements.reportsTime.textContent = report.created_at
       ? formatReportTimestamp(report.created_at)
       : "";
+    elements.reportsLiveNote.textContent = "";
+    elements.reportsLiveNote.classList.add("hidden");
+    elements.reportsLiveNote.classList.remove("loading-state");
+    setLoadingState(elements.reportsMessage, false);
     elements.reportsMessage.textContent = report.message || "(no message)";
     elements.reportsPrevButton.disabled = getCurrentReportIndex() === 0;
     elements.reportsNextButton.disabled = getCurrentReportIndex() >= reports.length - 1;
@@ -275,6 +302,7 @@ export function createReportsController({
 }
 
 function renderModalLiveDependencyState(modalLiveNote, earningsData, machineHistory = []) {
+  modalLiveNote.classList.remove("loading-state");
   if (hasLocalEstimatedEarningsHistory(machineHistory)) {
     modalLiveNote.textContent = "";
     modalLiveNote.classList.add("hidden");
@@ -322,4 +350,26 @@ function renderModalEarningsStatus(modalEarningsStatus, earningsData, monthlySum
     ${compareWindow ? `<div class="earnings-status-line">${escapeHtml(compareWindow)}</div>` : ""}
   `;
   modalEarningsStatus.classList.remove("hidden");
+}
+
+function setLoadingState(element, isLoading) {
+  if (!element) {
+    return;
+  }
+
+  if (isLoading) {
+    element.classList.add("loading-state");
+  } else {
+    element.classList.remove("loading-state");
+  }
+}
+
+function showLoadingNotice(element, message) {
+  if (!element) {
+    return;
+  }
+
+  element.textContent = message;
+  element.classList.remove("hidden");
+  element.classList.add("loading-state");
 }

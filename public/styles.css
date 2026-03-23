@@ -901,6 +901,16 @@ tr.high-temperature td {
   line-height: 1.4;
 }
 
+.loading-state {
+  color: var(--muted);
+  opacity: 0.88;
+}
+
+.modal-live-note.loading-state,
+.report-message.loading-state {
+  border-style: dashed;
+}
+
 .modal-timeline {
   margin-bottom: 14px;
   padding: 14px;
