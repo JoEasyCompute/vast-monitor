@@ -504,12 +504,13 @@ function formatGpuMachineLabel(machine) {
 }
 
 function renderModalHeader(machineId, machine = null) {
+  const machineIdTag = `<button class="modal-header-id" type="button" title="Copy machine ID" onclick="copyMachineId(event, '${escapeHtml(String(machineId))}')">Machine #${escapeHtml(String(machineId))}</button>`;
   const dcTag = machine?.is_datacenter ? ' <span class="dc-pill">DC</span>' : "";
   const gpuTag = machine ? ` <span class="modal-header-gpu">${escapeHtml(formatGpuMachineLabel(machine))}</span>` : "";
   const ipTag = machine?.public_ipaddr
-    ? ` <button class="modal-header-ip" type="button" title="Copy IP address" onclick="copyMachineIpAddress('${escapeHtml(machine.public_ipaddr)}')">${escapeHtml(machine.public_ipaddr)}</button>`
+    ? ` <button class="modal-header-ip" type="button" title="Copy IP address" onclick="copyMachineIpAddress(event, '${escapeHtml(machine.public_ipaddr)}')">${escapeHtml(machine.public_ipaddr)}</button>`
     : "";
-  modalTitle.innerHTML = `Machine #${escapeHtml(String(machineId))}${dcTag}${gpuTag}${ipTag}`;
+  modalTitle.innerHTML = `${machineIdTag}${dcTag}${gpuTag}${ipTag}`;
 }
 
 function renderSummaryPrice(machine) {
@@ -1722,13 +1723,70 @@ window.showMachineRow = function (event, machineId) {
   showMachineHistory(machineId);
 };
 
-window.copyMachineIpAddress = async function (ipAddress) {
+window.copyMachineIpAddress = async function (event, ipAddress) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+
   try {
-    await navigator.clipboard.writeText(ipAddress);
+    await copyTextToClipboard(ipAddress);
   } catch (error) {
     console.error("Failed to copy IP address:", error);
   }
 };
+
+window.copyMachineId = async function (event, machineId) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+
+  try {
+    await copyTextToClipboard(machineId);
+  } catch (error) {
+    console.error("Failed to copy machine ID:", error);
+  }
+};
+
+async function copyTextToClipboard(text) {
+  const value = String(text ?? "");
+  if (!value) {
+    return;
+  }
+
+  if (navigator.clipboard?.writeText && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      // Fall through to the legacy copy path below.
+    }
+  }
+
+  copyTextWithSelectionFallback(value);
+}
+
+function copyTextWithSelectionFallback(text) {
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.setAttribute("readonly", "");
+  textArea.setAttribute("aria-hidden", "true");
+  textArea.style.position = "fixed";
+  textArea.style.top = "0";
+  textArea.style.left = "-9999px";
+  textArea.style.opacity = "0";
+
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+  textArea.setSelectionRange(0, text.length);
+
+  try {
+    const copied = document.execCommand("copy");
+    if (!copied) {
+      throw new Error("document.execCommand('copy') returned false");
+    }
+  } finally {
+    document.body.removeChild(textArea);
+  }
+}
 
 async function showMachineHistory(machineId, options = {}) {
   const { preserveScroll = false } = options;

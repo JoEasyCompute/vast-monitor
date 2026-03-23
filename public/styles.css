@@ -1157,9 +1157,25 @@ tr.high-temperature td {
   line-height: 1.2;
 }
 
+.modal-header-id {
+  color: var(--text);
+  font-size: inherit;
+  font-weight: 700;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  font-family: "Space Grotesk", sans-serif;
+  line-height: 1.2;
+}
+
+.modal-header-id:hover {
+  text-decoration: none;
+}
+
 .modal-header-ip:hover {
   color: var(--text);
-  text-decoration: underline;
+  text-decoration: none;
 }
 
 .modal-header-gpu {
