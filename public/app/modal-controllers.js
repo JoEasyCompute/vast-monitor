@@ -49,6 +49,8 @@ export function createMachineModalController({
     elements.modalError.classList.add("hidden");
     elements.modalMaintenance.textContent = "";
     elements.modalMaintenance.classList.add("hidden");
+    elements.modalAnnotations.innerHTML = "";
+    elements.modalAnnotations.classList.add("hidden");
     elements.earningsChartTitle.textContent = "Historical Earnings";
     elements.earningsChartNote.textContent = "";
     elements.renterChart.innerHTML = "";

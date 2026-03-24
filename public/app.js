@@ -57,6 +57,7 @@ import {
   saveUiSettings as persistUiSettings
 } from "./app/ui-state.js";
 import {
+  buildModalAnnotationsMarkup,
   buildCalendarMonthEarningsSummaries,
   buildModalEarningsBreakdownMarkup,
   buildModalSummaryMarkup,
@@ -98,6 +99,8 @@ const filterSearch = document.getElementById("filter-search");
 const filterStatus = document.getElementById("filter-status");
 const filterListed = document.getElementById("filter-listed");
 const filterDc = document.getElementById("filter-dc");
+const filterOwner = document.getElementById("filter-owner");
+const filterTeam = document.getElementById("filter-team");
 const filterErrors = document.getElementById("filter-errors");
 const filterReports = document.getElementById("filter-reports");
 const filterMaint = document.getElementById("filter-maint");
@@ -152,6 +155,10 @@ let suppressRowClickUntil = 0;
 const copyFeedbackTimers = new WeakMap();
 let dashboardToastTimer = null;
 let manualRefreshInFlight = false;
+const loadedExtensionAssets = {
+  scripts: new Set(),
+  styles: new Set()
+};
 initializeStateFromUrl();
 
 function handleSort(col) {
@@ -189,6 +196,8 @@ function getMachineFilterState() {
     status: filterStatus.value,
     listed: filterListed.value,
     dc: filterDc.value,
+    owner: filterOwner.value,
+    team: filterTeam.value,
     errors: filterErrors.checked,
     reports: filterReports.checked,
     maint: filterMaint.checked
@@ -328,6 +337,9 @@ function updateMachineViewTabs() {
 
 function renderModalSummary(machine) {
   modalSummary.innerHTML = buildModalSummaryMarkup(machine);
+  const annotationsMarkup = buildModalAnnotationsMarkup(machine);
+  modalAnnotations.innerHTML = annotationsMarkup;
+  modalAnnotations.classList.toggle("hidden", !annotationsMarkup);
 }
 
 function renderModalHeader(machineId, machine = null) {
@@ -639,6 +651,49 @@ function renderPollMonitor(observability, latestPollAt) {
   pollMonitorMeta.textContent = buildSectionMeta("Last completed poll", latestPollAt);
 }
 
+function ensureClientExtensionsLoaded(extensions) {
+  const scripts = Array.isArray(extensions?.scripts) ? extensions.scripts : [];
+  const styles = Array.isArray(extensions?.styles) ? extensions.styles : [];
+
+  for (const href of styles) {
+    if (!href || loadedExtensionAssets.styles.has(href)) {
+      continue;
+    }
+
+    const existing = document.querySelector(`link[data-plugin-style="${CSS.escape(href)}"]`);
+    if (existing) {
+      loadedExtensionAssets.styles.add(href);
+      continue;
+    }
+
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = href;
+    link.dataset.pluginStyle = href;
+    document.head.appendChild(link);
+    loadedExtensionAssets.styles.add(href);
+  }
+
+  for (const src of scripts) {
+    if (!src || loadedExtensionAssets.scripts.has(src)) {
+      continue;
+    }
+
+    const existing = document.querySelector(`script[data-plugin-script="${CSS.escape(src)}"]`);
+    if (existing) {
+      loadedExtensionAssets.scripts.add(src);
+      continue;
+    }
+
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.dataset.pluginScript = src;
+    document.head.appendChild(script);
+    loadedExtensionAssets.scripts.add(src);
+  }
+}
+
 function buildSectionMeta(sourceLabel, timestamp) {
   if (!timestamp) {
     return `Source: ${sourceLabel}`;
@@ -670,6 +725,8 @@ function initializeStateFromUrl() {
   filterStatus.value = initialState.filterStatus;
   filterListed.value = initialState.filterListed;
   filterDc.value = initialState.filterDc;
+  filterOwner.value = initialState.filterOwner;
+  filterTeam.value = initialState.filterTeam;
   filterErrors.checked = initialState.filterErrors;
   filterReports.checked = initialState.filterReports;
   filterMaint.checked = initialState.filterMaint;
@@ -694,6 +751,8 @@ function persistStateToUrl() {
     filterStatus: filterStatus.value,
     filterListed: filterListed.value,
     filterDc: filterDc.value,
+    filterOwner: filterOwner.value,
+    filterTeam: filterTeam.value,
     filterErrors: filterErrors.checked,
     filterReports: filterReports.checked,
     filterMaint: filterMaint.checked,
@@ -708,6 +767,8 @@ function saveMachineFilters() {
     status: filterStatus.value,
     listed: filterListed.value,
     dc: filterDc.value,
+    owner: filterOwner.value,
+    team: filterTeam.value,
     errors: filterErrors.checked,
     reports: filterReports.checked,
     maint: filterMaint.checked,
@@ -780,6 +841,7 @@ const modalTimeline = document.getElementById("modal-timeline");
 const modalStats = document.getElementById("modal-stats");
 const modalError = document.getElementById("modal-error");
 const modalMaintenance = document.getElementById("modal-maintenance");
+const modalAnnotations = document.getElementById("modal-annotations");
 const modalTabs = document.getElementById("modal-tabs");
 const modalTabCharts = document.getElementById("modal-tab-charts");
 const modalTabEvents = document.getElementById("modal-tab-events");
@@ -813,6 +875,7 @@ const machineModalController = createMachineModalController({
     modalStats,
     modalError,
     modalMaintenance,
+    modalAnnotations,
     earningsChartTitle,
     earningsChartNote,
     renterChart,
@@ -885,6 +948,7 @@ const dashboardController = createDashboardController({
   fetchDashboardPayload,
   renderDashboardNotice,
   applyStatusPayload: (status) => {
+    ensureClientExtensionsLoaded(status.extensions);
     currentMachinesData = Array.isArray(status.machines) ? status.machines : [];
     renderSummary(status.summary);
     renderSummaryMeta(status.latestPollAt);
@@ -1122,6 +1186,8 @@ bindDashboardControls({
     filterStatus,
     filterListed,
     filterDc,
+    filterOwner,
+    filterTeam,
     filterErrors,
     filterReports,
     filterMaint
@@ -1197,6 +1263,8 @@ bindDashboardControls({
     filterStatus.value = "all";
     filterListed.value = "all";
     filterDc.value = "all";
+    filterOwner.value = "";
+    filterTeam.value = "";
     filterErrors.checked = false;
     filterReports.checked = false;
     filterMaint.checked = false;

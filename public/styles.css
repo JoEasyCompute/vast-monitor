@@ -139,6 +139,17 @@ h1, h2, p {
   font-size: 0.92rem;
 }
 
+.machine-hostname-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.machine-submeta {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .earnings-nav {
   display: flex;
   gap: 8px;
@@ -478,6 +489,12 @@ h1 {
 .filter-input {
   min-width: 200px;
   flex: 1 1 220px;
+}
+
+.filter-input-narrow {
+  min-width: 120px;
+  max-width: 160px;
+  flex: 0 1 140px;
 }
 
 .filter-select {
@@ -1319,6 +1336,14 @@ tr.high-temperature td {
 
 .modal-summary-card strong {
   font-size: 0.98rem;
+}
+
+.modal-summary-card > span:only-child {
+  margin-bottom: 0;
+  color: var(--text);
+  font-size: 0.82rem;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .summary-badge {

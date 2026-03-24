@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { createDatabase } from "../src/db.js";
 import { createServer } from "../src/server.js";
+import { definePlugin } from "../src/plugins/index.js";
 import { makeMachine, makeTempDbPath } from "../support-helpers.js";
 
 test("server integration returns expected API payloads and dependency failures", async () => {
@@ -55,7 +56,25 @@ test("server integration returns expected API payloads and dependency failures",
     }
   };
 
-  const app = createServer({ config, db, monitor });
+  const app = createServer({
+    config,
+    db,
+    monitor,
+    plugins: [definePlugin({
+      name: "Assignment Plugin",
+      async decorateStatusMachine({ machine }) {
+        if (machine.machine_id !== 1) {
+          return machine;
+        }
+
+        return {
+          ...machine,
+          owner_name: "Alice",
+          team_name: "Inference"
+        };
+      }
+    })]
+  });
 
   try {
     const status = await invokeRoute(app, "/api/status");
@@ -79,6 +98,8 @@ test("server integration returns expected API payloads and dependency failures",
     assert.equal(status.body.summary.listedGpus, 6);
     assert.equal(status.body.gpuTypeBreakdown.length, 2);
     assert.equal(status.body.observability.lastPollDurationMs, 3200);
+    assert.equal(status.body.machines.find((machine) => machine.machine_id === 1)?.owner_name, "Alice");
+    assert.equal(status.body.machines.find((machine) => machine.machine_id === 1)?.team_name, "Inference");
     assert.equal(status.body.machines.find((machine) => machine.machine_id === 1)?.has_new_report_72h, true);
     assert.equal(status.body.machines.find((machine) => machine.machine_id === 2)?.has_new_report_72h, false);
 

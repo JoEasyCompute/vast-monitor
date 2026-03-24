@@ -1,0 +1,16 @@
+.company-plugin-panel {
+  grid-column: 1 / -1;
+  border-color: rgba(34, 197, 94, 0.25);
+}
+
+.company-plugin-list {
+  margin: 12px 0 0;
+  padding-left: 18px;
+}
+
+.company-plugin-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 6px 0;
+}

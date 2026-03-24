@@ -68,6 +68,76 @@ Environment variables:
 - `ALERT_HOSTNAME_COLLISION_COOLDOWN_MINUTES`: longer cooldown for repeated hostname-collision alerts, default `360`
 - `PORT`: HTTP port, default `3000`
 - `DB_PATH`: SQLite database path, default `./data/vast-monitor.db`
+- `PLUGIN_MODULES`: optional comma-separated plugin module paths relative to the project root or absolute paths
+
+## Plugins
+
+This project supports optional runtime plugins so company-specific features can live outside the public core.
+
+Plugin modules are loaded from `PLUGIN_MODULES`, for example:
+
+```bash
+PLUGIN_MODULES=./plugins/company-plugin.js
+```
+
+A plugin can optionally provide:
+
+- `enrichMachine({ machine, previous, config, db, monitor })`
+- `decorateStatusMachine({ machine, config, db, monitor })`
+- `buildAlerts({ previous, current, timestamp, config, db, monitor })`
+- `registerRoutes({ app, config, db, monitor })`
+- `clientAssets`
+
+`clientAssets` supports:
+
+- `publicDir`: local directory to serve at `/plugins/<plugin-slug>/`
+- `scripts`: browser script paths, usually relative to that `publicDir`
+- `styles`: browser stylesheet paths, usually relative to that `publicDir`
+
+With no plugins configured, the app behaves exactly as before.
+
+### Example Plugin
+
+A copyable starter plugin lives at:
+
+- [examples/company-plugin/company-plugin.js](/Users/josephcheung/Desktop/dev/vast-monitor/examples/company-plugin/company-plugin.js)
+- [examples/company-plugin/public/company-app.js](/Users/josephcheung/Desktop/dev/vast-monitor/examples/company-plugin/public/company-app.js)
+- [examples/company-plugin/public/company.css](/Users/josephcheung/Desktop/dev/vast-monitor/examples/company-plugin/public/company.css)
+
+This is intentionally generic sample code. A private repo can copy it and replace the example route, annotations, rules, and frontend panel with company-specific behavior.
+
+## Private Repo Shape
+
+Recommended private companion repo:
+
+```text
+vast-monitor-company/
+  package.json
+  .env
+  src/
+    index.js
+    company-plugin.js
+  public/
+    company-app.js
+    company.css
+```
+
+The simplest practical setup today is:
+
+```bash
+PLUGIN_MODULES=./src/company-plugin.js
+```
+
+Then run the core app from the private repo workspace with the plugin file and plugin public assets present there.
+
+Inside `company-plugin.js`, start from the example plugin in this repo and replace:
+
+- `company_annotations` with your own machine metadata
+- the example alert with your internal rule logic
+- `/api/company/example` with internal-only routes
+- the example browser panel with your company dashboard additions
+
+For an operator-focused walkthrough, see [docs/private-repo-setup.md](/Users/josephcheung/Desktop/dev/vast-monitor/docs/private-repo-setup.md).
 
 ## Startup
 

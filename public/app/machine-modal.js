@@ -24,6 +24,12 @@ export function buildModalSummaryMarkup(machine) {
     ["Temp", escapeHtml(machine.gpu_max_cur_temp == null ? "-" : `${machine.gpu_max_cur_temp}C`)],
     ["Uptime 24h", escapeHtml(machine.uptime?.["24h"] == null ? "-" : `${machine.uptime["24h"]}%`)]
   ];
+  if (machine.owner_name) {
+    operationalItems.push(["Owner", escapeHtml(machine.owner_name)]);
+  }
+  if (machine.team_name) {
+    operationalItems.push(["Team", escapeHtml(machine.team_name)]);
+  }
   const commercialItems = [
     ["Price", machine.listed_gpu_cost == null ? "-" : renderSummaryPrice(machine)],
     ["Earn/day", escapeHtml(machine.earn_day == null ? "-" : formatPriceShort(machine.earn_day))]
@@ -32,6 +38,25 @@ export function buildModalSummaryMarkup(machine) {
   return `
     ${renderModalSummarySection("Operational", operationalItems)}
     ${renderModalSummarySection("Commercial", commercialItems)}
+  `;
+}
+
+export function buildModalAnnotationsMarkup(machine) {
+  const annotations = Array.isArray(machine?.company_annotations)
+    ? machine.company_annotations.filter((value) => String(value ?? "").trim())
+    : [];
+
+  if (!annotations.length) {
+    return "";
+  }
+
+  return `
+    <div class="modal-summary-section-title">Annotations</div>
+    ${annotations.map((value) => `
+      <article class="modal-summary-card">
+        <span>${escapeHtml(value)}</span>
+      </article>
+    `).join("")}
   `;
 }
 

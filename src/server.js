@@ -1,17 +1,20 @@
 import express from "express";
+import fs from "node:fs";
 import path from "node:path";
 import { getLiveDependencyHealth } from "./config.js";
 import { buildFleetAggregate } from "./fleet-metrics.js";
+import { getClientExtensionManifest, resolvePluginPublicDir } from "./plugins/index.js";
 import { fetchMachineEarnings, fetchMachineReports } from "./vast-client.js";
 
-export function createServer({ config, db, monitor }) {
+export function createServer({ config, db, monitor, plugins = [] }) {
   const app = express();
 
   app.use(express.static(path.join(config.projectRoot, "public")));
+  registerPluginStaticDirs(app, config, plugins);
 
-  app.get("/api/status", (_req, res) => {
+  app.get("/api/status", async (_req, res) => {
     const fleet = db.getCurrentFleetStatus();
-    res.json(buildFleetResponse(fleet, config, monitor));
+    res.json(await buildFleetResponse(fleet, config, monitor, plugins));
   });
 
   app.get("/api/health", (_req, res) => {
@@ -231,6 +234,8 @@ export function createServer({ config, db, monitor }) {
     res.sendFile(path.join(config.projectRoot, "public/index.html"));
   });
 
+  registerPluginRoutes({ app, config, db, monitor, plugins });
+
   return app;
 }
 
@@ -338,7 +343,7 @@ function buildComparisonMetric(current, previous, decimals = 2) {
   };
 }
 
-function buildFleetResponse(fleet, config, monitor) {
+async function buildFleetResponse(fleet, config, monitor, plugins = []) {
   // Deduplicate machines by hostname to avoid double counting old offline machine IDs
   const byHostname = new Map();
   for (const m of fleet.machines) {
@@ -349,7 +354,7 @@ function buildFleetResponse(fleet, config, monitor) {
   }
   const uniqueMachines = Array.from(byHostname.values());
 
-  const machines = uniqueMachines.map((machine) => ({
+  let machines = uniqueMachines.map((machine) => ({
     machine_id: machine.machine_id,
     hostname: machine.hostname,
     gpu_type: machine.gpu_type,
@@ -389,6 +394,8 @@ function buildFleetResponse(fleet, config, monitor) {
     datacenter_id: machine.datacenter_id,
     uptime: machine.uptime
   }));
+
+  machines = await decorateStatusMachines(machines, { config, db: null, monitor, plugins });
 
   const fleetAggregate = buildFleetAggregate(machines);
   const fleetMachines = fleetAggregate.machines;
@@ -461,6 +468,7 @@ function buildFleetResponse(fleet, config, monitor) {
       totalDailyEarnings,
       comparison24h: fleet.comparison24h ?? null
     },
+    extensions: getClientExtensionManifest(plugins),
     gpuTypeBreakdown: breakdown,
     machines
   };
@@ -546,3 +554,53 @@ function parseMaintenance(value) {
 const IGNORED_ERROR_MESSAGES = new Set([
   "Error: machine does not support VMs."
 ]);
+
+function registerPluginRoutes({ app, config, db, monitor, plugins }) {
+  for (const plugin of plugins) {
+    if (typeof plugin?.registerRoutes !== "function") {
+      continue;
+    }
+
+    plugin.registerRoutes({ app, config, db, monitor });
+  }
+}
+
+function registerPluginStaticDirs(app, config, plugins) {
+  for (const plugin of plugins) {
+    const publicDir = resolvePluginPublicDir(config, plugin);
+    if (!publicDir || !fs.existsSync(publicDir)) {
+      continue;
+    }
+
+    app.use(`/plugins/${plugin.slug}`, express.static(publicDir));
+  }
+}
+
+async function decorateStatusMachines(machines, { config, db, monitor, plugins }) {
+  const decoratedMachines = [];
+
+  for (const machine of machines) {
+    let currentMachine = machine;
+
+    for (const plugin of plugins) {
+      if (typeof plugin?.decorateStatusMachine !== "function") {
+        continue;
+      }
+
+      const nextMachine = await plugin.decorateStatusMachine({
+        machine: currentMachine,
+        config,
+        db,
+        monitor
+      });
+
+      if (nextMachine && typeof nextMachine === "object") {
+        currentMachine = nextMachine;
+      }
+    }
+
+    decoratedMachines.push(currentMachine);
+  }
+
+  return decoratedMachines;
+}

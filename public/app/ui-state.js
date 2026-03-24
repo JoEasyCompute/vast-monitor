@@ -37,6 +37,8 @@ export function loadMachineFilters(storageKey) {
       status: ["all", "online", "offline"].includes(parsed.status) ? parsed.status : "all",
       listed: ["all", "listed", "unlisted"].includes(parsed.listed) ? parsed.listed : "all",
       dc: ["all", "dc", "non-dc"].includes(parsed.dc) ? parsed.dc : "all",
+      owner: typeof parsed.owner === "string" ? parsed.owner : "",
+      team: typeof parsed.team === "string" ? parsed.team : "",
       errors: parsed.errors === true,
       reports: parsed.reports === true,
       maint: parsed.maint === true,
@@ -48,6 +50,8 @@ export function loadMachineFilters(storageKey) {
       status: "all",
       listed: "all",
       dc: "all",
+      owner: "",
+      team: "",
       errors: false,
       reports: false,
       maint: false,
@@ -78,6 +82,8 @@ export function readInitialViewState({
     filterStatus: searchParams.has("status") ? (searchParams.get("status") || "all") : savedMachineFilters.status,
     filterListed: searchParams.has("listed") ? (searchParams.get("listed") || "all") : savedMachineFilters.listed,
     filterDc: searchParams.has("dc") ? (searchParams.get("dc") || "all") : savedMachineFilters.dc,
+    filterOwner: searchParams.has("owner") ? (searchParams.get("owner") || "") : savedMachineFilters.owner,
+    filterTeam: searchParams.has("team") ? (searchParams.get("team") || "") : savedMachineFilters.team,
     filterErrors: searchParams.has("errors") ? searchParams.get("errors") === "1" : savedMachineFilters.errors,
     filterReports: searchParams.has("reports") ? searchParams.get("reports") === "1" : savedMachineFilters.reports,
     filterMaint: searchParams.has("maint") ? searchParams.get("maint") === "1" : savedMachineFilters.maint,
@@ -97,6 +103,8 @@ export function persistViewStateToUrl({
   filterStatus,
   filterListed,
   filterDc,
+  filterOwner,
+  filterTeam,
   filterErrors,
   filterReports,
   filterMaint,
@@ -111,6 +119,8 @@ export function persistViewStateToUrl({
   if (filterStatus !== "all") params.set("status", filterStatus);
   if (filterListed !== "all") params.set("listed", filterListed);
   if (filterDc !== "all") params.set("dc", filterDc);
+  if (filterOwner.trim()) params.set("owner", filterOwner.trim());
+  if (filterTeam.trim()) params.set("team", filterTeam.trim());
   if (filterErrors) params.set("errors", "1");
   if (filterReports) params.set("reports", "1");
   if (filterMaint) params.set("maint", "1");

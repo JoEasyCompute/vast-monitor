@@ -45,13 +45,17 @@ export function getMachinesForActiveView(machines, activeMachineView, nowMs = Da
 
 export function getFilteredMachines(machines, filters, activeMachineView, nowMs = Date.now()) {
   const searchTerm = filters.search.trim().toLowerCase();
+  const ownerTerm = String(filters.owner || "").trim().toLowerCase();
+  const teamTerm = String(filters.team || "").trim().toLowerCase();
 
   return getMachinesForActiveView(machines, activeMachineView, nowMs).filter((row) => {
     if (searchTerm) {
       const haystack = [
         row.hostname,
         row.gpu_type,
-        row.machine_id
+        row.machine_id,
+        row.owner_name,
+        row.team_name
       ].join(" ").toLowerCase();
 
       if (!haystack.includes(searchTerm)) {
@@ -76,6 +80,14 @@ export function getFilteredMachines(machines, filters, activeMachineView, nowMs 
     }
 
     if (filters.dc === "non-dc" && row.is_datacenter) {
+      return false;
+    }
+
+    if (ownerTerm && !String(row.owner_name || "").toLowerCase().includes(ownerTerm)) {
+      return false;
+    }
+
+    if (teamTerm && !String(row.team_name || "").toLowerCase().includes(teamTerm)) {
       return false;
     }
 
@@ -140,7 +152,7 @@ export function buildMachineRowsMarkup(rows, uiSettings) {
         <td class="dc-cell">${renderDatacenter(row)}</td>
         <td class="listed-cell">${renderListed(row)}</td>
         <td class="maint-cell">${renderMaintenanceCheckbox(row)}</td>
-        <td>${escapeHtml(row.hostname)}</td>
+        <td>${renderHostnameCell(row)}</td>
         <td>${escapeHtml(row.gpu_type)}</td>
         <td>${row.num_gpus}</td>
         <td>${renderOccupancy(row)}</td>
@@ -167,6 +179,8 @@ export function buildMachineEmptyStateMessage(count, filters, activeMachineView)
     || filters.status !== "all"
     || filters.listed !== "all"
     || filters.dc !== "all"
+    || String(filters.owner || "").trim()
+    || String(filters.team || "").trim()
     || filters.errors
     || filters.reports
     || filters.maint
@@ -198,6 +212,20 @@ function renderPriceCell(row) {
     <span>${formatPriceShort(row.listed_gpu_cost)}</span>
     <span class="price-chip ${changeClass}" title="${escapeHtml(title)}">${changeLabel}</span>
   </span>`;
+}
+
+function renderHostnameCell(row) {
+  const assignment = [row.owner_name, row.team_name].filter(Boolean).join(" / ");
+  if (!assignment) {
+    return escapeHtml(row.hostname);
+  }
+
+  return `
+    <div class="machine-hostname-cell">
+      <div>${escapeHtml(row.hostname)}</div>
+      <div class="machine-submeta">${escapeHtml(assignment)}</div>
+    </div>
+  `;
 }
 
 function renderRentalsCell(row) {

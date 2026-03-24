@@ -1,10 +1,11 @@
 import { fetchMachines } from "./vast-client.js";
 
 export class FleetMonitor {
-  constructor({ config, db, alertManager }) {
+  constructor({ config, db, alertManager, plugins = [] }) {
     this.config = config;
     this.db = db;
     this.alertManager = alertManager;
+    this.plugins = plugins;
     this.intervalHandle = null;
     this.isPolling = false;
     this.lastPollStartedAt = null;
@@ -105,7 +106,7 @@ export class FleetMonitor {
         const previous = previousStates.get(machine.machine_id) || null;
         const { prev_day_reports, reports_changed } = resolveReportTracking(previous, machine, timestamp);
         const datacenterFields = resolveDatacenterFields(previous, machine);
-        const normalized = {
+        let normalized = {
           ...machine,
           ...datacenterFields,
           prev_day_reports,
@@ -114,6 +115,8 @@ export class FleetMonitor {
           idle_alert_active: shouldKeepIdleAlert(previous, machine, this.config.alertIdleHours, timestamp) ? 1 : 0,
           idle_since: resolveIdleSince(previous, machine, timestamp)
         };
+
+        normalized = await this.runEnrichMachineHooks({ machine: normalized, previous });
 
         onlineMachines.push({
           ...normalized,
@@ -131,6 +134,14 @@ export class FleetMonitor {
 
         events.push(...nextEvents);
         alerts.push(...nextAlerts);
+
+        const pluginChanges = await this.runBuildAlertsHooks({
+          previous,
+          current: normalized,
+          timestamp
+        });
+        events.push(...pluginChanges.events);
+        alerts.push(...pluginChanges.alerts);
       }
 
       for (const [machineId, registryMachine] of knownMachines.entries()) {
@@ -223,6 +234,59 @@ export class FleetMonitor {
     } finally {
       this.isPolling = false;
     }
+  }
+
+  async runEnrichMachineHooks({ machine, previous }) {
+    let currentMachine = machine;
+
+    for (const plugin of this.plugins) {
+      if (typeof plugin?.enrichMachine !== "function") {
+        continue;
+      }
+
+      const enrichedMachine = await plugin.enrichMachine({
+        machine: currentMachine,
+        previous,
+        config: this.config,
+        db: this.db,
+        monitor: this
+      });
+
+      if (enrichedMachine && typeof enrichedMachine === "object") {
+        currentMachine = enrichedMachine;
+      }
+    }
+
+    return currentMachine;
+  }
+
+  async runBuildAlertsHooks({ previous, current, timestamp }) {
+    const events = [];
+    const alerts = [];
+
+    for (const plugin of this.plugins) {
+      if (typeof plugin?.buildAlerts !== "function") {
+        continue;
+      }
+
+      const result = await plugin.buildAlerts({
+        previous,
+        current,
+        timestamp,
+        config: this.config,
+        db: this.db,
+        monitor: this
+      });
+
+      if (Array.isArray(result?.events)) {
+        events.push(...result.events);
+      }
+      if (Array.isArray(result?.alerts)) {
+        alerts.push(...result.alerts);
+      }
+    }
+
+    return { events, alerts };
   }
 }
 

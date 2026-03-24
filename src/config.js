@@ -21,6 +21,18 @@ function numberFromEnv(name, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function listFromEnv(name) {
+  const raw = process.env[name];
+  if (!raw) {
+    return [];
+  }
+
+  return raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
 export const config = {
   projectRoot,
   port: numberFromEnv("PORT", 3000),
@@ -32,6 +44,7 @@ export const config = {
   alertIdleHours: numberFromEnv("ALERT_IDLE_HOURS", 6),
   alertCooldownMinutes: numberFromEnv("ALERT_COOLDOWN_MINUTES", 60),
   alertHostnameCollisionCooldownMinutes: numberFromEnv("ALERT_HOSTNAME_COLLISION_COOLDOWN_MINUTES", 360),
+  pluginModules: listFromEnv("PLUGIN_MODULES"),
   dbPath: process.env.DB_PATH ? path.resolve(projectRoot, process.env.DB_PATH) : path.resolve(projectRoot, "data/vast-monitor.db")
 };
 

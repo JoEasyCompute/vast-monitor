@@ -294,6 +294,7 @@ function createMachineElements() {
     modalTimeline: new FakeElement("div"),
     modalError: new FakeElement("div"),
     modalMaintenance: new FakeElement("div"),
+    modalAnnotations: new FakeElement("div"),
     earningsChartTitle: new FakeElement("div"),
     earningsChartNote: new FakeElement("div"),
     renterChart: new FakeElement("svg"),

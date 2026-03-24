@@ -3,53 +3,76 @@ import { createDatabase } from "./db.js";
 import { AlertManager } from "./alerts/alert-manager.js";
 import { ConsoleAlertChannel } from "./alerts/console-alert-channel.js";
 import { FleetMonitor } from "./monitor.js";
+import { loadPlugins } from "./plugins/index.js";
 import { createServer } from "./server.js";
 
-console.log("[startup] Loading configuration");
-const validation = validateRuntimeConfig(config);
-if (!validation.ok) {
-  for (const issue of validation.issues) {
-    console.error(`[startup] ${issue}`);
-  }
-  process.exit(1);
-}
-for (const warning of getOptionalRuntimeWarnings(config)) {
-  console.warn(`[startup] ${warning}`);
-}
-const db = createDatabase(config.dbPath);
-console.log(`[startup] Database ready at ${config.dbPath}`);
-const alertManager = new AlertManager([new ConsoleAlertChannel()], {
-  defaultCooldownMinutes: config.alertCooldownMinutes,
-  hostnameCollisionCooldownMinutes: config.alertHostnameCollisionCooldownMinutes
-});
-const monitor = new FleetMonitor({ config, db, alertManager });
-const app = createServer({ config, db, monitor });
+export async function startApp(options = {}) {
+  const runtimeConfig = options.config || config;
 
-console.log(`[startup] Starting HTTP server on port ${config.port}`);
-const server = app.listen(config.port, () => {
-  console.log(`vast-monitor listening on http://localhost:${config.port}`);
-});
-
-console.log("[startup] Starting fleet monitor");
-monitor.start()
-  .then((initialPollSucceeded) => {
-    if (initialPollSucceeded) {
-      console.log("[startup] Initial fleet sync complete");
-    } else {
-      console.warn("[startup] Service is running, but initial fleet sync failed; waiting for next poll");
+  console.log("[startup] Loading configuration");
+  const validation = validateRuntimeConfig(runtimeConfig);
+  if (!validation.ok) {
+    for (const issue of validation.issues) {
+      console.error(`[startup] ${issue}`);
     }
-  })
-  .catch((error) => {
-    console.error("[startup] Fleet monitor failed to start:", error);
-    process.exitCode = 1;
+    throw new Error("Invalid runtime configuration");
+  }
+
+  for (const warning of getOptionalRuntimeWarnings(runtimeConfig)) {
+    console.warn(`[startup] ${warning}`);
+  }
+
+  const db = options.db || createDatabase(runtimeConfig.dbPath);
+  console.log(`[startup] Database ready at ${runtimeConfig.dbPath}`);
+
+  const plugins = options.plugins || await loadPlugins(runtimeConfig);
+  if (plugins.length > 0) {
+    console.log(`[startup] Loaded plugins: ${plugins.map((plugin) => plugin.name).join(", ")}`);
+  }
+
+  const alertManager = options.alertManager || new AlertManager([new ConsoleAlertChannel()], {
+    defaultCooldownMinutes: runtimeConfig.alertCooldownMinutes,
+    hostnameCollisionCooldownMinutes: runtimeConfig.alertHostnameCollisionCooldownMinutes
+  });
+  const monitor = options.monitor || new FleetMonitor({ config: runtimeConfig, db, alertManager, plugins });
+  const app = options.app || createServer({ config: runtimeConfig, db, monitor, plugins });
+
+  console.log(`[startup] Starting HTTP server on port ${runtimeConfig.port}`);
+  const server = app.listen(runtimeConfig.port, () => {
+    console.log(`vast-monitor listening on http://localhost:${runtimeConfig.port}`);
   });
 
-for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => {
-    console.log(`[shutdown] Received ${signal}, stopping monitor`);
-    monitor.stop();
-    server.close(() => {
-      process.exit(0);
+  console.log("[startup] Starting fleet monitor");
+  monitor.start()
+    .then((initialPollSucceeded) => {
+      if (initialPollSucceeded) {
+        console.log("[startup] Initial fleet sync complete");
+      } else {
+        console.warn("[startup] Service is running, but initial fleet sync failed; waiting for next poll");
+      }
+    })
+    .catch((error) => {
+      console.error("[startup] Fleet monitor failed to start:", error);
+      process.exitCode = 1;
     });
+
+  for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.on(signal, () => {
+      console.log(`[shutdown] Received ${signal}, stopping monitor`);
+      monitor.stop();
+      server.close(() => {
+        process.exit(0);
+      });
+    });
+  }
+
+  return { config: runtimeConfig, db, plugins, alertManager, monitor, app, server };
+}
+
+const startedDirectly = process.argv[1] === new URL(import.meta.url).pathname;
+if (startedDirectly) {
+  startApp().catch((error) => {
+    console.error("[startup] Failed to start:", error);
+    process.exit(1);
   });
 }

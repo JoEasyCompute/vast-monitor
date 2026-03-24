@@ -76,6 +76,26 @@ test("machine-table sorting supports uptime and generated rows do not use inline
   assert.doesNotMatch(markup, /onclick=/);
 });
 
+test("machine-table hostname search and markup include owner/team when present", () => {
+  const machines = [
+    makeMachineRow({
+      machine_id: 11,
+      hostname: "alpha",
+      owner_name: "Alice",
+      team_name: "Inference"
+    })
+  ];
+
+  const filtered = getFilteredMachines(machines, defaultFilters({ search: "Inference" }), "active", NOW_MS);
+  const markup = buildMachineRowsMarkup(filtered, {
+    lowReliabilityPct: 90,
+    highTemperatureC: 85
+  });
+
+  assert.deepEqual(filtered.map((row) => row.machine_id), [11]);
+  assert.match(markup, /Alice \/ Inference/);
+});
+
 test("machine-table empty states distinguish filtered and archived views", () => {
   assert.equal(
     buildMachineEmptyStateMessage(0, defaultFilters({ search: "missing" }), "active"),
@@ -103,6 +123,8 @@ test("ui-state loaders sanitize persisted values", () => {
         status: "offline",
         listed: "unlisted",
         dc: "dc",
+        owner: "ops",
+        team: "platform",
         errors: true,
         reports: true,
         maint: false,
@@ -134,6 +156,8 @@ test("ui-state loaders sanitize persisted values", () => {
       status: "offline",
       listed: "unlisted",
       dc: "dc",
+      owner: "ops",
+      team: "platform",
       errors: true,
       reports: true,
       maint: false,
@@ -161,6 +185,8 @@ test("ui-state reads initial values from URL and persists trimmed state back to 
         status: "online",
         listed: "all",
         dc: "all",
+        owner: "ops",
+        team: "platform",
         errors: false,
         reports: false,
         maint: false,
@@ -178,6 +204,8 @@ test("ui-state reads initial values from URL and persists trimmed state back to 
       filterStatus: "offline",
       filterListed: "all",
       filterDc: "all",
+      filterOwner: "ops",
+      filterTeam: "platform",
       filterErrors: false,
       filterReports: true,
       filterMaint: false,
@@ -194,6 +222,8 @@ test("ui-state reads initial values from URL and persists trimmed state back to 
       filterStatus: "offline",
       filterListed: "all",
       filterDc: "all",
+      filterOwner: "ops",
+      filterTeam: "platform",
       filterErrors: false,
       filterReports: true,
       filterMaint: false,
@@ -204,7 +234,7 @@ test("ui-state reads initial values from URL and persists trimmed state back to 
       {
         state: {},
         title: "",
-        url: "/dashboard?sort=machine_id&desc=1&trend_hours=24&earnings_date=2026-03-20&search=beta&status=offline&reports=1&machine_tab=archived"
+        url: "/dashboard?sort=machine_id&desc=1&trend_hours=24&earnings_date=2026-03-20&search=beta&status=offline&owner=ops&team=platform&reports=1&machine_tab=archived"
       }
     ]);
   } finally {
@@ -245,6 +275,8 @@ function defaultFilters(overrides = {}) {
     status: "all",
     listed: "all",
     dc: "all",
+    owner: "",
+    team: "",
     errors: false,
     reports: false,
     maint: false,

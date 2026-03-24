@@ -1,0 +1,23 @@
+{
+  "machine_ids": [
+    {
+      "machine_id": 49697,
+      "owner_name": "Alice",
+      "team_name": "Inference"
+    }
+  ],
+  "hostname_prefixes": [
+    {
+      "prefix": "render-",
+      "owner_name": "Bob",
+      "team_name": "Rendering"
+    }
+  ],
+  "hostname_patterns": [
+    {
+      "pattern": "^train-",
+      "owner_name": "Carol",
+      "team_name": "Training"
+    }
+  ]
+}
