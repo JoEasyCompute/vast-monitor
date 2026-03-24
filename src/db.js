@@ -640,7 +640,7 @@ export function createDatabase(dbPath) {
     };
   }
 
-  function getGpuTypeUtilizationHistory(cutoff, top = 5) {
+  function getGpuTypeUtilizationHistory(cutoff) {
     const rows = statements.selectGpuTypeUtilizationSnapshotsSince.all(cutoff);
     if (rows.length === 0) {
       return [];
@@ -678,7 +678,6 @@ export function createDatabase(dbPath) {
 
     const topGpuTypes = [...totalsByGpuType.entries()]
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .slice(0, top)
       .map(([gpuType]) => gpuType);
 
     const timestamps = [...byTimestamp.keys()].sort((a, b) => Date.parse(a) - Date.parse(b));

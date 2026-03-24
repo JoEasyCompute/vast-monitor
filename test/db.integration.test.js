@@ -20,7 +20,11 @@ test("database integration returns fleet history, gpu utilization, price history
       timestamp: firstDate,
       machines: [
         makeMachine({ machine_id: 1, hostname: "alpha", gpu_type: "A100", num_gpus: 4, occupied_gpus: 2, listed_gpu_cost: 1.2, earn_day: 20 }),
-        makeMachine({ machine_id: 2, hostname: "beta", gpu_type: "H100", num_gpus: 2, occupied_gpus: 1, listed_gpu_cost: 2.4, earn_day: 30 })
+        makeMachine({ machine_id: 2, hostname: "beta", gpu_type: "H100", num_gpus: 2, occupied_gpus: 1, listed_gpu_cost: 2.4, earn_day: 30 }),
+        makeMachine({ machine_id: 4, hostname: "delta", gpu_type: "RTX 4090", num_gpus: 1, occupied_gpus: 1, listed_gpu_cost: 1.8, earn_day: 12 }),
+        makeMachine({ machine_id: 5, hostname: "epsilon", gpu_type: "RTX A4000", num_gpus: 1, occupied_gpus: 0, listed_gpu_cost: 0.6, earn_day: 4 }),
+        makeMachine({ machine_id: 6, hostname: "zeta", gpu_type: "RTX 6000ADA", num_gpus: 1, occupied_gpus: 1, listed_gpu_cost: 1.3, earn_day: 9 }),
+        makeMachine({ machine_id: 7, hostname: "eta", gpu_type: "RTX 5090", num_gpus: 1, occupied_gpus: 0, listed_gpu_cost: 2.2, earn_day: 7 })
       ],
       offlineMachines: [],
       events: [],
@@ -32,6 +36,10 @@ test("database integration returns fleet history, gpu utilization, price history
       machines: [
         makeMachine({ machine_id: 1, hostname: "alpha", gpu_type: "A100", num_gpus: 4, occupied_gpus: 4, listed_gpu_cost: 1.4, earn_day: 24 }),
         makeMachine({ machine_id: 2, hostname: "beta", gpu_type: "H100", num_gpus: 2, occupied_gpus: 0, listed_gpu_cost: 2.4, earn_day: 12 }),
+        makeMachine({ machine_id: 4, hostname: "delta", gpu_type: "RTX 4090", num_gpus: 1, occupied_gpus: 0, listed_gpu_cost: 1.8, earn_day: 8 }),
+        makeMachine({ machine_id: 5, hostname: "epsilon", gpu_type: "RTX A4000", num_gpus: 1, occupied_gpus: 1, listed_gpu_cost: 0.6, earn_day: 6 }),
+        makeMachine({ machine_id: 6, hostname: "zeta", gpu_type: "RTX 6000ADA", num_gpus: 1, occupied_gpus: 1, listed_gpu_cost: 1.3, earn_day: 10 }),
+        makeMachine({ machine_id: 7, hostname: "eta", gpu_type: "RTX 5090", num_gpus: 1, occupied_gpus: 1, listed_gpu_cost: 2.2, earn_day: 11 }),
         makeMachine({ machine_id: 3, hostname: "gamma", gpu_type: "A100", num_gpus: 2, occupied_gpus: 0, listed: 0, listed_gpu_cost: null, earn_day: 0, hosting_type: 0, is_datacenter: 0, datacenter_id: null })
       ],
       offlineMachines: [],
@@ -64,18 +72,22 @@ test("database integration returns fleet history, gpu utilization, price history
     const hourly = store.getHourlyEarnings(earningsDate);
     const alerts = store.getRecentAlerts(10);
 
-    assert.equal(fleet.machines.length, 3);
+    assert.equal(fleet.machines.length, 7);
     assert.equal(fleet.latestPollAt, secondDate);
     assert.equal(fleet.machines.find((machine) => machine.machine_id === 1)?.has_new_report_72h, true);
     assert.equal(fleet.machines.find((machine) => machine.machine_id === 2)?.has_new_report_72h, false);
     assert.equal(fleetHistory.history.length, 2);
-    assert.equal(fleetHistory.gpu_type_utilization.length, 2);
+    assert.equal(fleetHistory.gpu_type_utilization.length, 6);
     assert.equal(fleetHistory.gpu_type_utilization[0].gpu_type, "A100");
     assert.equal(fleetHistory.gpu_type_utilization[0].points[1].utilisation_pct, 100);
-    assert.equal(priceHistory.series.length, 2);
+    assert.ok(fleetHistory.gpu_type_utilization.some((series) => series.gpu_type === "RTX 4090"));
+    assert.ok(fleetHistory.gpu_type_utilization.some((series) => series.gpu_type === "RTX A4000"));
+    assert.ok(fleetHistory.gpu_type_utilization.some((series) => series.gpu_type === "RTX 6000ADA"));
+    assert.ok(fleetHistory.gpu_type_utilization.some((series) => series.gpu_type === "RTX 5090"));
+    assert.equal(priceHistory.series.length, 6);
     assert.equal(priceHistory.series[0].gpu_type, "A100");
-    assert.equal(hourly.total, 4.8);
-    assert.equal(hourly.hours[firstHour].earnings, 4.8);
+    assert.equal(hourly.total, 7.9);
+    assert.equal(hourly.hours[firstHour].earnings, 7.9);
     assert.ok(alerts.some((alert) => alert.alert_type === "hostname_collision"));
   } finally {
     store.db.close();
