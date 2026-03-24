@@ -99,8 +99,8 @@ const filterSearch = document.getElementById("filter-search");
 const filterStatus = document.getElementById("filter-status");
 const filterListed = document.getElementById("filter-listed");
 const filterDc = document.getElementById("filter-dc");
-const filterOwner = document.getElementById("filter-owner");
-const filterTeam = document.getElementById("filter-team");
+const filterOwner = document.getElementById("filter-owner") || createOptionalElement();
+const filterTeam = document.getElementById("filter-team") || createOptionalElement();
 const filterErrors = document.getElementById("filter-errors");
 const filterReports = document.getElementById("filter-reports");
 const filterMaint = document.getElementById("filter-maint");
@@ -706,6 +706,23 @@ function formatMetricDuration(value) {
   return Number.isFinite(value) ? formatDuration(value) : "-";
 }
 
+function createOptionalElement() {
+  return {
+    value: "",
+    checked: false,
+    innerHTML: "",
+    textContent: "",
+    classList: {
+      add() {},
+      remove() {},
+      toggle() { return false; }
+    },
+    addEventListener() {},
+    setAttribute() {},
+    getAttribute() { return ""; }
+  };
+}
+
 function initializeStateFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const savedMachineFilters = loadStoredMachineFilters(MACHINE_FILTERS_KEY);
@@ -841,7 +858,7 @@ const modalTimeline = document.getElementById("modal-timeline");
 const modalStats = document.getElementById("modal-stats");
 const modalError = document.getElementById("modal-error");
 const modalMaintenance = document.getElementById("modal-maintenance");
-const modalAnnotations = document.getElementById("modal-annotations");
+const modalAnnotations = document.getElementById("modal-annotations") || createOptionalElement();
 const modalTabs = document.getElementById("modal-tabs");
 const modalTabCharts = document.getElementById("modal-tab-charts");
 const modalTabEvents = document.getElementById("modal-tab-events");
