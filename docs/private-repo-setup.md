@@ -31,9 +31,10 @@ Private repo:
 ```text
 vast-monitor-company/
   .env
-  package.json
   src/
     company-plugin.js
+  config/
+    owner-team-map.json
   public/
     company-app.js
     company.css
@@ -66,6 +67,7 @@ Clone it next to the public repo.
 From the public repo, copy these starter files into the private repo:
 
 - `examples/company-plugin/company-plugin.js` -> `vast-monitor-company/src/company-plugin.js`
+- `examples/company-plugin/owner-team-map.json` -> `vast-monitor-company/config/owner-team-map.json`
 - `examples/company-plugin/public/company-app.js` -> `vast-monitor-company/public/company-app.js`
 - `examples/company-plugin/public/company.css` -> `vast-monitor-company/public/company.css`
 

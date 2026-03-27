@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const mappingPath = path.join(__dirname, "owner-team-map.json");
+const mappingPath = path.join(__dirname, "../config/owner-team-map.json");
 
 export default definePlugin({
   name: "Example Company Plugin",

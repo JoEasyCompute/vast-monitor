@@ -101,6 +101,7 @@ With no plugins configured, the app behaves exactly as before.
 A copyable starter plugin lives at:
 
 - [examples/company-plugin/company-plugin.js](/Users/josephcheung/Desktop/dev/vast-monitor/examples/company-plugin/company-plugin.js)
+- [examples/company-plugin/owner-team-map.json](/Users/josephcheung/Desktop/dev/vast-monitor/examples/company-plugin/owner-team-map.json)
 - [examples/company-plugin/public/company-app.js](/Users/josephcheung/Desktop/dev/vast-monitor/examples/company-plugin/public/company-app.js)
 - [examples/company-plugin/public/company.css](/Users/josephcheung/Desktop/dev/vast-monitor/examples/company-plugin/public/company.css)
 
@@ -112,11 +113,11 @@ Recommended private companion repo:
 
 ```text
 vast-monitor-company/
-  package.json
   .env
   src/
-    index.js
     company-plugin.js
+  config/
+    owner-team-map.json
   public/
     company-app.js
     company.css
