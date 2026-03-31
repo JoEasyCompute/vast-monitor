@@ -3,3 +3,5 @@ node_modules/
 data/
 .codex-project-memory.md
 .DS_Store
+.firecrawl/
+.omc/

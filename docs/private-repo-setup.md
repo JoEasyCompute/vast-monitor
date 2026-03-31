@@ -72,6 +72,7 @@ From the public repo, copy these starter files into the private repo:
 - `examples/company-plugin/public/company.css` -> `vast-monitor-company/public/company.css`
 
 Then replace the example logic with your real company rules.
+The copied plugin should then update its mapping-file path to point at `../config/owner-team-map.json` inside the private repo.
 
 ## Step 3: Private Repo `.env`
 
