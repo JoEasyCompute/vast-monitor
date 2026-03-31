@@ -16,7 +16,7 @@ It polls your hosted machines from Vast, enriches them with datacenter metadata,
 - Emits warning alerts when the same hostname appears multiple times in a single poll
 - Computes rolling uptime for `24h`, `7d`, and `30d`
 - Shows fleet health, listed-only utilisation, earnings, trends, hoverable chart values, and datacenter tags in a browser dashboard
-- Adds local browser settings for table density and frontend-only alert thresholds
+- Adds local browser settings for dashboard mode, table density, and frontend-only alert thresholds
 - Persists machine table filters and the active/archive machine tab with a hybrid URL + local browser storage approach
 - Exposes JSON endpoints for status, health, history, alerts, fleet trends, and hourly earnings
 
@@ -171,13 +171,15 @@ The dashboard includes:
 - Header health badge can also show `Degraded` when stored poll data is fresh but live Vast-dependent operations are unhealthy
 - Header `Refresh` button for manual dashboard reloads
 - Header `Settings` button for local browser preferences
+- Optional dashboard carousel mode that alternates every 10 seconds between a full-width `Fleet Summary` / `GPU Type Breakdown` / `Hourly Earnings Overview` block and a full-width `Fleet Trends` block
+- Carousel mode keeps both rotating blocks at a matched height so lower sections do not shift during transitions
 - Dashboard shows a visible notice when one or more API-backed sections fail to refresh, instead of collapsing the whole page into a generic failure state
 - Stale-data warning banner when polls are too old
 - GPU type breakdown
 - Fleet trends for `24h`, `7d`, and `30d`
 - Fleet utilisation chart with a GPU selector; default view is total fleet utilisation
 - GPU-type pricing trends using listed-only weighted averages
-- Hourly earnings with previous/next day navigation
+- `Hourly Earnings Overview` with previous/next day navigation, rolling total, and average hourly earnings
 - Per-section source/freshness labels for summary, breakdown, hourly earnings, fleet trends, alerts, and poll monitor
 - Sortable machine table
 - Machine table split into `Main View` and `Archived` tabs, where archived machines are offline for more than 24 hours
@@ -196,6 +198,7 @@ The dashboard includes:
 - Machine modal machine ID and IP address support click-to-copy
 - Copy actions now show a small transient copied confirmation
 - Machine modal charts for historical earnings, renter activity, reliability, GPU rental price, and GPU count
+- Machine modal operational summary includes a combined `Renter Total / Rentals` card, where `Renter Total` equals the starting renter count plus all positive renter-count increases across the selected history window
 - Machine modal commercial summary includes realized previous/current calendar month machine earnings when live Vast CLI earnings are available
 - Machine modal includes a compact live-earnings status panel showing source, health, and effective comparison windows
 - Machine and reports modals now show explicit loading states while live data is being fetched
@@ -207,6 +210,7 @@ The dashboard includes:
 
 Local browser settings currently control:
 
+- dashboard mode (`Normal` / `Carousel`)
 - machine table density
 - low reliability highlight threshold
 - high temperature highlight threshold

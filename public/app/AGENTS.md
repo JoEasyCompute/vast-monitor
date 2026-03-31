@@ -17,7 +17,7 @@ Modular browser-side JavaScript for the dashboard. Most files export focused uti
 | `machine-modal.js` | Pure markup/formatting helpers for the per-machine detail modal |
 | `modal-controllers.js` | `createMachineModalController` and `createReportsController` — fetch and render modal content, manage navigation |
 | `event-wiring.js` | Wires DOM event listeners for filters, tabs, modal controls, gestures, and refresh actions |
-| `ui-state.js` | URL/localStorage-backed UI state helpers for machine filters, selected trend window, and earnings date |
+| `ui-state.js` | URL/localStorage-backed UI state helpers for machine filters, selected trend window, earnings date, and local display settings such as dashboard mode |
 | `formatters.js` | Pure formatting utilities: currency, percentages, durations, dates |
 | `clipboard.js` | Copy-to-clipboard helper for IP address cells |
 

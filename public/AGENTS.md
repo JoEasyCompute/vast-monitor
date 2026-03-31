@@ -11,7 +11,7 @@ Frontend static assets served directly by Express. Contains the single-page dash
 | File | Description |
 |------|-------------|
 | `index.html` | Dashboard HTML shell — loads `app.js` as an ES module and references `styles.css` |
-| `app.js` | Frontend entry point — imports modules from `app/`, wires event listeners, starts the auto-refresh loop |
+| `app.js` | Frontend entry point — imports modules from `app/`, wires event listeners, starts the auto-refresh loop, and manages local dashboard display settings such as carousel mode |
 | `styles.css` | Global dashboard styles |
 
 ## Subdirectories

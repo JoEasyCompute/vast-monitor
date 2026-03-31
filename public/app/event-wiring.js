@@ -14,6 +14,7 @@ export function bindDashboardControls({
   settingsButton,
   settingsBackdrop,
   settingsClose,
+  settingsDashboardMode,
   settingsDensity,
   settingsReliability,
   settingsTemperature,
@@ -29,6 +30,7 @@ export function bindDashboardControls({
   onDensityChange,
   onOpenSettings,
   onCloseSettings,
+  onSettingsDashboardModeChange,
   onSettingsDensityChange,
   onSettingsReliabilityChange,
   onSettingsTemperatureChange,
@@ -56,6 +58,7 @@ export function bindDashboardControls({
 
   settingsButton.addEventListener("click", onOpenSettings);
   settingsClose.addEventListener("click", onCloseSettings);
+  settingsDashboardMode.addEventListener("change", onSettingsDashboardModeChange);
   settingsDensity.addEventListener("change", onSettingsDensityChange);
   settingsReliability.addEventListener("change", onSettingsReliabilityChange);
   settingsTemperature.addEventListener("change", onSettingsTemperatureChange);

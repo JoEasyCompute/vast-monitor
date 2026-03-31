@@ -65,6 +65,11 @@ import {
   formatGpuMachineLabel
 } from "./app/machine-modal.js";
 
+const dashboard = document.getElementById("dashboard") || createOptionalElement();
+const carouselGroups = [
+  document.getElementById("carousel-group-primary"),
+  document.getElementById("carousel-group-secondary")
+].filter(Boolean);
 const summaryGrid = document.getElementById("summary-grid");
 const summaryCompareGrid = document.getElementById("summary-compare-grid");
 const breakdownBody = document.getElementById("breakdown-body");
@@ -76,6 +81,7 @@ const lastUpdated = document.getElementById("last-updated");
 const refreshButton = document.getElementById("refresh-button");
 const hourlyChart = document.getElementById("hourly-chart");
 const earningsTotal = document.getElementById("earnings-total");
+const earningsAvg = document.getElementById("earnings-avg") || createOptionalElement();
 const earningsDate = document.getElementById("earnings-date");
 const earningsPrevButton = document.getElementById("earnings-prev");
 const earningsNextButton = document.getElementById("earnings-next");
@@ -111,6 +117,7 @@ const machineViewTabs = document.getElementById("machine-view-tabs");
 const settingsButton = document.getElementById("settings-button");
 const settingsBackdrop = document.getElementById("settings-backdrop");
 const settingsClose = document.getElementById("settings-close");
+const settingsDashboardMode = document.getElementById("settings-dashboard-mode") || createOptionalElement();
 const settingsDensity = document.getElementById("settings-density");
 const settingsReliability = document.getElementById("settings-reliability");
 const settingsTemperature = document.getElementById("settings-temperature");
@@ -118,6 +125,7 @@ const settingsStaleMinutes = document.getElementById("settings-stale-minutes");
 const settingsReset = document.getElementById("settings-reset");
 
 const DEFAULT_UI_SETTINGS = {
+  dashboardMode: "normal",
   tableDensity: "comfortable",
   lowReliabilityPct: 90,
   highTemperatureC: 85,
@@ -126,6 +134,7 @@ const DEFAULT_UI_SETTINGS = {
 };
 const UI_SETTINGS_KEY = "vast-monitor-ui-settings";
 const MACHINE_FILTERS_KEY = "vast-monitor-machine-filters";
+const CAROUSEL_INTERVAL_MS = 10 * 1000;
 let uiSettings = loadStoredUiSettings(UI_SETTINGS_KEY, DEFAULT_UI_SETTINGS);
 
 let currentMachinesData = [];
@@ -155,6 +164,9 @@ let suppressRowClickUntil = 0;
 const copyFeedbackTimers = new WeakMap();
 let dashboardToastTimer = null;
 let manualRefreshInFlight = false;
+let dashboardCarouselTimer = null;
+let dashboardCarouselRedrawTimer = null;
+let activeCarouselGroupIndex = 0;
 const loadedExtensionAssets = {
   scripts: new Set(),
   styles: new Set()
@@ -240,6 +252,10 @@ function renderSummary(summary) {
       </article>
     `)
     .join("");
+
+  if (isCarouselMode()) {
+    syncCarouselGroupHeights();
+  }
 }
 
 function renderSummaryMeta(latestPollAt) {
@@ -288,6 +304,10 @@ function renderBreakdown(rows) {
       </tr>
     `)
     .join("");
+
+  if (isCarouselMode()) {
+    syncCarouselGroupHeights();
+  }
 }
 
 function renderBreakdownMeta(latestPollAt) {
@@ -335,8 +355,8 @@ function updateMachineViewTabs() {
   });
 }
 
-function renderModalSummary(machine) {
-  modalSummary.innerHTML = buildModalSummaryMarkup(machine);
+function renderModalSummary(machine, machineHistory = []) {
+  modalSummary.innerHTML = buildModalSummaryMarkup(machine, machineHistory);
   const annotationsMarkup = buildModalAnnotationsMarkup(machine);
   modalAnnotations.innerHTML = annotationsMarkup;
   modalAnnotations.classList.toggle("hidden", !annotationsMarkup);
@@ -469,8 +489,11 @@ function renderHourlyEarnings(data) {
   const currentHour = new Date().getUTCHours();
   const maxEarnings = Math.max(...data.hours.map((h) => h.earnings), 0.01);
   const isToday = data.date === todayUtcDateString();
+  const realizedHours = data.hours.filter((h) => !(isToday && h.hour > currentHour));
+  const averageHourlyEarnings = realizedHours.length > 0 ? data.total / realizedHours.length : 0;
 
   earningsTotal.textContent = `$${data.total.toFixed(2)}`;
+  earningsAvg.textContent = `Avg Hourly Earnings: $${averageHourlyEarnings.toFixed(2)}`;
   earningsDate.textContent = data.date;
   earningsNextButton.disabled = isToday;
 
@@ -491,14 +514,23 @@ function renderHourlyEarnings(data) {
     })
     .join("");
   earningsMeta.textContent = buildSectionMeta(`Stored hourly estimate for ${data.date}`, data.generated_at || null);
+
+  if (isCarouselMode()) {
+    syncCarouselGroupHeights();
+  }
 }
 
 function renderHourlyEarningsUnavailable() {
   earningsTotal.textContent = "--";
+  earningsAvg.textContent = "Avg Hourly Earnings: --";
   earningsDate.textContent = selectedEarningsDate;
   hourlyChart.innerHTML = '<div class="section-placeholder"><p class="muted">Hourly earnings are temporarily unavailable.</p></div>';
   earningsNextButton.disabled = selectedEarningsDate === todayUtcDateString();
   earningsMeta.textContent = "Stored hourly estimates unavailable";
+
+  if (isCarouselMode()) {
+    syncCarouselGroupHeights();
+  }
 }
 
 function renderAlerts(rows) {
@@ -579,10 +611,18 @@ function renderFleetHistoryUnavailable() {
   renderTrendUnavailable(trendGpusChart, "Fleet trends unavailable");
   renderTrendUnavailable(trendFleetChart, "Fleet trends unavailable");
   renderTrendUnavailable(trendUtilChart, "Utilisation unavailable");
+
+  if (isCarouselMode()) {
+    syncCarouselGroupHeights();
+  }
 }
 
 function renderGpuTypePriceUnavailable() {
   renderTrendUnavailable(trendPriceChart, "GPU pricing unavailable");
+
+  if (isCarouselMode()) {
+    syncCarouselGroupHeights();
+  }
 }
 
 function renderFleetTrends(payload) {
@@ -615,18 +655,29 @@ function renderFleetTrends(payload) {
     formatValue: (value) => `${Math.round(value)}%`
   });
   fleetTrendsMeta.textContent = buildSectionMeta(`SQLite snapshots, ${selectedTrendHours}h window`, payload?.history?.at?.(-1)?.polled_at || null);
+
+  if (isCarouselMode()) {
+    syncCarouselGroupHeights();
+  }
 }
 
 function renderGpuTypePriceTrends(payload) {
   const normalized = normalizeGpuTypePriceHistory(payload);
   if (!normalized.history.length || !normalized.series.length) {
     trendPriceChart.innerHTML = `<text x="360" y="90" text-anchor="middle" class="chart-empty">No GPU-type price history yet</text>`;
+    if (isCarouselMode()) {
+      syncCarouselGroupHeights();
+    }
     return;
   }
 
   drawMultiSeriesChart(trendPriceChart, normalized.history, normalized.series, {
     formatValue: (value) => formatCurrency(value)
   });
+
+  if (isCarouselMode()) {
+    syncCarouselGroupHeights();
+  }
 }
 
 function renderPollMonitor(observability, latestPollAt) {
@@ -723,6 +774,122 @@ function createOptionalElement() {
   };
 }
 
+function isCarouselMode() {
+  return uiSettings.dashboardMode === "carousel";
+}
+
+function syncCarouselGroupHeights() {
+  if (!dashboard || !carouselGroups.length) {
+    return;
+  }
+
+  if (!isCarouselMode()) {
+    carouselGroups.forEach((group) => {
+      group.style.minHeight = "";
+      group.classList.remove("is-measuring");
+    });
+    return;
+  }
+
+  carouselGroups.forEach((group) => {
+    group.style.minHeight = "";
+    group.classList.add("is-measuring");
+  });
+
+  const maxHeight = Math.max(...carouselGroups.map((group) => group.offsetHeight), 0);
+
+  carouselGroups.forEach((group) => {
+    group.classList.remove("is-measuring");
+    group.style.minHeight = maxHeight > 0 ? `${maxHeight}px` : "";
+  });
+}
+
+function queueCarouselChartRedraw() {
+  if (dashboardCarouselRedrawTimer) {
+    window.clearTimeout(dashboardCarouselRedrawTimer);
+  }
+
+  dashboardCarouselRedrawTimer = window.setTimeout(() => {
+    dashboardCarouselRedrawTimer = null;
+
+    if (!isCarouselMode()) {
+      syncCarouselGroupHeights();
+      redrawChartsForCurrentLayout();
+      return;
+    }
+
+    if (activeCarouselGroupIndex === 0 && latestHourlyEarningsPayload) {
+      renderHourlyEarnings(latestHourlyEarningsPayload);
+    } else if (activeCarouselGroupIndex === 1) {
+      if (latestFleetHistoryPayload) {
+        renderFleetTrends(latestFleetHistoryPayload);
+      }
+      if (latestGpuTypePricePayload) {
+        renderGpuTypePriceTrends(latestGpuTypePricePayload);
+      }
+    }
+
+    syncCarouselGroupHeights();
+  }, 60);
+}
+
+function applyCarouselMode(animate = false) {
+  if (!dashboard || !carouselGroups.length) {
+    return;
+  }
+
+  const carouselActive = isCarouselMode();
+  dashboard.classList.toggle("carousel-mode", carouselActive);
+
+  carouselGroups.forEach((group, index) => {
+    const isActive = !carouselActive || index === activeCarouselGroupIndex;
+    group.classList.toggle("is-active", isActive);
+    group.classList.toggle("is-hidden", carouselActive && !isActive);
+    group.classList.remove("carousel-animate");
+  });
+
+  if (carouselActive && animate) {
+    const activeGroup = carouselGroups[activeCarouselGroupIndex];
+    if (activeGroup) {
+      void activeGroup.offsetWidth;
+      activeGroup.classList.add("carousel-animate");
+    }
+  }
+
+  queueCarouselChartRedraw();
+}
+
+function stopDashboardCarousel() {
+  if (dashboardCarouselTimer) {
+    window.clearInterval(dashboardCarouselTimer);
+    dashboardCarouselTimer = null;
+  }
+}
+
+function startDashboardCarousel() {
+  stopDashboardCarousel();
+  if (!isCarouselMode() || carouselGroups.length < 2) {
+    return;
+  }
+
+  dashboardCarouselTimer = window.setInterval(() => {
+    activeCarouselGroupIndex = (activeCarouselGroupIndex + 1) % carouselGroups.length;
+    applyCarouselMode(true);
+  }, CAROUSEL_INTERVAL_MS);
+}
+
+function syncDashboardMode() {
+  if (!isCarouselMode()) {
+    stopDashboardCarousel();
+    activeCarouselGroupIndex = 0;
+    applyCarouselMode(false);
+    return;
+  }
+
+  applyCarouselMode(false);
+  startDashboardCarousel();
+}
+
 function initializeStateFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const savedMachineFilters = loadStoredMachineFilters(MACHINE_FILTERS_KEY);
@@ -794,6 +961,7 @@ function saveMachineFilters() {
 }
 
 function applyUiSettings() {
+  settingsDashboardMode.value = uiSettings.dashboardMode === "carousel" ? "carousel" : "normal";
   machinesScroll.classList.toggle("compact-density", uiSettings.tableDensity === "compact");
   densityToggle.querySelectorAll("[data-density]").forEach((button) => {
     button.classList.toggle("active", button.dataset.density === uiSettings.tableDensity);
@@ -812,6 +980,7 @@ function updateUiSettings(nextSettings) {
   selectedUtilizationGpuType = uiSettings.selectedUtilizationGpuType || "__fleet__";
   persistUiSettings(UI_SETTINGS_KEY, uiSettings);
   applyUiSettings();
+  syncDashboardMode();
   renderMachinesSorted();
   if (lastKnownHealth) {
     renderHealth(lastKnownHealth);
@@ -1181,8 +1350,17 @@ function navigateMachineHistory(direction) {
   return machineModalController.navigateMachineHistory(direction);
 }
 
+syncDashboardMode();
+
 bindWindowResize({
-  onResize: redrawChartsForCurrentLayout
+  onResize: () => {
+    if (isCarouselMode()) {
+      queueCarouselChartRedraw();
+      return;
+    }
+
+    redrawChartsForCurrentLayout();
+  }
 });
 
 bindDashboardControls({
@@ -1191,6 +1369,7 @@ bindDashboardControls({
   settingsButton,
   settingsBackdrop,
   settingsClose,
+  settingsDashboardMode,
   settingsDensity,
   settingsReliability,
   settingsTemperature,
@@ -1231,6 +1410,9 @@ bindDashboardControls({
   onCloseSettings: () => {
     settingsBackdrop.classList.add("hidden");
   },
+  onSettingsDashboardModeChange: () => {
+    updateUiSettings({ dashboardMode: settingsDashboardMode.value === "carousel" ? "carousel" : "normal" });
+  },
   onSettingsDensityChange: () => {
     updateUiSettings({ tableDensity: settingsDensity.value === "compact" ? "compact" : "comfortable" });
   },
@@ -1248,6 +1430,7 @@ bindDashboardControls({
     selectedUtilizationGpuType = uiSettings.selectedUtilizationGpuType;
     persistUiSettings(UI_SETTINGS_KEY, uiSettings);
     applyUiSettings();
+    syncDashboardMode();
     renderMachinesSorted();
     if (lastKnownHealth) {
       renderHealth(lastKnownHealth);

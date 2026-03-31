@@ -16,10 +16,10 @@ export function formatGpuMachineLabel(machine) {
   return Number.isFinite(gpuCount) ? `${gpuCount}x${gpuType}` : gpuType;
 }
 
-export function buildModalSummaryMarkup(machine) {
+export function buildModalSummaryMarkup(machine, machineHistory = []) {
   const operationalItems = [
     ["Status", renderModalStatus(machine)],
-    ["Rentals", renderModalRentals(machine)],
+    ["Renter Total / Rentals", renderModalRenterSummary(machine, machineHistory)],
     ["Reliability", machine.reliability == null ? "-" : renderModalReliability(machine)],
     ["Temp", escapeHtml(machine.gpu_max_cur_temp == null ? "-" : `${machine.gpu_max_cur_temp}C`)],
     ["Uptime 24h", escapeHtml(machine.uptime?.["24h"] == null ? "-" : `${machine.uptime["24h"]}%`)]
@@ -218,6 +218,40 @@ export function hasLocalEstimatedEarningsHistory(machineHistory) {
   return Array.isArray(machineHistory) && machineHistory.some((row) => typeof row?.earn_day === "number");
 }
 
+export function computeRenterTotal(machineHistory = []) {
+  const history = Array.isArray(machineHistory) ? machineHistory : [];
+  if (!history.length) {
+    return null;
+  }
+
+  const normalized = history
+    .map((row) => ({
+      polledAtMs: Date.parse(row?.polled_at),
+      renters: Number(row?.current_rentals_running)
+    }))
+    .filter((row) => Number.isFinite(row.polledAtMs) && Number.isFinite(row.renters))
+    .sort((a, b) => a.polledAtMs - b.polledAtMs);
+
+  if (!normalized.length) {
+    return null;
+  }
+
+  let total = normalized[0].renters;
+  for (let index = 1; index < normalized.length; index += 1) {
+    const delta = normalized[index].renters - normalized[index - 1].renters;
+    if (delta > 0) {
+      total += delta;
+    }
+  }
+
+  return total;
+}
+
+function formatRenterTotal(machineHistory) {
+  const value = computeRenterTotal(machineHistory);
+  return value == null ? "-" : String(value);
+}
+
 function renderSummaryPrice(machine) {
   const currentPrice = formatCurrency(machine.listed_gpu_cost);
   if (machine.price_change_direction === "none" || typeof machine.previous_listed_gpu_cost !== "number") {
@@ -255,6 +289,22 @@ function renderModalRentals(machine) {
       machine.current_rentals_running,
       "renters"
     )}
+  </span>`;
+}
+
+function renderModalRenterSummary(machine, machineHistory) {
+  const renterTotal = formatRenterTotal(machineHistory);
+  return `<span class="modal-inline-value">
+    <span>${escapeHtml(renterTotal)}</span>
+    <span class="modal-inline-value">
+      <span>${machine.current_rentals_running ?? 0}</span>
+      ${renderModalDeltaText(
+        machine.rentals_change_direction,
+        machine.previous_rentals,
+        machine.current_rentals_running,
+        "renters"
+      )}
+    </span>
   </span>`;
 }
 

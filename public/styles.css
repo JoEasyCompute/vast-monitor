@@ -211,6 +211,54 @@ h1 {
   display: grid;
   grid-template-columns: repeat(12, 1fr);
   gap: 20px;
+  position: relative;
+}
+
+.dashboard-carousel-group {
+  display: contents;
+}
+
+.dashboard.carousel-mode .dashboard-carousel-group {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 20px;
+  align-content: start;
+}
+
+.dashboard.carousel-mode .dashboard-carousel-group.is-hidden {
+  display: none;
+}
+
+.dashboard.carousel-mode .dashboard-carousel-group.is-active {
+  display: grid;
+}
+
+.dashboard-carousel-group.carousel-animate {
+  animation: carousel-enter 760ms ease;
+}
+
+.dashboard.carousel-mode .dashboard-carousel-group.is-measuring {
+  display: grid !important;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: -1;
+}
+
+@keyframes carousel-enter {
+  from {
+    opacity: 0;
+    transform: translateX(22px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .panel {
@@ -851,6 +899,10 @@ tr.high-temperature td {
   font-size: 2rem;
   font-weight: 700;
   color: var(--green);
+}
+
+.earnings-avg {
+  font-size: 0.96rem;
 }
 
 .hourly-chart {
@@ -1645,6 +1697,10 @@ tr.machine-row:hover {
 @media (max-width: 980px) {
   .panel {
     grid-column: 1 / -1;
+  }
+
+  .dashboard.carousel-mode .dashboard-carousel-group {
+    grid-template-columns: 1fr;
   }
 
   .trend-grid {

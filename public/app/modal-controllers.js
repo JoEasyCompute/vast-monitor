@@ -91,7 +91,7 @@ export function createMachineModalController({
       }, currentModalHistory);
       renderModalHeader(machineId, machine);
       if (machine) {
-        renderModalSummary(machine);
+        renderModalSummary(machine, currentModalHistory);
       }
       renderModalEarningsBreakdown(earningsData);
       updateModalEarningsPresentation(earningsData);

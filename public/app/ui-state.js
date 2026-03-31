@@ -11,6 +11,7 @@ export function loadUiSettings(storageKey, defaults) {
     const raw = window.localStorage.getItem(storageKey);
     const parsed = raw ? JSON.parse(raw) : {};
     return {
+      dashboardMode: parsed.dashboardMode === "carousel" ? "carousel" : defaults.dashboardMode,
       tableDensity: parsed.tableDensity === "compact" ? "compact" : defaults.tableDensity,
       lowReliabilityPct: normalizeSettingNumber(parsed.lowReliabilityPct, defaults.lowReliabilityPct, 0, 100),
       highTemperatureC: normalizeSettingNumber(parsed.highTemperatureC, defaults.highTemperatureC, 0, 150),

@@ -25,103 +25,108 @@
         </div>
       </header>
 
-      <main class="dashboard">
+      <main id="dashboard" class="dashboard">
         <section id="dashboard-notice" class="warning-banner info-banner hidden"></section>
         <section id="stale-warning" class="warning-banner hidden"></section>
 
-        <section class="panel">
-          <div class="panel-title-row">
-            <h2>Fleet Summary</h2>
-            <span id="summary-meta" class="section-meta"></span>
-          </div>
-          <div class="summary-grid" id="summary-grid"></div>
-          <div class="summary-compare-grid" id="summary-compare-grid"></div>
-        </section>
-
-        <section class="panel">
-          <div class="panel-title-row">
-            <h2>GPU Type Breakdown</h2>
-            <span id="breakdown-meta" class="section-meta"></span>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>GPU Type</th>
-                  <th class="breakdown-num-col">Machines</th>
-                  <th class="breakdown-gpus-col">GPUs<br />L/U</th>
-                  <th>Utilisation</th>
-                  <th class="breakdown-num-col">Avg Price</th>
-                  <th class="breakdown-num-col">Earnings</th>
-                </tr>
-              </thead>
-              <tbody id="breakdown-body"></tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="panel wide">
-          <div class="panel-title-row">
-            <h2>Hourly Earnings</h2>
-            <div class="earnings-nav">
-              <span id="earnings-meta" class="section-meta"></span>
-              <button id="earnings-prev" class="nav-button" type="button" aria-label="Previous day">&#8592;</button>
-              <button id="earnings-next" class="nav-button" type="button" aria-label="Next day">&#8594;</button>
+        <div id="carousel-group-primary" class="dashboard-carousel-group" data-carousel-group="0">
+          <section class="panel">
+            <div class="panel-title-row">
+              <h2>Fleet Summary</h2>
+              <span id="summary-meta" class="section-meta"></span>
             </div>
-          </div>
-          <div class="earnings-header">
-            <span class="earnings-total" id="earnings-total">$0.00</span>
-            <span class="muted" id="earnings-date"></span>
-          </div>
-          <div class="hourly-chart" id="hourly-chart"></div>
-        </section>
+            <div class="summary-grid" id="summary-grid"></div>
+            <div class="summary-compare-grid" id="summary-compare-grid"></div>
+          </section>
 
-        <section class="panel wide">
-          <div class="panel-title-row">
-            <h2>Fleet Trends</h2>
-            <div class="trend-range" id="trend-range">
-              <span id="fleet-trends-meta" class="section-meta"></span>
-              <button class="range-button active" type="button" data-hours="24">24h</button>
-              <button class="range-button" type="button" data-hours="168">7d</button>
-              <button class="range-button" type="button" data-hours="720">30d</button>
+          <section class="panel">
+            <div class="panel-title-row">
+              <h2>GPU Type Breakdown</h2>
+              <span id="breakdown-meta" class="section-meta"></span>
             </div>
-          </div>
-          <div class="trend-grid">
-            <div class="trend-card">
-              <div class="trend-card-header">
-                <strong>GPU Capacity</strong>
-                <span class="muted">Listed vs unlisted</span>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>GPU Type</th>
+                    <th class="breakdown-num-col">Machines</th>
+                    <th class="breakdown-gpus-col">GPUs<br />L/U</th>
+                    <th>Utilisation</th>
+                    <th class="breakdown-num-col">Avg Price</th>
+                    <th class="breakdown-num-col">Earnings</th>
+                  </tr>
+                </thead>
+                <tbody id="breakdown-body"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel wide">
+            <div class="panel-title-row">
+              <h2>Hourly Earnings Overview</h2>
+              <div class="earnings-nav">
+                <span id="earnings-meta" class="section-meta"></span>
+                <button id="earnings-prev" class="nav-button" type="button" aria-label="Previous day">&#8592;</button>
+                <button id="earnings-next" class="nav-button" type="button" aria-label="Next day">&#8594;</button>
               </div>
-              <svg id="trend-gpus-chart" class="trend-chart" viewBox="0 0 720 180" preserveAspectRatio="none"></svg>
             </div>
-            <div class="trend-card">
-              <div class="trend-card-header">
-                <strong>Fleet Counts</strong>
-                <span class="muted">Machines, unlisted, DC</span>
+            <div class="earnings-header">
+              <span class="earnings-total" id="earnings-total">$0.00</span>
+              <span class="earnings-avg muted" id="earnings-avg">Avg Hourly Earnings: $0.00</span>
+              <span class="muted" id="earnings-date"></span>
+            </div>
+            <div class="hourly-chart" id="hourly-chart"></div>
+          </section>
+        </div>
+
+        <div id="carousel-group-secondary" class="dashboard-carousel-group" data-carousel-group="1">
+          <section class="panel wide">
+            <div class="panel-title-row">
+              <h2>Fleet Trends</h2>
+              <div class="trend-range" id="trend-range">
+                <span id="fleet-trends-meta" class="section-meta"></span>
+                <button class="range-button active" type="button" data-hours="24">24h</button>
+                <button class="range-button" type="button" data-hours="168">7d</button>
+                <button class="range-button" type="button" data-hours="720">30d</button>
               </div>
-              <svg id="trend-fleet-chart" class="trend-chart" viewBox="0 0 720 180" preserveAspectRatio="none"></svg>
             </div>
-            <div class="trend-card">
-              <div class="trend-card-header">
-                <div>
-                  <strong>Listed Utilisation</strong>
-                  <span class="muted">Fleet total or selected GPU type</span>
+            <div class="trend-grid">
+              <div class="trend-card">
+                <div class="trend-card-header">
+                  <strong>GPU Capacity</strong>
+                  <span class="muted">Listed vs unlisted</span>
                 </div>
-                <select id="trend-util-gpu-select" class="filter-select trend-select" aria-label="Select utilisation GPU type">
-                  <option value="__fleet__">Total fleet</option>
-                </select>
+                <svg id="trend-gpus-chart" class="trend-chart" viewBox="0 0 720 180" preserveAspectRatio="none"></svg>
               </div>
-              <svg id="trend-util-chart" class="trend-chart" viewBox="0 0 720 180" preserveAspectRatio="none"></svg>
-            </div>
-            <div class="trend-card">
-              <div class="trend-card-header">
-                <strong>GPU Type Pricing</strong>
-                <span class="muted">Listed-only weighted averages</span>
+              <div class="trend-card">
+                <div class="trend-card-header">
+                  <strong>Fleet Counts</strong>
+                  <span class="muted">Machines, unlisted, DC</span>
+                </div>
+                <svg id="trend-fleet-chart" class="trend-chart" viewBox="0 0 720 180" preserveAspectRatio="none"></svg>
               </div>
-              <svg id="trend-price-chart" class="trend-chart" viewBox="0 0 720 180" preserveAspectRatio="none"></svg>
+              <div class="trend-card">
+                <div class="trend-card-header">
+                  <div>
+                    <strong>Listed Utilisation</strong>
+                    <span class="muted">Fleet total or selected GPU type</span>
+                  </div>
+                  <select id="trend-util-gpu-select" class="filter-select trend-select" aria-label="Select utilisation GPU type">
+                    <option value="__fleet__">Total fleet</option>
+                  </select>
+                </div>
+                <svg id="trend-util-chart" class="trend-chart" viewBox="0 0 720 180" preserveAspectRatio="none"></svg>
+              </div>
+              <div class="trend-card">
+                <div class="trend-card-header">
+                  <strong>GPU Type Pricing</strong>
+                  <span class="muted">Listed-only weighted averages</span>
+                </div>
+                <svg id="trend-price-chart" class="trend-chart" viewBox="0 0 720 180" preserveAspectRatio="none"></svg>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        </div>
 
         <section class="panel wide">
           <div class="panel-title-row">
@@ -302,6 +307,13 @@
         <div class="modal-body">
           <div class="settings-section">
             <div class="settings-section-title">Display</div>
+            <label class="settings-field">
+              <span>Dashboard mode</span>
+              <select id="settings-dashboard-mode" class="filter-select">
+                <option value="normal">Normal</option>
+                <option value="carousel">Carousel</option>
+              </select>
+            </label>
             <label class="settings-field">
               <span>Machine table density</span>
               <select id="settings-density" class="filter-select">

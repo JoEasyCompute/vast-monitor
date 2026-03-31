@@ -10,6 +10,10 @@ import {
   isArchivedMachine
 } from "../public/app/machine-table.js";
 import {
+  buildModalSummaryMarkup,
+  computeRenterTotal
+} from "../public/app/machine-modal.js";
+import {
   loadMachineFilters,
   loadUiSettings,
   normalizeSettingNumber,
@@ -108,10 +112,49 @@ test("machine-table empty states distinguish filtered and archived views", () =>
   assert.equal(buildMachineEmptyStateMessage(2, defaultFilters(), "active"), "");
 });
 
+test("machine modal renter total uses initial renters plus positive increases only", () => {
+  const stableHistory = [
+    { polled_at: "2026-03-23T10:00:00.000Z", current_rentals_running: 4 },
+    { polled_at: "2026-03-23T11:00:00.000Z", current_rentals_running: 4 },
+    { polled_at: "2026-03-23T12:00:00.000Z", current_rentals_running: 4 }
+  ];
+  const upDownHistory = [
+    { polled_at: "2026-03-23T10:00:00.000Z", current_rentals_running: 4 },
+    { polled_at: "2026-03-23T11:00:00.000Z", current_rentals_running: 3 },
+    { polled_at: "2026-03-23T12:00:00.000Z", current_rentals_running: 4 }
+  ];
+  const mixedHistory = [
+    { polled_at: "2026-03-23T10:00:00.000Z", current_rentals_running: 2 },
+    { polled_at: "2026-03-23T11:00:00.000Z", current_rentals_running: 5 },
+    { polled_at: "2026-03-23T12:00:00.000Z", current_rentals_running: 3 },
+    { polled_at: "2026-03-23T13:00:00.000Z", current_rentals_running: 6 }
+  ];
+
+  assert.equal(computeRenterTotal(stableHistory), 4);
+  assert.equal(computeRenterTotal(upDownHistory), 5);
+  assert.equal(computeRenterTotal(mixedHistory), 8);
+});
+
+test("machine modal summary markup includes renter total", () => {
+  const markup = buildModalSummaryMarkup(makeMachineRow({
+    current_rentals_running: 4,
+    reliability: 0.99
+  }), [
+    { polled_at: "2026-03-23T10:00:00.000Z", current_rentals_running: 4 },
+    { polled_at: "2026-03-23T11:00:00.000Z", current_rentals_running: 3 },
+    { polled_at: "2026-03-23T12:00:00.000Z", current_rentals_running: 4 }
+  ]);
+
+  assert.match(markup, /Renter Total \/ Rentals/);
+  assert.match(markup, /<span>5<\/span>/);
+  assert.match(markup, /<span>4<\/span>/);
+});
+
 test("ui-state loaders sanitize persisted values", () => {
   const { restore } = mockWindow({
     localStorageValues: {
       ui: JSON.stringify({
+        dashboardMode: "carousel",
         tableDensity: "compact",
         lowReliabilityPct: "110",
         highTemperatureC: "-5",
@@ -135,6 +178,7 @@ test("ui-state loaders sanitize persisted values", () => {
 
   try {
     const ui = loadUiSettings("ui", {
+      dashboardMode: "normal",
       tableDensity: "comfortable",
       lowReliabilityPct: 90,
       highTemperatureC: 85,
@@ -145,6 +189,7 @@ test("ui-state loaders sanitize persisted values", () => {
 
     assert.equal(normalizeSettingNumber("200", 50, 0, 100), 100);
     assert.deepEqual(ui, {
+      dashboardMode: "carousel",
       tableDensity: "compact",
       lowReliabilityPct: 100,
       highTemperatureC: 0,
@@ -239,6 +284,31 @@ test("ui-state reads initial values from URL and persists trimmed state back to 
     ]);
   } finally {
     windowMock.restore();
+  }
+});
+
+test("ui-state falls back to default dashboard mode for invalid persisted values", () => {
+  const { restore } = mockWindow({
+    localStorageValues: {
+      ui: JSON.stringify({
+        dashboardMode: "sideways"
+      })
+    }
+  });
+
+  try {
+    const ui = loadUiSettings("ui", {
+      dashboardMode: "normal",
+      tableDensity: "comfortable",
+      lowReliabilityPct: 90,
+      highTemperatureC: 85,
+      stalePollMinutes: 15,
+      selectedUtilizationGpuType: "__fleet__"
+    });
+
+    assert.equal(ui.dashboardMode, "normal");
+  } finally {
+    restore();
   }
 });
 
