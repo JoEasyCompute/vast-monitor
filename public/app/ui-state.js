@@ -16,6 +16,7 @@ export function loadUiSettings(storageKey, defaults) {
       lowReliabilityPct: normalizeSettingNumber(parsed.lowReliabilityPct, defaults.lowReliabilityPct, 0, 100),
       highTemperatureC: normalizeSettingNumber(parsed.highTemperatureC, defaults.highTemperatureC, 0, 150),
       stalePollMinutes: normalizeSettingNumber(parsed.stalePollMinutes, defaults.stalePollMinutes, 1, 1440),
+      adminApiToken: typeof parsed.adminApiToken === "string" ? parsed.adminApiToken : defaults.adminApiToken,
       selectedUtilizationGpuType: typeof parsed.selectedUtilizationGpuType === "string" && parsed.selectedUtilizationGpuType
         ? parsed.selectedUtilizationGpuType
         : defaults.selectedUtilizationGpuType

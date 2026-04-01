@@ -94,6 +94,18 @@ function formatDatabaseMaintenanceSummary(summary = {}) {
     retention.alerts_deleted || 0,
     retention.events_deleted || 0
   ].reduce((sum, count) => sum + count, 0);
+  if ((retention.fleet_snapshot_hourly_rollups_upserted || 0) > 0) {
+    parts.push(`fleet hourly rollups updated (${retention.fleet_snapshot_hourly_rollups_upserted} bucket(s))`);
+  }
+  if ((retention.machine_snapshot_hourly_rollups_upserted || 0) > 0) {
+    parts.push(`hourly rollups updated (${retention.machine_snapshot_hourly_rollups_upserted} bucket(s))`);
+  }
+  if ((retention.gpu_type_utilization_hourly_rollups_upserted || 0) > 0) {
+    parts.push(`GPU util rollups updated (${retention.gpu_type_utilization_hourly_rollups_upserted} bucket(s))`);
+  }
+  if ((retention.gpu_type_price_hourly_rollups_upserted || 0) > 0) {
+    parts.push(`GPU price rollups updated (${retention.gpu_type_price_hourly_rollups_upserted} bucket(s))`);
+  }
   if (retentionDeleted > 0) {
     parts.push(`retention pruned ${retentionDeleted} row(s)`);
   }

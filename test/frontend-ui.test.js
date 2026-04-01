@@ -185,6 +185,7 @@ test("ui-state loaders sanitize persisted values", () => {
         lowReliabilityPct: "110",
         highTemperatureC: "-5",
         stalePollMinutes: "45",
+        adminApiToken: "token-123",
         selectedUtilizationGpuType: "H100"
       }),
       filters: JSON.stringify({
@@ -221,6 +222,7 @@ test("ui-state loaders sanitize persisted values", () => {
       lowReliabilityPct: 100,
       highTemperatureC: 0,
       stalePollMinutes: 45,
+      adminApiToken: "token-123",
       selectedUtilizationGpuType: "H100"
     });
     assert.deepEqual(filters, {
@@ -334,6 +336,7 @@ test("ui-state falls back to default dashboard mode for invalid persisted values
       lowReliabilityPct: 90,
       highTemperatureC: 85,
       stalePollMinutes: 15,
+      adminApiToken: "",
       selectedUtilizationGpuType: "__fleet__"
     });
 

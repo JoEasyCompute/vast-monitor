@@ -85,6 +85,23 @@ test("server integration returns expected API payloads and dependency failures",
         authorization: "Bearer secret-admin-token"
       }
     });
+    const retentionPreview = await invokeRoute(app, "/api/admin/retention-preview", {
+      headers: {
+        authorization: "Bearer secret-admin-token"
+      }
+    });
+    const analyze = await invokeRoute(app, "/api/admin/analyze", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer secret-admin-token"
+      }
+    });
+    const vacuum = await invokeRoute(app, "/api/admin/vacuum", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer secret-admin-token"
+      }
+    });
     const fleet = await invokeRoute(app, "/api/fleet/history", { query: { hours: "24" } });
     const history = await invokeRoute(app, "/api/history", { query: { machine_id: "1", hours: "24" } });
     const reports = await invokeRoute(app, "/api/reports", { query: { machine_id: "1" } });
@@ -115,15 +132,37 @@ test("server integration returns expected API payloads and dependency failures",
     assert.equal(health.body.liveDependencies.vastCli.ok, false);
     assert.equal(health.body.observability.lastFetchDurationMs, 1400);
     assert.equal(health.body.observability.lastAlertCount, 1);
+    assert.equal(health.body.endpoint_timings.status.calls, 1);
+    assert.equal(health.body.endpoint_timings.status.errors, 0);
+    assert.ok(Number.isFinite(health.body.endpoint_timings.status.last_duration_ms));
 
     assert.equal(dbHealth.statusCode, 200);
     assert.equal(dbHealth.body.ok, true);
     assert.equal(dbHealth.body.database.row_counts.polls, 1);
     assert.equal(dbHealth.body.database.row_counts.machine_snapshots, 2);
+    assert.equal(dbHealth.body.database.row_counts.fleet_snapshot_hourly_rollups, 0);
+    assert.equal(dbHealth.body.database.row_counts.machine_snapshot_hourly_rollups, 0);
+    assert.equal(dbHealth.body.database.row_counts.gpu_type_utilization_hourly_rollups, 0);
+    assert.equal(dbHealth.body.database.row_counts.gpu_type_price_hourly_rollups, 0);
     assert.equal(dbHealth.body.database.row_counts.alerts, 1);
     assert.equal(dbHealth.body.database.derived_state.fleet_snapshot_state_version, "1");
     assert.equal(dbHealth.body.database.retention.snapshot_days, 0);
     assert.ok(typeof dbHealth.body.database.file_size_bytes === "number");
+    assert.equal(dbHealth.body.route_metrics.health.calls, 1);
+    assert.equal(dbHealth.body.route_metrics.status.calls, 1);
+    assert.equal(retentionPreview.statusCode, 200);
+    assert.equal(retentionPreview.body.ok, true);
+    assert.equal(retentionPreview.body.preview.would_delete.polls, 0);
+    assert.equal(retentionPreview.body.preview.would_upsert_rollups.machine_snapshot_hourly_rollups, 0);
+    assert.equal(analyze.statusCode, 200);
+    assert.equal(analyze.body.ok, true);
+    assert.ok(Number.isFinite(analyze.body.analyze.duration_ms));
+    assert.ok(typeof analyze.body.analyze.completed_at === "string");
+    assert.equal(vacuum.statusCode, 200);
+    assert.equal(vacuum.body.ok, true);
+    assert.ok(Number.isFinite(vacuum.body.vacuum.duration_ms));
+    assert.ok(typeof vacuum.body.vacuum.completed_at === "string");
+    assert.ok(Number.isFinite(vacuum.body.vacuum.file_size_bytes));
 
     assert.equal(fleet.statusCode, 200);
     assert.ok(Array.isArray(fleet.body.history));
@@ -229,12 +268,26 @@ test("admin db-health route requires configured auth token", async () => {
     const ok = await invokeRoute(app, "/api/admin/db-health", {
       headers: { "x-admin-token": "top-secret" }
     });
+    const preview = await invokeRoute(app, "/api/admin/retention-preview", {
+      headers: { authorization: "Bearer top-secret" }
+    });
+    const analyze = await invokeRoute(app, "/api/admin/analyze", {
+      method: "POST",
+      headers: { authorization: "Bearer top-secret" }
+    });
+    const vacuum = await invokeRoute(app, "/api/admin/vacuum", {
+      method: "POST",
+      headers: { authorization: "Bearer top-secret" }
+    });
 
     assert.equal(missing.statusCode, 401);
     assert.equal(missing.body.error, "admin authorization required");
     assert.equal(wrong.statusCode, 401);
     assert.equal(ok.statusCode, 200);
     assert.equal(ok.body.ok, true);
+    assert.equal(preview.statusCode, 200);
+    assert.equal(analyze.statusCode, 200);
+    assert.equal(vacuum.statusCode, 200);
   } finally {
     db.db.close();
   }
@@ -265,14 +318,14 @@ test("admin db-health route is disabled when no admin token is configured", asyn
   }
 });
 
-async function invokeRoute(app, routePath, { query = {}, headers = {} } = {}) {
+async function invokeRoute(app, routePath, { query = {}, headers = {}, method = "GET" } = {}) {
   const layer = app.router.stack.find((entry) => entry.route?.path === routePath);
   assert.ok(layer, `Route ${routePath} not found`);
 
   const req = {
     query,
     headers,
-    method: "GET",
+    method,
     url: routePath
   };
 
@@ -296,6 +349,7 @@ async function invokeRoute(app, routePath, { query = {}, headers = {} } = {}) {
     }
   };
 
-  await layer.route.stack[0].handle(req, res);
+  const handlerLayer = layer.route.stack.find((entry) => entry.method === method.toLowerCase()) || layer.route.stack[0];
+  await handlerLayer.handle(req, res);
   return result;
 }

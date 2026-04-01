@@ -376,17 +376,83 @@ test("startup retention prunes old snapshots, polls, alerts, and events when con
       const maintenance = retainedStore.getStartupMaintenanceSummary();
       const polls = retainedStore.db.prepare("SELECT polled_at FROM polls ORDER BY polled_at ASC").all();
       const fleetSnapshots = retainedStore.db.prepare("SELECT polled_at FROM fleet_snapshots ORDER BY polled_at ASC").all();
+      const fleetHourlyRollups = retainedStore.db.prepare(`
+        SELECT bucket_start, sample_count, total_machines
+        FROM fleet_snapshot_hourly_rollups
+        ORDER BY bucket_start ASC
+      `).all();
+      const gpuUtilHourlyRollups = retainedStore.db.prepare(`
+        SELECT bucket_start, gpu_type, listed_gpus, occupied_gpus
+        FROM gpu_type_utilization_hourly_rollups
+        ORDER BY bucket_start ASC, gpu_type ASC
+      `).all();
+      const gpuPriceHourlyRollups = retainedStore.db.prepare(`
+        SELECT bucket_start, gpu_type, priced_gpus, total_price_weighted
+        FROM gpu_type_price_hourly_rollups
+        ORDER BY bucket_start ASC, gpu_type ASC
+      `).all();
       const machineSnapshots = retainedStore.db.prepare("SELECT polled_at FROM machine_snapshots ORDER BY polled_at ASC").all();
+      const hourlyRollups = retainedStore.db.prepare(`
+        SELECT bucket_start, machine_id, sample_count
+        FROM machine_snapshot_hourly_rollups
+        ORDER BY bucket_start ASC
+      `).all();
       const alerts = retainedStore.db.prepare("SELECT created_at FROM alerts ORDER BY created_at ASC").all();
       const events = retainedStore.db.prepare("SELECT created_at FROM events ORDER BY created_at ASC").all();
+      const rolledUpHistory = retainedStore.getMachineHistory(1, 24 * 120);
+
+      const rolledUpFleetHistory = retainedStore.getFleetHistory(24 * 120);
+      const rolledUpPriceHistory = retainedStore.getGpuTypePriceHistory(24 * 120, 6);
 
       assert.deepEqual(polls.map((row) => row.polled_at), [recentTimestamp]);
       assert.deepEqual(fleetSnapshots.map((row) => row.polled_at), [recentTimestamp]);
+      assert.deepEqual(fleetHourlyRollups, [{
+        bucket_start: "2026-01-01T10:00:00.000Z",
+        sample_count: 1,
+        total_machines: 1
+      }]);
+      assert.deepEqual(gpuUtilHourlyRollups, [{
+        bucket_start: "2026-01-01T10:00:00.000Z",
+        gpu_type: "A100",
+        listed_gpus: 4,
+        occupied_gpus: 2
+      }]);
+      assert.deepEqual(gpuPriceHourlyRollups, [{
+        bucket_start: "2026-01-01T10:00:00.000Z",
+        gpu_type: "A100",
+        priced_gpus: 4,
+        total_price_weighted: 4.8
+      }]);
       assert.deepEqual(machineSnapshots.map((row) => row.polled_at), [recentTimestamp]);
+      assert.deepEqual(hourlyRollups, [{
+        bucket_start: "2026-01-01T10:00:00.000Z",
+        machine_id: 1,
+        sample_count: 1
+      }]);
       assert.deepEqual(alerts.map((row) => row.created_at), [recentTimestamp]);
       assert.deepEqual(events.map((row) => row.created_at), [recentTimestamp]);
+      assert.equal(rolledUpHistory.length, 1);
+      assert.equal(rolledUpHistory[0].polled_at, "2026-01-01T10:00:00.000Z");
+      assert.equal(rolledUpHistory[0].sample_count, 1);
+      assert.equal(rolledUpHistory[0].num_gpus, 4);
+      assert.equal(rolledUpFleetHistory.history.length, 2);
+      assert.equal(rolledUpFleetHistory.history[0].polled_at, "2026-01-01T10:00:00.000Z");
+      assert.equal(rolledUpFleetHistory.history[0].sample_count, 1);
+      assert.equal(rolledUpFleetHistory.history[1].polled_at, recentTimestamp);
+      assert.ok(rolledUpFleetHistory.gpu_type_utilization.some((series) => (
+        series.gpu_type === "A100"
+          && series.points.some((point) => point.polled_at === "2026-01-01T10:00:00.000Z" && point.utilisation_pct === 50)
+      )));
+      assert.ok(rolledUpPriceHistory.series.some((series) => (
+        series.gpu_type === "A100"
+          && series.points.some((point) => point.bucket_start === "2026-01-01T00:00:00.000Z" && point.avg_price === 1.2)
+      )));
+      assert.equal(maintenance.retention.fleet_snapshot_hourly_rollups_upserted, 1);
       assert.equal(maintenance.retention.polls_deleted, 1);
       assert.equal(maintenance.retention.machine_snapshots_deleted, 1);
+      assert.equal(maintenance.retention.machine_snapshot_hourly_rollups_upserted, 1);
+      assert.equal(maintenance.retention.gpu_type_utilization_hourly_rollups_upserted, 1);
+      assert.equal(maintenance.retention.gpu_type_price_hourly_rollups_upserted, 1);
       assert.equal(maintenance.retention.fleet_snapshots_deleted, 1);
       assert.equal(maintenance.retention.alerts_deleted, 1);
       assert.equal(maintenance.retention.events_deleted, 1);

@@ -8,32 +8,67 @@ import { fetchMachineEarnings, fetchMachineReports } from "./vast-client.js";
 
 export function createServer({ config, db, monitor, plugins = [] }) {
   const app = express();
+  const routeMetrics = createRouteMetricsStore();
 
   app.use(express.static(path.join(config.projectRoot, "public")));
   registerPluginStaticDirs(app, config, plugins);
 
-  app.get("/api/status", async (_req, res) => {
+  app.get("/api/status", routeMetrics.wrap("status", async (_req, res) => {
     const fleet = db.getCurrentFleetStatus();
     res.json(await buildFleetResponse(fleet, config, monitor, plugins));
-  });
+  }));
 
-  app.get("/api/health", (_req, res) => {
-    const health = buildHealthResponse({ config, db, monitor });
+  app.get("/api/health", routeMetrics.wrap("health", (_req, res) => {
+    const health = buildHealthResponse({ config, db, monitor, routeMetrics });
     res.status(health.ok ? 200 : 503).json(health);
-  });
+  }));
 
-  app.get("/api/admin/db-health", (req, res) => {
+  app.get("/api/admin/db-health", routeMetrics.wrap("admin_db_health", (req, res) => {
     if (!requireAdminAccess(req, res, config)) {
       return;
     }
 
     res.json({
       ok: true,
-      database: typeof db?.getDatabaseHealth === "function" ? db.getDatabaseHealth() : null
+      database: typeof db?.getDatabaseHealth === "function" ? db.getDatabaseHealth() : null,
+      route_metrics: routeMetrics.snapshot()
     });
-  });
+  }));
 
-  app.get("/api/history", (req, res) => {
+  app.get("/api/admin/retention-preview", routeMetrics.wrap("admin_retention_preview", (req, res) => {
+    if (!requireAdminAccess(req, res, config)) {
+      return;
+    }
+
+    res.json({
+      ok: true,
+      preview: typeof db?.getRetentionPreview === "function" ? db.getRetentionPreview() : null
+    });
+  }));
+
+  app.post("/api/admin/analyze", routeMetrics.wrap("admin_analyze", (req, res) => {
+    if (!requireAdminAccess(req, res, config)) {
+      return;
+    }
+
+    res.json({
+      ok: true,
+      analyze: typeof db?.runAnalyze === "function" ? db.runAnalyze() : null
+    });
+  }));
+
+  app.post("/api/admin/vacuum", routeMetrics.wrap("admin_vacuum", (req, res) => {
+    if (!requireAdminAccess(req, res, config)) {
+      return;
+    }
+
+    res.json({
+      ok: true,
+      vacuum: typeof db?.runVacuum === "function" ? db.runVacuum() : null
+    });
+  }));
+
+  app.get("/api/history", routeMetrics.wrap("history", (req, res) => {
     const machineId = Number(req.query.machine_id);
     const rawHours = req.query.hours == null ? 24 : Number(req.query.hours);
 
@@ -54,9 +89,9 @@ export function createServer({ config, db, monitor, plugins = [] }) {
       hours,
       history: db.getMachineHistory(machineId, hours)
     });
-  });
+  }));
 
-  app.get("/api/fleet/history", (req, res) => {
+  app.get("/api/fleet/history", routeMetrics.wrap("fleet_history", (req, res) => {
     const rawHours = req.query.hours == null ? 168 : Number(req.query.hours);
     if (!Number.isFinite(rawHours) || rawHours < 1) {
       res.status(400).json({ error: "hours must be a positive number" });
@@ -70,9 +105,9 @@ export function createServer({ config, db, monitor, plugins = [] }) {
       history: fleetHistory.history,
       gpu_type_utilization: fleetHistory.gpu_type_utilization
     });
-  });
+  }));
 
-  app.get("/api/gpu-type/price-history", (req, res) => {
+  app.get("/api/gpu-type/price-history", routeMetrics.wrap("gpu_type_price_history", (req, res) => {
     const rawHours = req.query.hours == null ? 168 : Number(req.query.hours);
     if (!Number.isFinite(rawHours) || rawHours < 1) {
       res.status(400).json({ error: "hours must be a positive number" });
@@ -88,9 +123,9 @@ export function createServer({ config, db, monitor, plugins = [] }) {
     const hours = Math.min(24 * 365, Math.floor(rawHours));
     const top = Math.min(12, Math.floor(rawTop));
     res.json(db.getGpuTypePriceHistory(hours, top));
-  });
+  }));
 
-  app.get("/api/reports", async (req, res) => {
+  app.get("/api/reports", routeMetrics.wrap("reports", async (req, res) => {
     const machineId = Number(req.query.machine_id);
     if (!Number.isFinite(machineId)) {
       res.status(400).json({ error: "machine_id is required" });
@@ -118,9 +153,9 @@ export function createServer({ config, db, monitor, plugins = [] }) {
         }
       });
     }
-  });
+  }));
 
-  app.get("/api/earnings/machine", async (req, res) => {
+  app.get("/api/earnings/machine", routeMetrics.wrap("machine_earnings", async (req, res) => {
     const machineId = Number(req.query.machine_id);
     const rawHours = req.query.hours == null ? 168 : Number(req.query.hours);
     const rawStart = typeof req.query.start === "string" ? req.query.start : null;
@@ -187,9 +222,9 @@ export function createServer({ config, db, monitor, plugins = [] }) {
         }
       });
     }
-  });
+  }));
 
-  app.get("/api/earnings/machine/monthly-summary", async (req, res) => {
+  app.get("/api/earnings/machine/monthly-summary", routeMetrics.wrap("machine_monthly_summary", async (req, res) => {
     const machineId = Number(req.query.machine_id);
     if (!Number.isFinite(machineId)) {
       res.status(400).json({ error: "machine_id is required" });
@@ -217,18 +252,18 @@ export function createServer({ config, db, monitor, plugins = [] }) {
         }
       });
     }
-  });
+  }));
 
-  app.get("/api/earnings/hourly", (req, res) => {
+  app.get("/api/earnings/hourly", routeMetrics.wrap("hourly_earnings", (req, res) => {
     const date = req.query.date || new Date().toISOString().slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       res.status(400).json({ error: "date must be YYYY-MM-DD" });
       return;
     }
     res.json(db.getHourlyEarnings(date));
-  });
+  }));
 
-  app.get("/api/alerts", (req, res) => {
+  app.get("/api/alerts", routeMetrics.wrap("alerts", (req, res) => {
     const rawLimit = req.query.limit == null ? 50 : Number(req.query.limit);
     if (!Number.isFinite(rawLimit) || rawLimit < 1) {
       res.status(400).json({ error: "limit must be a positive number" });
@@ -239,7 +274,7 @@ export function createServer({ config, db, monitor, plugins = [] }) {
     res.json({
       alerts: db.getRecentAlerts(limit)
     });
-  });
+  }));
 
   app.get("/", (_req, res) => {
     res.sendFile(path.join(config.projectRoot, "public/index.html"));
@@ -485,7 +520,7 @@ async function buildFleetResponse(fleet, config, monitor, plugins = []) {
   };
 }
 
-function buildHealthResponse({ config, db, monitor }) {
+function buildHealthResponse({ config, db, monitor, routeMetrics }) {
   const latestPollAt = db.getCurrentFleetStatus().latestPollAt;
   const status = buildHealthStatus({
     latestPollAt,
@@ -505,6 +540,7 @@ function buildHealthResponse({ config, db, monitor }) {
     liveOperationsOk,
     liveDependencies,
     observability: normalizeMonitorObservability(monitorHealth),
+    endpoint_timings: routeMetrics?.snapshot?.() || {},
     ...monitorHealth
   };
 }
@@ -580,6 +616,69 @@ function requireAdminAccess(req, res, config) {
   }
 
   return true;
+}
+
+function createRouteMetricsStore() {
+  const metrics = new Map();
+
+  function wrap(name, handler) {
+    return async (req, res) => {
+      const startedAt = Date.now();
+      try {
+        await handler(req, res);
+      } catch (error) {
+        observe(name, Date.now() - startedAt, 500);
+        throw error;
+      }
+
+      observe(name, Date.now() - startedAt, getStatusCode(res));
+    };
+  }
+
+  function observe(name, durationMs, statusCode) {
+    const current = metrics.get(name) || {
+      calls: 0,
+      errors: 0,
+      last_duration_ms: null,
+      max_duration_ms: 0,
+      total_duration_ms: 0,
+      avg_duration_ms: null,
+      last_status_code: null
+    };
+
+    current.calls += 1;
+    current.errors += statusCode >= 500 ? 1 : 0;
+    current.last_duration_ms = durationMs;
+    current.max_duration_ms = Math.max(current.max_duration_ms, durationMs);
+    current.total_duration_ms += durationMs;
+    current.avg_duration_ms = Number((current.total_duration_ms / current.calls).toFixed(2));
+    current.last_status_code = statusCode;
+    metrics.set(name, current);
+  }
+
+  function snapshot() {
+    return Object.fromEntries(
+      [...metrics.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([name, value]) => [
+          name,
+          {
+            calls: value.calls,
+            errors: value.errors,
+            last_duration_ms: value.last_duration_ms,
+            max_duration_ms: value.max_duration_ms,
+            avg_duration_ms: value.avg_duration_ms,
+            last_status_code: value.last_status_code
+          }
+        ])
+    );
+  }
+
+  return { wrap, snapshot };
+}
+
+function getStatusCode(res) {
+  return Number.isFinite(res?.statusCode) ? res.statusCode : 200;
 }
 
 const IGNORED_ERROR_MESSAGES = new Set([

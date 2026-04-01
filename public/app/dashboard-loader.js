@@ -30,14 +30,34 @@ const DASHBOARD_SECTIONS = [
 export async function fetchDashboardPayload({
   fetchImpl = fetch,
   selectedEarningsDate,
-  selectedTrendHours
+  selectedTrendHours,
+  adminApiToken = ""
 }) {
+  const sections = [
+    ...DASHBOARD_SECTIONS,
+    ...(String(adminApiToken || "").trim()
+      ? [{
+          key: "dbHealth",
+          label: "database health",
+          buildPath: () => "/api/admin/db-health",
+          buildInit: () => ({
+            headers: {
+              Authorization: `Bearer ${String(adminApiToken).trim()}`
+            }
+          })
+        }]
+      : [])
+  ];
+
   const settled = await Promise.all(
-    DASHBOARD_SECTIONS.map(async (section) => {
+    sections.map(async (section) => {
       const path = section.buildPath({ selectedEarningsDate, selectedTrendHours });
+      const init = typeof section.buildInit === "function"
+        ? section.buildInit({ selectedEarningsDate, selectedTrendHours, adminApiToken })
+        : undefined;
 
       try {
-        const response = await fetchImpl(path);
+        const response = await fetchImpl(path, init);
         if (!response.ok) {
           return {
             key: section.key,

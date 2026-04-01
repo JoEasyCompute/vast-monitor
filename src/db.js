@@ -89,6 +89,23 @@ export function createDatabase(dbPath, options = {}) {
     CREATE INDEX IF NOT EXISTS idx_fleet_snapshots_time
       ON fleet_snapshots(polled_at);
 
+    CREATE TABLE IF NOT EXISTS fleet_snapshot_hourly_rollups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bucket_start TEXT NOT NULL UNIQUE,
+      sample_count INTEGER NOT NULL,
+      total_machines REAL NOT NULL,
+      datacenter_machines REAL NOT NULL,
+      unlisted_machines REAL NOT NULL,
+      listed_gpus REAL NOT NULL,
+      unlisted_gpus REAL NOT NULL,
+      occupied_gpus REAL NOT NULL,
+      utilisation_pct REAL NOT NULL,
+      total_daily_earnings REAL NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_fleet_snapshot_hourly_rollups_time
+      ON fleet_snapshot_hourly_rollups(bucket_start);
+
     CREATE INDEX IF NOT EXISTS idx_polls_time
       ON polls(polled_at DESC);
 
@@ -130,6 +147,51 @@ export function createDatabase(dbPath, options = {}) {
 
     CREATE INDEX IF NOT EXISTS idx_machine_snapshots_poll_id
       ON machine_snapshots(poll_id);
+
+    CREATE TABLE IF NOT EXISTS machine_snapshot_hourly_rollups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bucket_start TEXT NOT NULL,
+      machine_id INTEGER NOT NULL,
+      sample_count INTEGER NOT NULL,
+      hostname TEXT NOT NULL,
+      status TEXT NOT NULL,
+      occupancy TEXT,
+      num_gpus INTEGER,
+      occupied_gpus REAL,
+      current_rentals_running REAL,
+      reliability REAL,
+      gpu_max_cur_temp REAL,
+      listed_gpu_cost REAL,
+      earn_day REAL,
+      UNIQUE(machine_id, bucket_start)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_machine_snapshot_hourly_rollups_machine_time
+      ON machine_snapshot_hourly_rollups(machine_id, bucket_start);
+
+    CREATE TABLE IF NOT EXISTS gpu_type_utilization_hourly_rollups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bucket_start TEXT NOT NULL,
+      gpu_type TEXT NOT NULL,
+      listed_gpus REAL NOT NULL,
+      occupied_gpus REAL NOT NULL,
+      UNIQUE(bucket_start, gpu_type)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_gpu_type_utilization_hourly_rollups_time
+      ON gpu_type_utilization_hourly_rollups(bucket_start, gpu_type);
+
+    CREATE TABLE IF NOT EXISTS gpu_type_price_hourly_rollups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bucket_start TEXT NOT NULL,
+      gpu_type TEXT NOT NULL,
+      priced_gpus REAL NOT NULL,
+      total_price_weighted REAL NOT NULL,
+      UNIQUE(bucket_start, gpu_type)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_gpu_type_price_hourly_rollups_time
+      ON gpu_type_price_hourly_rollups(bucket_start, gpu_type);
 
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -263,6 +325,25 @@ export function createDatabase(dbPath, options = {}) {
         @listed_gpus, @unlisted_gpus, @occupied_gpus, @utilisation_pct, @total_daily_earnings
       )
     `),
+    upsertFleetSnapshotHourlyRollup: db.prepare(`
+      INSERT INTO fleet_snapshot_hourly_rollups (
+        bucket_start, sample_count, total_machines, datacenter_machines, unlisted_machines,
+        listed_gpus, unlisted_gpus, occupied_gpus, utilisation_pct, total_daily_earnings
+      ) VALUES (
+        @bucket_start, @sample_count, @total_machines, @datacenter_machines, @unlisted_machines,
+        @listed_gpus, @unlisted_gpus, @occupied_gpus, @utilisation_pct, @total_daily_earnings
+      )
+      ON CONFLICT(bucket_start) DO UPDATE SET
+        sample_count = excluded.sample_count,
+        total_machines = excluded.total_machines,
+        datacenter_machines = excluded.datacenter_machines,
+        unlisted_machines = excluded.unlisted_machines,
+        listed_gpus = excluded.listed_gpus,
+        unlisted_gpus = excluded.unlisted_gpus,
+        occupied_gpus = excluded.occupied_gpus,
+        utilisation_pct = excluded.utilisation_pct,
+        total_daily_earnings = excluded.total_daily_earnings
+    `),
     upsertRegistry: db.prepare(`
       INSERT INTO machine_registry (machine_id, hostname, gpu_type, num_gpus, created_at, updated_at)
       VALUES (@machine_id, @hostname, @gpu_type, @num_gpus, @timestamp, @timestamp)
@@ -353,6 +434,23 @@ export function createDatabase(dbPath, options = {}) {
       WHERE machine_id = ? AND polled_at >= ?
       ORDER BY polled_at ASC
     `),
+    selectHourlyRollupsSince: db.prepare(`
+      SELECT
+        bucket_start AS polled_at,
+        status,
+        occupancy,
+        num_gpus,
+        occupied_gpus,
+        current_rentals_running,
+        reliability,
+        gpu_max_cur_temp,
+        listed_gpu_cost,
+        earn_day,
+        sample_count
+      FROM machine_snapshot_hourly_rollups
+      WHERE machine_id = ? AND bucket_start >= ?
+      ORDER BY bucket_start ASC
+    `),
     selectLatestPollTime: db.prepare(`
       SELECT polled_at FROM polls ORDER BY polled_at DESC LIMIT 1
     `),
@@ -397,6 +495,32 @@ export function createDatabase(dbPath, options = {}) {
       WHERE polled_at >= ?
       ORDER BY polled_at ASC
     `),
+    selectFleetSnapshotHourlyRollupsSince: db.prepare(`
+      SELECT
+        bucket_start AS polled_at,
+        total_machines,
+        datacenter_machines,
+        unlisted_machines,
+        listed_gpus,
+        unlisted_gpus,
+        occupied_gpus,
+        utilisation_pct,
+        total_daily_earnings,
+        sample_count
+      FROM fleet_snapshot_hourly_rollups
+      WHERE bucket_start >= ?
+      ORDER BY bucket_start ASC
+    `),
+    selectGpuTypeUtilizationHourlyRollupsSince: db.prepare(`
+      SELECT
+        bucket_start AS polled_at,
+        gpu_type,
+        listed_gpus,
+        occupied_gpus
+      FROM gpu_type_utilization_hourly_rollups
+      WHERE bucket_start >= ?
+      ORDER BY bucket_start ASC
+    `),
     selectGpuTypeUtilizationSnapshotsSince: db.prepare(`
       SELECT polled_at, gpu_type, num_gpus, occupied_gpus, listed, status, last_seen_at, last_online_at
       FROM machine_snapshots
@@ -423,6 +547,16 @@ export function createDatabase(dbPath, options = {}) {
         AND num_gpus > 0
       ORDER BY polled_at ASC
     `),
+    selectGpuTypePriceHourlyRollupsSince: db.prepare(`
+      SELECT
+        bucket_start,
+        gpu_type,
+        priced_gpus,
+        total_price_weighted
+      FROM gpu_type_price_hourly_rollups
+      WHERE bucket_start >= ?
+      ORDER BY bucket_start ASC
+    `),
     selectMachineSnapshotsByPollId: db.prepare(`
       SELECT listed, num_gpus, listed_gpu_cost
       FROM machine_snapshots
@@ -435,24 +569,102 @@ export function createDatabase(dbPath, options = {}) {
       WHERE poll_id = ?
       ORDER BY machine_id ASC
     `),
+    selectFleetSnapshotsBefore: db.prepare(`
+      SELECT polled_at, total_machines, datacenter_machines, unlisted_machines,
+             listed_gpus, unlisted_gpus, occupied_gpus, utilisation_pct, total_daily_earnings
+      FROM fleet_snapshots
+      WHERE polled_at < ?
+      ORDER BY polled_at ASC
+    `),
+    selectMachineSnapshotsBefore: db.prepare(`
+      SELECT polled_at, machine_id, hostname, gpu_type, status, occupancy, num_gpus, occupied_gpus,
+             current_rentals_running, reliability, gpu_max_cur_temp, listed_gpu_cost, earn_day,
+             listed, last_seen_at, last_online_at
+      FROM machine_snapshots
+      WHERE polled_at < ?
+      ORDER BY machine_id ASC, polled_at ASC
+    `),
+    upsertMachineSnapshotHourlyRollup: db.prepare(`
+      INSERT INTO machine_snapshot_hourly_rollups (
+        bucket_start, machine_id, sample_count, hostname, status, occupancy, num_gpus,
+        occupied_gpus, current_rentals_running, reliability, gpu_max_cur_temp,
+        listed_gpu_cost, earn_day
+      ) VALUES (
+        @bucket_start, @machine_id, @sample_count, @hostname, @status, @occupancy, @num_gpus,
+        @occupied_gpus, @current_rentals_running, @reliability, @gpu_max_cur_temp,
+        @listed_gpu_cost, @earn_day
+      )
+      ON CONFLICT(machine_id, bucket_start) DO UPDATE SET
+        sample_count = excluded.sample_count,
+        hostname = excluded.hostname,
+        status = excluded.status,
+        occupancy = excluded.occupancy,
+        num_gpus = excluded.num_gpus,
+        occupied_gpus = excluded.occupied_gpus,
+        current_rentals_running = excluded.current_rentals_running,
+        reliability = excluded.reliability,
+        gpu_max_cur_temp = excluded.gpu_max_cur_temp,
+        listed_gpu_cost = excluded.listed_gpu_cost,
+        earn_day = excluded.earn_day
+    `),
+    upsertGpuTypeUtilizationHourlyRollup: db.prepare(`
+      INSERT INTO gpu_type_utilization_hourly_rollups (
+        bucket_start, gpu_type, listed_gpus, occupied_gpus
+      ) VALUES (
+        @bucket_start, @gpu_type, @listed_gpus, @occupied_gpus
+      )
+      ON CONFLICT(bucket_start, gpu_type) DO UPDATE SET
+        listed_gpus = excluded.listed_gpus,
+        occupied_gpus = excluded.occupied_gpus
+    `),
+    upsertGpuTypePriceHourlyRollup: db.prepare(`
+      INSERT INTO gpu_type_price_hourly_rollups (
+        bucket_start, gpu_type, priced_gpus, total_price_weighted
+      ) VALUES (
+        @bucket_start, @gpu_type, @priced_gpus, @total_price_weighted
+      )
+      ON CONFLICT(bucket_start, gpu_type) DO UPDATE SET
+        priced_gpus = excluded.priced_gpus,
+        total_price_weighted = excluded.total_price_weighted
+    `),
     deleteFleetSnapshotsBefore: db.prepare(`
       DELETE FROM fleet_snapshots
+      WHERE polled_at < ?
+    `),
+    countFleetSnapshotsBefore: db.prepare(`
+      SELECT COUNT(*) AS count FROM fleet_snapshots
       WHERE polled_at < ?
     `),
     deleteMachineSnapshotsBefore: db.prepare(`
       DELETE FROM machine_snapshots
       WHERE polled_at < ?
     `),
+    countMachineSnapshotsBefore: db.prepare(`
+      SELECT COUNT(*) AS count FROM machine_snapshots
+      WHERE polled_at < ?
+    `),
     deletePollsBefore: db.prepare(`
       DELETE FROM polls
+      WHERE polled_at < ?
+    `),
+    countPollsBefore: db.prepare(`
+      SELECT COUNT(*) AS count FROM polls
       WHERE polled_at < ?
     `),
     deleteAlertsBefore: db.prepare(`
       DELETE FROM alerts
       WHERE created_at < ?
     `),
+    countAlertsBefore: db.prepare(`
+      SELECT COUNT(*) AS count FROM alerts
+      WHERE created_at < ?
+    `),
     deleteEventsBefore: db.prepare(`
       DELETE FROM events
+      WHERE created_at < ?
+    `),
+    countEventsBefore: db.prepare(`
+      SELECT COUNT(*) AS count FROM events
       WHERE created_at < ?
     `),
     countPolls: db.prepare(`
@@ -461,8 +673,20 @@ export function createDatabase(dbPath, options = {}) {
     countFleetSnapshots: db.prepare(`
       SELECT COUNT(*) AS count FROM fleet_snapshots
     `),
+    countFleetSnapshotHourlyRollups: db.prepare(`
+      SELECT COUNT(*) AS count FROM fleet_snapshot_hourly_rollups
+    `),
     countMachineSnapshots: db.prepare(`
       SELECT COUNT(*) AS count FROM machine_snapshots
+    `),
+    countMachineSnapshotHourlyRollups: db.prepare(`
+      SELECT COUNT(*) AS count FROM machine_snapshot_hourly_rollups
+    `),
+    countGpuTypeUtilizationHourlyRollups: db.prepare(`
+      SELECT COUNT(*) AS count FROM gpu_type_utilization_hourly_rollups
+    `),
+    countGpuTypePriceHourlyRollups: db.prepare(`
+      SELECT COUNT(*) AS count FROM gpu_type_price_hourly_rollups
     `),
     countAlerts: db.prepare(`
       SELECT COUNT(*) AS count FROM alerts
@@ -544,7 +768,7 @@ export function createDatabase(dbPath, options = {}) {
 
   function getMachineHistory(machineId, hours) {
     const cutoff = new Date(Date.now() - (hours * 60 * 60 * 1000)).toISOString();
-    return statements.selectSnapshotsSince.all(machineId, cutoff);
+    return getMachineSnapshotsSince(machineId, cutoff);
   }
 
   function getRecentAlerts(limit) {
@@ -662,7 +886,7 @@ export function createDatabase(dbPath, options = {}) {
       statements.selectMachineIdsWithNewReportsSince.all(newReportCutoff).map((row) => row.machine_id)
     );
     const machines = getMachineStates().map((state) => {
-      const history = statements.selectSnapshotsSince.all(state.machine_id, cutoff);
+      const history = getMachineSnapshotsSince(state.machine_id, cutoff);
       const uptime = {};
       for (const [label, hours] of Object.entries(UPTIME_WINDOWS)) {
         uptime[label] = computeWindowUptime(history, now, hours);
@@ -682,6 +906,14 @@ export function createDatabase(dbPath, options = {}) {
       machines,
       comparison24h: getFleetComparison(24)
     };
+  }
+
+  function getMachineSnapshotsSince(machineId, cutoff) {
+    const rawSnapshots = statements.selectSnapshotsSince.all(machineId, cutoff);
+    const hourlyRollups = statements.selectHourlyRollupsSince.all(machineId, cutoff);
+
+    return [...hourlyRollups, ...rawSnapshots]
+      .sort((left, right) => Date.parse(left.polled_at) - Date.parse(right.polled_at));
   }
 
   function getHourlyEarnings(dateStr) {
@@ -737,7 +969,10 @@ export function createDatabase(dbPath, options = {}) {
 
   function getFleetHistory(hours) {
     const cutoff = new Date(Date.now() - (hours * 60 * 60 * 1000)).toISOString();
-    const history = statements.selectFleetSnapshotsSince.all(cutoff);
+    const history = [
+      ...statements.selectFleetSnapshotHourlyRollupsSince.all(cutoff),
+      ...statements.selectFleetSnapshotsSince.all(cutoff)
+    ].sort((left, right) => Date.parse(left.polled_at) - Date.parse(right.polled_at));
     const gpuTypeUtilization = getGpuTypeUtilizationHistory(cutoff);
 
     return {
@@ -747,15 +982,16 @@ export function createDatabase(dbPath, options = {}) {
   }
 
   function getGpuTypeUtilizationHistory(cutoff) {
-    const rows = statements.selectGpuTypeUtilizationSnapshotsSince.all(cutoff);
-    if (rows.length === 0) {
+    const rawRows = statements.selectGpuTypeUtilizationSnapshotsSince.all(cutoff);
+    const rollupRows = statements.selectGpuTypeUtilizationHourlyRollupsSince.all(cutoff);
+    if (rawRows.length === 0 && rollupRows.length === 0) {
       return [];
     }
 
     const totalsByGpuType = new Map();
     const byTimestamp = new Map();
 
-    for (const row of rows) {
+    for (const row of rawRows) {
       if (!row.listed) {
         continue;
       }
@@ -779,6 +1015,25 @@ export function createDatabase(dbPath, options = {}) {
       current.listed_gpus += listedGpus;
       current.occupied_gpus += occupiedGpus;
       point.set(gpuType, current);
+      byTimestamp.set(polledAt, point);
+    }
+
+    for (const row of rollupRows) {
+      const polledAt = row.polled_at;
+      const gpuType = row.gpu_type || "Unknown";
+      const listedGpus = Number(row.listed_gpus) || 0;
+      const occupiedGpus = Number(row.occupied_gpus) || 0;
+      if (listedGpus <= 0) {
+        continue;
+      }
+
+      totalsByGpuType.set(gpuType, (totalsByGpuType.get(gpuType) || 0) + listedGpus);
+
+      const point = byTimestamp.get(polledAt) || new Map();
+      point.set(gpuType, {
+        listed_gpus: listedGpus,
+        occupied_gpus: occupiedGpus
+      });
       byTimestamp.set(polledAt, point);
     }
 
@@ -810,8 +1065,9 @@ export function createDatabase(dbPath, options = {}) {
 
   function getGpuTypePriceHistory(hours, top = 6) {
     const cutoff = new Date(Date.now() - (hours * 60 * 60 * 1000)).toISOString();
-    const rows = statements.selectGpuTypePriceSnapshotsSince.all(cutoff);
-    if (rows.length === 0) {
+    const rawRows = statements.selectGpuTypePriceSnapshotsSince.all(cutoff);
+    const rollupRows = statements.selectGpuTypePriceHourlyRollupsSince.all(cutoff);
+    if (rawRows.length === 0 && rollupRows.length === 0) {
       return {
         hours,
         bucket_hours: getGpuTypePriceBucketHours(hours),
@@ -824,7 +1080,7 @@ export function createDatabase(dbPath, options = {}) {
     const buckets = new Map();
     const totalPricedGpusByType = new Map();
 
-    for (const row of rows) {
+    for (const row of rawRows) {
       const timeMs = Date.parse(row.polled_at);
       if (!Number.isFinite(timeMs)) {
         continue;
@@ -849,6 +1105,33 @@ export function createDatabase(dbPath, options = {}) {
       bucket.set(gpuType, current);
 
       totalPricedGpusByType.set(gpuType, (totalPricedGpusByType.get(gpuType) || 0) + gpuCount);
+    }
+
+    for (const row of rollupRows) {
+      const timeMs = Date.parse(row.bucket_start);
+      if (!Number.isFinite(timeMs)) {
+        continue;
+      }
+
+      const gpuType = row.gpu_type || "Unknown";
+      const pricedGpus = Number(row.priced_gpus) || 0;
+      const totalPriceWeighted = Number(row.total_price_weighted) || 0;
+      if (pricedGpus <= 0 || !Number.isFinite(totalPriceWeighted)) {
+        continue;
+      }
+
+      const bucketStartMs = Math.floor(timeMs / bucketMs) * bucketMs;
+      if (!buckets.has(bucketStartMs)) {
+        buckets.set(bucketStartMs, new Map());
+      }
+
+      const bucket = buckets.get(bucketStartMs);
+      const current = bucket.get(gpuType) || { total_price_weighted: 0, priced_gpus: 0 };
+      current.total_price_weighted += totalPriceWeighted;
+      current.priced_gpus += pricedGpus;
+      bucket.set(gpuType, current);
+
+      totalPricedGpusByType.set(gpuType, (totalPricedGpusByType.get(gpuType) || 0) + pricedGpus);
     }
 
     const topGpuTypes = [...totalPricedGpusByType.entries()]
@@ -935,7 +1218,11 @@ export function createDatabase(dbPath, options = {}) {
       row_counts: {
         polls: statements.countPolls.get()?.count ?? 0,
         fleet_snapshots: statements.countFleetSnapshots.get()?.count ?? 0,
+        fleet_snapshot_hourly_rollups: statements.countFleetSnapshotHourlyRollups.get()?.count ?? 0,
         machine_snapshots: statements.countMachineSnapshots.get()?.count ?? 0,
+        machine_snapshot_hourly_rollups: statements.countMachineSnapshotHourlyRollups.get()?.count ?? 0,
+        gpu_type_utilization_hourly_rollups: statements.countGpuTypeUtilizationHourlyRollups.get()?.count ?? 0,
+        gpu_type_price_hourly_rollups: statements.countGpuTypePriceHourlyRollups.get()?.count ?? 0,
         alerts: statements.countAlerts.get()?.count ?? 0,
         events: statements.countEvents.get()?.count ?? 0
       },
@@ -958,9 +1245,49 @@ export function createDatabase(dbPath, options = {}) {
     };
   }
 
+  function getRetentionPreview() {
+    return buildRetentionPreview(statements, options);
+  }
+
+  function runAnalyze() {
+    const startedAt = Date.now();
+    db.exec("ANALYZE");
+    const completedAt = new Date().toISOString();
+    statements.upsertMeta.run({
+      key: "analyze_last_run_at",
+      value: completedAt,
+      updated_at: completedAt
+    });
+
+    return {
+      completed_at: completedAt,
+      duration_ms: Date.now() - startedAt
+    };
+  }
+
+  function runVacuum() {
+    const startedAt = Date.now();
+    db.exec("VACUUM");
+    const completedAt = new Date().toISOString();
+    statements.upsertMeta.run({
+      key: "vacuum_last_run_at",
+      value: completedAt,
+      updated_at: completedAt
+    });
+
+    return {
+      completed_at: completedAt,
+      duration_ms: Date.now() - startedAt,
+      file_size_bytes: getDatabaseFileSize(db.name)
+    };
+  }
+
   return {
     db,
     getDatabaseHealth,
+    getRetentionPreview,
+    runVacuum,
+    runAnalyze,
     getStartupMaintenanceSummary,
     getCurrentFleetStatus,
     getFleetHistory,
@@ -1162,6 +1489,10 @@ function backfillMissingFleetSnapshots(statements, versionBefore = null) {
 
 function applyRetentionPolicies(statements, options) {
   const summary = {
+    fleet_snapshot_hourly_rollups_upserted: 0,
+    machine_snapshot_hourly_rollups_upserted: 0,
+    gpu_type_utilization_hourly_rollups_upserted: 0,
+    gpu_type_price_hourly_rollups_upserted: 0,
     fleet_snapshots_deleted: 0,
     machine_snapshots_deleted: 0,
     polls_deleted: 0,
@@ -1171,6 +1502,11 @@ function applyRetentionPolicies(statements, options) {
 
   const snapshotCutoff = buildRetentionCutoffIso(options.dbSnapshotRetentionDays);
   if (snapshotCutoff) {
+    summary.fleet_snapshot_hourly_rollups_upserted = rollupFleetSnapshotsBefore(statements, snapshotCutoff);
+    summary.machine_snapshot_hourly_rollups_upserted = rollupMachineSnapshotsBefore(statements, snapshotCutoff);
+    const gpuRollupSummary = rollupGpuTypeHistoryBefore(statements, snapshotCutoff);
+    summary.gpu_type_utilization_hourly_rollups_upserted = gpuRollupSummary.utilization_upserted;
+    summary.gpu_type_price_hourly_rollups_upserted = gpuRollupSummary.price_upserted;
     summary.fleet_snapshots_deleted = statements.deleteFleetSnapshotsBefore.run(snapshotCutoff).changes;
     summary.machine_snapshots_deleted = statements.deleteMachineSnapshotsBefore.run(snapshotCutoff).changes;
     summary.polls_deleted = statements.deletePollsBefore.run(snapshotCutoff).changes;
@@ -1187,6 +1523,222 @@ function applyRetentionPolicies(statements, options) {
   }
 
   return summary;
+}
+
+function buildRetentionPreview(statements, options) {
+  const snapshotCutoff = buildRetentionCutoffIso(options.dbSnapshotRetentionDays);
+  const alertCutoff = buildRetentionCutoffIso(options.dbAlertRetentionDays);
+  const eventCutoff = buildRetentionCutoffIso(options.dbEventRetentionDays);
+
+  const machineSnapshotRows = snapshotCutoff ? statements.selectMachineSnapshotsBefore.all(snapshotCutoff) : [];
+  const fleetSnapshotRows = snapshotCutoff ? statements.selectFleetSnapshotsBefore.all(snapshotCutoff) : [];
+  const gpuRollupSummary = snapshotCutoff
+    ? rollupGpuTypeHistoryRows(machineSnapshotRows)
+    : { utilization_upserted: 0, price_upserted: 0 };
+
+  return {
+    cutoffs: {
+      snapshot: snapshotCutoff,
+      alert: alertCutoff,
+      event: eventCutoff
+    },
+    would_delete: {
+      polls: snapshotCutoff ? (statements.countPollsBefore.get(snapshotCutoff)?.count ?? 0) : 0,
+      fleet_snapshots: snapshotCutoff ? (statements.countFleetSnapshotsBefore.get(snapshotCutoff)?.count ?? 0) : 0,
+      machine_snapshots: snapshotCutoff ? (statements.countMachineSnapshotsBefore.get(snapshotCutoff)?.count ?? 0) : 0,
+      alerts: alertCutoff ? (statements.countAlertsBefore.get(alertCutoff)?.count ?? 0) : 0,
+      events: eventCutoff ? (statements.countEventsBefore.get(eventCutoff)?.count ?? 0) : 0
+    },
+    would_upsert_rollups: {
+      fleet_snapshot_hourly_rollups: snapshotCutoff ? countFleetSnapshotRollupBuckets(fleetSnapshotRows) : 0,
+      machine_snapshot_hourly_rollups: snapshotCutoff ? countMachineSnapshotRollupBuckets(machineSnapshotRows) : 0,
+      gpu_type_utilization_hourly_rollups: gpuRollupSummary.utilization_upserted,
+      gpu_type_price_hourly_rollups: gpuRollupSummary.price_upserted
+    }
+  };
+}
+
+function rollupMachineSnapshotsBefore(statements, cutoff) {
+  const rows = statements.selectMachineSnapshotsBefore.all(cutoff);
+  const groupedRows = groupMachineSnapshotRollupRows(rows);
+  let upserted = 0;
+  for (const [key, group] of groupedRows.entries()) {
+    const latest = group[group.length - 1];
+    const bucketStart = key.slice(key.indexOf("|") + 1);
+    const sampleCount = group.length;
+
+    statements.upsertMachineSnapshotHourlyRollup.run({
+      bucket_start: bucketStart,
+      machine_id: latest.machine_id,
+      sample_count: sampleCount,
+      hostname: latest.hostname,
+      status: latest.status,
+      occupancy: latest.occupancy,
+      num_gpus: latest.num_gpus,
+      occupied_gpus: averageFinite(group.map((row) => row.occupied_gpus)),
+      current_rentals_running: averageFinite(group.map((row) => row.current_rentals_running)),
+      reliability: averageFinite(group.map((row) => row.reliability)),
+      gpu_max_cur_temp: maxFinite(group.map((row) => row.gpu_max_cur_temp)),
+      listed_gpu_cost: averageFinite(group.map((row) => row.listed_gpu_cost)),
+      earn_day: averageFinite(group.map((row) => row.earn_day))
+    });
+    upserted += 1;
+  }
+
+  return upserted;
+}
+
+function rollupFleetSnapshotsBefore(statements, cutoff) {
+  const rows = statements.selectFleetSnapshotsBefore.all(cutoff);
+  const groupedRows = groupFleetSnapshotRollupRows(rows);
+  let upserted = 0;
+  for (const [bucketStart, group] of groupedRows.entries()) {
+    statements.upsertFleetSnapshotHourlyRollup.run({
+      bucket_start: bucketStart,
+      sample_count: group.length,
+      total_machines: averageFinite(group.map((row) => row.total_machines)) ?? 0,
+      datacenter_machines: averageFinite(group.map((row) => row.datacenter_machines)) ?? 0,
+      unlisted_machines: averageFinite(group.map((row) => row.unlisted_machines)) ?? 0,
+      listed_gpus: averageFinite(group.map((row) => row.listed_gpus)) ?? 0,
+      unlisted_gpus: averageFinite(group.map((row) => row.unlisted_gpus)) ?? 0,
+      occupied_gpus: averageFinite(group.map((row) => row.occupied_gpus)) ?? 0,
+      utilisation_pct: averageFinite(group.map((row) => row.utilisation_pct)) ?? 0,
+      total_daily_earnings: averageFinite(group.map((row) => row.total_daily_earnings)) ?? 0
+    });
+    upserted += 1;
+  }
+
+  return upserted;
+}
+
+function rollupGpuTypeHistoryBefore(statements, cutoff) {
+  const rows = statements.selectMachineSnapshotsBefore.all(cutoff);
+  return rollupGpuTypeHistoryRows(rows, statements);
+}
+
+function rollupGpuTypeHistoryRows(rows, statements = null) {
+  if (!rows.length) {
+    return {
+      utilization_upserted: 0,
+      price_upserted: 0
+    };
+  }
+
+  const utilizationGroups = new Map();
+  const priceGroups = new Map();
+
+  for (const row of rows) {
+    const bucketStart = toHourBucketStart(row.polled_at);
+    if (!bucketStart) {
+      continue;
+    }
+
+    const gpuType = row.gpu_type || "Unknown";
+    const numGpus = Number(row.num_gpus) || 0;
+    if (numGpus > 0 && row.listed && isFleetEligibleMachine(row, row.polled_at)) {
+      const utilKey = `${bucketStart}|${gpuType}`;
+      const currentUtil = utilizationGroups.get(utilKey) || { bucket_start: bucketStart, gpu_type: gpuType, listed_gpus: 0, occupied_gpus: 0 };
+      currentUtil.listed_gpus += numGpus;
+      currentUtil.occupied_gpus += row.status === "online" ? (Number(row.occupied_gpus) || 0) : 0;
+      utilizationGroups.set(utilKey, currentUtil);
+    }
+
+    const listedGpuCost = Number(row.listed_gpu_cost);
+    if (row.listed && numGpus > 0 && Number.isFinite(listedGpuCost)) {
+      const priceKey = `${bucketStart}|${gpuType}`;
+      const currentPrice = priceGroups.get(priceKey) || { bucket_start: bucketStart, gpu_type: gpuType, priced_gpus: 0, total_price_weighted: 0 };
+      currentPrice.priced_gpus += numGpus;
+      currentPrice.total_price_weighted += listedGpuCost * numGpus;
+      priceGroups.set(priceKey, currentPrice);
+    }
+  }
+
+  let utilizationUpserted = 0;
+  for (const row of utilizationGroups.values()) {
+    statements?.upsertGpuTypeUtilizationHourlyRollup.run(row);
+    utilizationUpserted += 1;
+  }
+
+  let priceUpserted = 0;
+  for (const row of priceGroups.values()) {
+    statements?.upsertGpuTypePriceHourlyRollup.run(row);
+    priceUpserted += 1;
+  }
+
+  return {
+    utilization_upserted: utilizationUpserted,
+    price_upserted: priceUpserted
+  };
+}
+
+function groupMachineSnapshotRollupRows(rows) {
+  const groupedRows = new Map();
+  for (const row of rows) {
+    const bucketStart = toHourBucketStart(row.polled_at);
+    if (!bucketStart) {
+      continue;
+    }
+
+    const key = `${row.machine_id}|${bucketStart}`;
+    if (!groupedRows.has(key)) {
+      groupedRows.set(key, []);
+    }
+    groupedRows.get(key).push(row);
+  }
+  return groupedRows;
+}
+
+function countMachineSnapshotRollupBuckets(rows) {
+  return groupMachineSnapshotRollupRows(rows).size;
+}
+
+function groupFleetSnapshotRollupRows(rows) {
+  const groupedRows = new Map();
+  for (const row of rows) {
+    const bucketStart = toHourBucketStart(row.polled_at);
+    if (!bucketStart) {
+      continue;
+    }
+
+    if (!groupedRows.has(bucketStart)) {
+      groupedRows.set(bucketStart, []);
+    }
+    groupedRows.get(bucketStart).push(row);
+  }
+  return groupedRows;
+}
+
+function countFleetSnapshotRollupBuckets(rows) {
+  return groupFleetSnapshotRollupRows(rows).size;
+}
+
+function toHourBucketStart(value) {
+  const timeMs = Date.parse(value);
+  if (!Number.isFinite(timeMs)) {
+    return null;
+  }
+
+  const date = new Date(timeMs);
+  date.setUTCMinutes(0, 0, 0);
+  return date.toISOString();
+}
+
+function averageFinite(values) {
+  const finiteValues = values.map(Number).filter(Number.isFinite);
+  if (!finiteValues.length) {
+    return null;
+  }
+
+  return Number((finiteValues.reduce((sum, value) => sum + value, 0) / finiteValues.length).toFixed(4));
+}
+
+function maxFinite(values) {
+  const finiteValues = values.map(Number).filter(Number.isFinite);
+  if (!finiteValues.length) {
+    return null;
+  }
+
+  return Math.max(...finiteValues);
 }
 
 function buildRetentionCutoffIso(days) {

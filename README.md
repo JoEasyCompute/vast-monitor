@@ -70,7 +70,7 @@ Environment variables:
 - `ADMIN_API_TOKEN`: optional shared secret required for `/api/admin/*`; when unset, admin routes are disabled
 - `PORT`: HTTP port, default `3000`
 - `DB_PATH`: SQLite database path, default `./data/vast-monitor.db`
-- `DB_SNAPSHOT_RETENTION_DAYS`: optional retention window for `polls`, `machine_snapshots`, and derived `fleet_snapshots`; `0` disables pruning
+- `DB_SNAPSHOT_RETENTION_DAYS`: optional retention window for raw `machine_snapshots`, `polls`, and derived `fleet_snapshots`; older machine snapshots, fleet snapshots, GPU-type utilization history, and GPU-type price history are first compacted into hourly rollups used for long-range history reads; `0` disables pruning
 - `DB_ALERT_RETENTION_DAYS`: optional retention window for `alerts`; `0` disables pruning
 - `DB_EVENT_RETENTION_DAYS`: optional retention window for `events`; `0` disables pruning
 - `PLUGIN_MODULES`: optional comma-separated plugin module paths relative to the project root or absolute paths
@@ -201,6 +201,8 @@ The dashboard includes:
 - Configurable frontend highlighting thresholds for low reliability and high temperature
 - Recent alerts
 - Compact poll monitor panel with latest poll timings and counts
+- Dedicated `DB Admin` dashboard panel that uses the optional admin token from Settings to show database size, row counts, retention state, derived-state version info, per-route timing metrics, and a retention dry-run preview
+- `DB Admin` also supports safe operator actions such as `Analyze`, `Vacuum`, and retention dry-run preview
 - Per-machine history modal with tabbed `Charts` and `Recent Events` views
 - Clicking a machine row opens the machine history modal
 - Report badges support `Ctrl`/`Cmd`-click on desktop and long-press on touch devices to open the reports modal
@@ -290,6 +292,7 @@ Returns service and poll health details including:
 - current poll activity
 - last poll success/failure timestamps
 - last poll error, if any
+- in-process endpoint timing metrics for key API routes such as status, health, fleet history, GPU price history, and hourly earnings
 
 ### `GET /api/admin/db-health`
 
@@ -306,9 +309,43 @@ Auth:
 Returns:
 
 - database path and file size
-- row counts for `polls`, `fleet_snapshots`, `machine_snapshots`, `alerts`, and `events`
+- row counts for `polls`, raw `fleet_snapshots`, hourly fleet rollups, raw `machine_snapshots`, hourly machine rollups, hourly GPU-utilization rollups, hourly GPU-price rollups, `alerts`, and `events`
 - configured retention windows
 - derived-state metadata such as the current fleet snapshot version
+- recent in-process route timing metrics for operator troubleshooting
+
+### `GET /api/admin/retention-preview`
+
+Internal operator dry-run endpoint.
+
+Returns:
+
+- effective retention cutoffs
+- counts of rows that would be deleted
+- counts of hourly rollups that would be upserted
+
+This endpoint does not mutate the database.
+
+### `POST /api/admin/analyze`
+
+Internal operator maintenance endpoint.
+
+Runs SQLite `ANALYZE` and returns:
+
+- completion timestamp
+- analyze duration in milliseconds
+
+### `POST /api/admin/vacuum`
+
+Internal operator maintenance endpoint.
+
+Runs SQLite `VACUUM` and returns:
+
+- completion timestamp
+- vacuum duration in milliseconds
+- resulting database file size
+
+This is heavier than `ANALYZE` and is best run during lower-traffic periods.
 
 ### `GET /api/history?machine_id=49697&hours=24`
 

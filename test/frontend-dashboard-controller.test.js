@@ -8,9 +8,11 @@ test("dashboard controller applies partial results and refreshes the open machin
   const controller = createDashboardController({
     getSelectedEarningsDate: () => "2026-03-23",
     getSelectedTrendHours: () => 168,
+    getAdminApiToken: () => "token-123",
     fetchDashboardPayload: async () => ({
       payload: {
         status: { health: { liveOperationsOk: true }, machines: [{ machine_id: 49697 }] },
+        dbHealth: { ok: true, database: { row_counts: { polls: 1 } } },
         fleetHistory: { history: [1] },
         earnings: { total: 42, hours: [], date: "2026-03-23" },
         alerts: { alerts: [{ id: 1 }] }
@@ -19,6 +21,7 @@ test("dashboard controller applies partial results and refreshes the open machin
     }),
     renderDashboardNotice: (failures) => calls.push(["notice", failures.map((item) => item.label)]),
     applyStatusPayload: (payload) => calls.push(["status", payload.machines.length]),
+    applyDbHealthPayload: (payload) => calls.push(["db-health", payload.database.row_counts.polls]),
     applyFleetHistoryPayload: (payload) => calls.push(["fleet", payload.history.length]),
     applyGpuTypePricePayload: () => calls.push(["gpu-price"]),
     applyHourlyEarningsPayload: (payload) => calls.push(["earnings", payload.total]),
@@ -43,6 +46,7 @@ test("dashboard controller applies partial results and refreshes the open machin
   assert.deepEqual(calls, [
     ["notice", ["GPU type pricing"]],
     ["status", 1],
+    ["db-health", 1],
     ["fleet", 1],
     ["gpu-price-unavailable"],
     ["earnings", 42],
@@ -56,12 +60,14 @@ test("dashboard controller falls back to unavailable renderers only when cached 
   const controller = createDashboardController({
     getSelectedEarningsDate: () => "2026-03-23",
     getSelectedTrendHours: () => 24,
+    getAdminApiToken: () => "",
     fetchDashboardPayload: async () => ({
       payload: {},
       failures: [{ key: "status", label: "fleet status", critical: true }]
     }),
     renderDashboardNotice: () => calls.push("notice"),
     applyStatusPayload: () => calls.push("status"),
+    applyDbHealthPayload: () => calls.push("db-health"),
     applyFleetHistoryPayload: () => calls.push("fleet"),
     applyGpuTypePricePayload: () => calls.push("gpu-price"),
     applyHourlyEarningsPayload: () => calls.push("earnings"),
@@ -95,11 +101,13 @@ test("dashboard controller delegates thrown refresh errors to the failure handle
   const controller = createDashboardController({
     getSelectedEarningsDate: () => "2026-03-23",
     getSelectedTrendHours: () => 24,
+    getAdminApiToken: () => "",
     fetchDashboardPayload: async () => {
       throw new Error("boom");
     },
     renderDashboardNotice: () => calls.push("notice"),
     applyStatusPayload: () => calls.push("status"),
+    applyDbHealthPayload: () => calls.push("db-health"),
     applyFleetHistoryPayload: () => calls.push("fleet"),
     applyGpuTypePricePayload: () => calls.push("gpu-price"),
     applyHourlyEarningsPayload: () => calls.push("earnings"),
@@ -129,9 +137,11 @@ test("dashboard controller startAutoRefresh schedules periodic refreshes", () =>
   const controller = createDashboardController({
     getSelectedEarningsDate: () => "2026-03-23",
     getSelectedTrendHours: () => 24,
+    getAdminApiToken: () => "",
     fetchDashboardPayload: async () => ({ payload: {}, failures: [] }),
     renderDashboardNotice: () => calls.push("notice"),
     applyStatusPayload: () => calls.push("status"),
+    applyDbHealthPayload: () => calls.push("db-health"),
     applyFleetHistoryPayload: () => calls.push("fleet"),
     applyGpuTypePricePayload: () => calls.push("gpu-price"),
     applyHourlyEarningsPayload: () => calls.push("earnings"),

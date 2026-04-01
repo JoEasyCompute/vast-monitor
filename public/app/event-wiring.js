@@ -19,6 +19,9 @@ export function bindDashboardControls({
   settingsReliability,
   settingsTemperature,
   settingsStaleMinutes,
+  settingsAdminToken,
+  settingsAdminTokenToggle,
+  settingsAdminTokenClear,
   settingsReset,
   trendRange,
   trendUtilGpuSelect,
@@ -38,6 +41,9 @@ export function bindDashboardControls({
   onSettingsReliabilityChange,
   onSettingsTemperatureChange,
   onSettingsStaleMinutesChange,
+  onSettingsAdminTokenChange,
+  onToggleAdminTokenVisibility,
+  onClearAdminToken,
   onSettingsReset,
   onSort,
   onTrendRangeChange,
@@ -69,6 +75,9 @@ export function bindDashboardControls({
   settingsReliability.addEventListener("change", onSettingsReliabilityChange);
   settingsTemperature.addEventListener("change", onSettingsTemperatureChange);
   settingsStaleMinutes.addEventListener("change", onSettingsStaleMinutesChange);
+  settingsAdminToken.addEventListener("change", onSettingsAdminTokenChange);
+  settingsAdminTokenToggle.addEventListener("click", onToggleAdminTokenVisibility);
+  settingsAdminTokenClear.addEventListener("click", onClearAdminToken);
   settingsReset.addEventListener("click", onSettingsReset);
 
   document.querySelectorAll("th[data-sort]").forEach((th) => {

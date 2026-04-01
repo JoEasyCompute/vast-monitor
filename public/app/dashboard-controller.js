@@ -1,9 +1,11 @@
 export function createDashboardController({
   getSelectedEarningsDate,
   getSelectedTrendHours,
+  getAdminApiToken,
   fetchDashboardPayload,
   renderDashboardNotice,
   applyStatusPayload,
+  applyDbHealthPayload,
   applyFleetHistoryPayload,
   applyGpuTypePricePayload,
   applyHourlyEarningsPayload,
@@ -26,12 +28,17 @@ export function createDashboardController({
     try {
       const result = await fetchDashboardPayload({
         selectedEarningsDate: getSelectedEarningsDate(),
-        selectedTrendHours: getSelectedTrendHours()
+        selectedTrendHours: getSelectedTrendHours(),
+        adminApiToken: getAdminApiToken()
       });
       renderDashboardNotice(result.failures);
 
       if (result.payload.status) {
         applyStatusPayload(result.payload.status);
+      }
+
+      if (result.payload.dbHealth) {
+        applyDbHealthPayload(result.payload.dbHealth);
       }
 
       if (result.payload.fleetHistory) {

@@ -15,6 +15,7 @@ import {
   buildDashboardNoticeMessage,
   fetchDashboardPayload
 } from "./app/dashboard-loader.js";
+import { buildDbAdminPanelMarkup } from "./app/db-admin-panel.js";
 import { createDashboardController } from "./app/dashboard-controller.js";
 import {
   clearChartSyncGroup,
@@ -102,6 +103,8 @@ const trendUtilGpuSelect = document.getElementById("trend-util-gpu-select");
 const trendPriceChart = document.getElementById("trend-price-chart");
 const pollMonitorGrid = document.getElementById("poll-monitor-grid");
 const pollMonitorMeta = document.getElementById("poll-monitor-meta");
+const dbAdminPanel = document.getElementById("db-admin-panel");
+const dbAdminMeta = document.getElementById("db-admin-meta");
 const filterSearch = document.getElementById("filter-search");
 const filterStatus = document.getElementById("filter-status");
 const filterListed = document.getElementById("filter-listed");
@@ -127,6 +130,9 @@ const settingsDensity = document.getElementById("settings-density");
 const settingsReliability = document.getElementById("settings-reliability");
 const settingsTemperature = document.getElementById("settings-temperature");
 const settingsStaleMinutes = document.getElementById("settings-stale-minutes");
+const settingsAdminToken = document.getElementById("settings-admin-token");
+const settingsAdminTokenToggle = document.getElementById("settings-admin-token-toggle");
+const settingsAdminTokenClear = document.getElementById("settings-admin-token-clear");
 const settingsReset = document.getElementById("settings-reset");
 
 const DEFAULT_UI_SETTINGS = {
@@ -135,6 +141,7 @@ const DEFAULT_UI_SETTINGS = {
   lowReliabilityPct: 90,
   highTemperatureC: 85,
   stalePollMinutes: 15,
+  adminApiToken: "",
   selectedUtilizationGpuType: "__fleet__"
 };
 const UI_SETTINGS_KEY = "vast-monitor-ui-settings";
@@ -155,8 +162,20 @@ let currentGpuTypeBreakdown = [];
 let latestFleetHistoryPayload = null;
 let latestGpuTypePricePayload = null;
 let latestHourlyEarningsPayload = null;
+let latestDbHealthPayload = null;
+let latestRetentionPreview = null;
+let retentionPreviewError = "";
+let retentionPreviewLoading = false;
+let latestAnalyzeResult = null;
+let analyzeError = "";
+let analyzeLoading = false;
+let latestVacuumResult = null;
+let vacuumError = "";
+let vacuumLoading = false;
+let latestPollMonitorAt = null;
 let lastKnownHealth = null;
 let selectedUtilizationGpuType = uiSettings.selectedUtilizationGpuType || "__fleet__";
+let isAdminTokenVisible = false;
 let currentModalMachine = null;
 let currentModalHistory = [];
 let currentModalEarningsData = null;
@@ -783,7 +802,7 @@ function renderGpuTypePriceTrends(payload) {
   }
 }
 
-function renderPollMonitor(observability, latestPollAt) {
+function renderPollMonitor(observability, latestPollAt, dbHealth = null) {
   latestObservability = observability || null;
   const items = [
     ["Poll", formatMetricDuration(observability?.lastPollDurationMs)],
@@ -795,6 +814,14 @@ function renderPollMonitor(observability, latestPollAt) {
     ["Events", observability?.lastEventCount ?? 0],
     ["Sent", observability?.lastAlertCount ?? 0]
   ];
+  if (dbHealth?.database) {
+    items.push(
+      ["DB Size", formatDbSize(dbHealth.database.file_size_bytes)],
+      ["DB Polls", dbHealth.database.row_counts?.polls ?? 0],
+      ["DB Snap", dbHealth.database.row_counts?.machine_snapshots ?? 0],
+      ["DB Rollups", (dbHealth.database.row_counts?.machine_snapshot_hourly_rollups ?? 0) + (dbHealth.database.row_counts?.fleet_snapshot_hourly_rollups ?? 0)]
+    );
+  }
 
   pollMonitorGrid.innerHTML = items.map(([label, value]) => `
     <article class="stat-card">
@@ -802,7 +829,60 @@ function renderPollMonitor(observability, latestPollAt) {
       <strong class="stat-value">${escapeHtml(String(value))}</strong>
     </article>
   `).join("");
-  pollMonitorMeta.textContent = buildSectionMeta("Last completed poll", latestPollAt);
+  const dbHealthNote = dbHealth?.database ? " · DB admin health enabled" : uiSettings.adminApiToken ? " · DB admin health unavailable" : "";
+  pollMonitorMeta.textContent = `${buildSectionMeta("Last completed poll", latestPollAt)}${dbHealthNote}`;
+}
+
+function renderDbAdminPanel(dbHealth = null) {
+  if (!dbAdminPanel || !dbAdminMeta) {
+    return;
+  }
+
+  const { markup, meta } = buildDbAdminPanelMarkup({
+    dbHealth,
+    hasAdminToken: Boolean(uiSettings.adminApiToken.trim()),
+    retentionPreview: latestRetentionPreview,
+    retentionPreviewLoading,
+    retentionPreviewError,
+    analyzeResult: latestAnalyzeResult,
+    analyzeLoading,
+    analyzeError,
+    vacuumResult: latestVacuumResult,
+    vacuumLoading,
+    vacuumError
+  });
+  dbAdminPanel.innerHTML = markup;
+  dbAdminMeta.textContent = meta;
+}
+
+async function fetchAdminJson(path, init = {}) {
+  const token = uiSettings.adminApiToken.trim();
+  const response = await fetch(path, {
+    ...init,
+    headers: {
+      ...(init.headers || {}),
+      Authorization: `Bearer ${token}`
+    }
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || `Request failed (${response.status})`);
+  }
+  return payload;
+}
+
+function formatDbSize(bytes) {
+  const size = Number(bytes);
+  if (!Number.isFinite(size) || size < 1024) {
+    return size ? `${size} B` : "--";
+  }
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+  if (size < 1024 * 1024 * 1024) {
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${(size / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 function ensureClientExtensionsLoaded(extensions) {
@@ -1077,6 +1157,9 @@ function applyUiSettings() {
   settingsReliability.value = String(uiSettings.lowReliabilityPct);
   settingsTemperature.value = String(uiSettings.highTemperatureC);
   settingsStaleMinutes.value = String(uiSettings.stalePollMinutes);
+  settingsAdminToken.value = uiSettings.adminApiToken;
+  settingsAdminToken.type = isAdminTokenVisible ? "text" : "password";
+  settingsAdminTokenToggle.textContent = isAdminTokenVisible ? "Hide" : "Show";
 }
 
 function updateUiSettings(nextSettings) {
@@ -1238,12 +1321,14 @@ const reportsController = createReportsController({
 const dashboardController = createDashboardController({
   getSelectedEarningsDate: () => selectedEarningsDate,
   getSelectedTrendHours: () => selectedTrendHours,
+  getAdminApiToken: () => uiSettings.adminApiToken,
   fetchDashboardPayload,
   renderDashboardNotice,
   applyStatusPayload: (status) => {
     ensureClientExtensionsLoaded(status.extensions);
     currentMachinesData = Array.isArray(status.machines) ? status.machines : [];
     currentGpuTypeBreakdown = Array.isArray(status.gpuTypeBreakdown) ? status.gpuTypeBreakdown : [];
+    latestPollMonitorAt = status.latestPollAt || null;
     updateFilterGpuSelectOptions();
     renderSummary(status.summary);
     renderSummaryMeta(status.latestPollAt);
@@ -1253,10 +1338,15 @@ const dashboardController = createDashboardController({
     renderMachinesSorted();
     lastKnownHealth = status.health;
     renderHealth(status.health);
-    renderPollMonitor(status.observability, status.latestPollAt);
+    renderPollMonitor(status.observability, latestPollMonitorAt, latestDbHealthPayload);
     lastUpdated.textContent = status.latestPollAt
       ? `Last updated ${new Date(status.latestPollAt).toLocaleString()}`
       : "No poll data yet";
+  },
+  applyDbHealthPayload: (payload) => {
+    latestDbHealthPayload = payload;
+    renderPollMonitor(latestObservability, latestPollMonitorAt, latestDbHealthPayload);
+    renderDbAdminPanel(latestDbHealthPayload);
   },
   applyFleetHistoryPayload: (payload) => {
     latestFleetHistoryPayload = payload;
@@ -1310,6 +1400,7 @@ function refreshDashboard() {
   }
 
   return dashboardController.refreshDashboard().finally(() => {
+    renderDbAdminPanel(latestDbHealthPayload);
     manualRefreshInFlight = false;
     if (refreshButton) {
       refreshButton.disabled = false;
@@ -1483,6 +1574,9 @@ bindDashboardControls({
   settingsReliability,
   settingsTemperature,
   settingsStaleMinutes,
+  settingsAdminToken,
+  settingsAdminTokenToggle,
+  settingsAdminTokenClear,
   settingsReset,
   trendRange,
   trendUtilGpuSelect,
@@ -1537,12 +1631,64 @@ bindDashboardControls({
   onSettingsStaleMinutesChange: () => {
     updateUiSettings({ stalePollMinutes: normalizeSettingNumber(settingsStaleMinutes.value, DEFAULT_UI_SETTINGS.stalePollMinutes, 1, 1440) });
   },
+  onSettingsAdminTokenChange: () => {
+    updateUiSettings({ adminApiToken: settingsAdminToken.value.trim() });
+    latestDbHealthPayload = null;
+    latestRetentionPreview = null;
+    retentionPreviewError = "";
+    retentionPreviewLoading = false;
+    latestAnalyzeResult = null;
+    analyzeError = "";
+    analyzeLoading = false;
+    latestVacuumResult = null;
+    vacuumError = "";
+    vacuumLoading = false;
+    renderPollMonitor(latestObservability, latestPollMonitorAt, latestDbHealthPayload);
+    renderDbAdminPanel(latestDbHealthPayload);
+    refreshDashboard().catch((error) => console.error(error));
+  },
+  onToggleAdminTokenVisibility: () => {
+    isAdminTokenVisible = !isAdminTokenVisible;
+    applyUiSettings();
+    settingsAdminToken.focus();
+  },
+  onClearAdminToken: () => {
+    isAdminTokenVisible = false;
+    updateUiSettings({ adminApiToken: "" });
+    latestDbHealthPayload = null;
+    latestRetentionPreview = null;
+    retentionPreviewError = "";
+    retentionPreviewLoading = false;
+    latestAnalyzeResult = null;
+    analyzeError = "";
+    analyzeLoading = false;
+    latestVacuumResult = null;
+    vacuumError = "";
+    vacuumLoading = false;
+    renderPollMonitor(latestObservability, latestPollMonitorAt, latestDbHealthPayload);
+    renderDbAdminPanel(latestDbHealthPayload);
+    refreshDashboard().catch((error) => console.error(error));
+    settingsAdminToken.focus();
+  },
   onSettingsReset: () => {
     uiSettings = { ...DEFAULT_UI_SETTINGS };
     selectedUtilizationGpuType = uiSettings.selectedUtilizationGpuType;
+    latestDbHealthPayload = null;
+    latestRetentionPreview = null;
+    retentionPreviewError = "";
+    retentionPreviewLoading = false;
+    latestAnalyzeResult = null;
+    analyzeError = "";
+    analyzeLoading = false;
+    latestVacuumResult = null;
+    vacuumError = "";
+    vacuumLoading = false;
+    isAdminTokenVisible = false;
     persistUiSettings(UI_SETTINGS_KEY, uiSettings);
     applyUiSettings();
     syncDashboardMode();
+    renderPollMonitor(latestObservability, latestPollMonitorAt, latestDbHealthPayload);
+    renderDbAdminPanel(latestDbHealthPayload);
     renderMachinesSorted();
     if (lastKnownHealth) {
       renderHealth(lastKnownHealth);
@@ -1550,6 +1696,7 @@ bindDashboardControls({
     if (latestFleetHistoryPayload) {
       renderFleetTrends(latestFleetHistoryPayload);
     }
+    refreshDashboard().catch((error) => console.error(error));
   },
   onSort: handleSort,
   onTrendRangeChange: (hours, button) => {
@@ -1631,6 +1778,93 @@ bindDashboardControls({
     persistStateToUrl();
     refreshDashboard().catch((error) => console.error(error));
   }
+});
+
+dbAdminPanel?.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return;
+  }
+
+  const actionButton = target.closest("[data-db-admin-action]");
+  if (!actionButton) {
+    return;
+  }
+
+  const action = actionButton.getAttribute("data-db-admin-action") || "";
+  if (action === "analyze") {
+    analyzeLoading = true;
+    analyzeError = "";
+    renderDbAdminPanel(latestDbHealthPayload);
+
+    fetchAdminJson("/api/admin/analyze", { method: "POST" })
+      .then((payload) => {
+        latestAnalyzeResult = payload.analyze || null;
+        analyzeError = "";
+      })
+      .catch((error) => {
+        latestAnalyzeResult = null;
+        analyzeError = error instanceof Error ? error.message : String(error);
+      })
+      .finally(() => {
+        analyzeLoading = false;
+        renderDbAdminPanel(latestDbHealthPayload);
+        refreshDashboard().catch((refreshError) => console.error(refreshError));
+      });
+    return;
+  }
+
+  if (action === "vacuum") {
+    vacuumLoading = true;
+    vacuumError = "";
+    renderDbAdminPanel(latestDbHealthPayload);
+
+    fetchAdminJson("/api/admin/vacuum", { method: "POST" })
+      .then((payload) => {
+        latestVacuumResult = payload.vacuum || null;
+        vacuumError = "";
+      })
+      .catch((error) => {
+        latestVacuumResult = null;
+        vacuumError = error instanceof Error ? error.message : String(error);
+      })
+      .finally(() => {
+        vacuumLoading = false;
+        renderDbAdminPanel(latestDbHealthPayload);
+        refreshDashboard().catch((refreshError) => console.error(refreshError));
+      });
+    return;
+  }
+
+  if (action === "clear-retention-preview") {
+    latestRetentionPreview = null;
+    retentionPreviewError = "";
+    retentionPreviewLoading = false;
+    renderDbAdminPanel(latestDbHealthPayload);
+    return;
+  }
+
+  if (action !== "retention-preview") {
+    return;
+  }
+
+  retentionPreviewLoading = true;
+  retentionPreviewError = "";
+  renderDbAdminPanel(latestDbHealthPayload);
+
+  fetchAdminJson("/api/admin/retention-preview")
+    .then((payload) => {
+      latestRetentionPreview = payload.preview || null;
+      retentionPreviewError = "";
+    })
+    .catch((error) => {
+      latestRetentionPreview = null;
+      retentionPreviewError = error instanceof Error ? error.message : String(error);
+    })
+    .finally(() => {
+      retentionPreviewLoading = false;
+      renderDbAdminPanel(latestDbHealthPayload);
+    });
 });
 
 refreshButton?.addEventListener("click", () => {

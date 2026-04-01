@@ -225,6 +225,14 @@
           </div>
           <div id="poll-monitor-grid" class="summary-grid summary-grid-compact"></div>
         </section>
+
+        <section class="panel wide">
+          <div class="panel-title-row">
+            <h2>DB Admin</h2>
+            <span id="db-admin-meta" class="section-meta"></span>
+          </div>
+          <div id="db-admin-panel"></div>
+        </section>
       </main>
     </div>
 
@@ -354,6 +362,17 @@
             <label class="settings-field">
               <span>Stale poll age (minutes)</span>
               <input id="settings-stale-minutes" class="filter-input settings-input" type="number" min="1" max="1440" step="1" />
+            </label>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-title">Operator</div>
+            <label class="settings-field">
+              <span>Admin API token</span>
+              <div class="settings-inline-controls">
+                <input id="settings-admin-token" class="filter-input settings-input" type="password" autocomplete="off" spellcheck="false" />
+                <button id="settings-admin-token-toggle" class="settings-inline-button" type="button">Show</button>
+                <button id="settings-admin-token-clear" class="settings-inline-button" type="button">Clear</button>
+              </div>
             </label>
           </div>
           <div class="settings-actions">
