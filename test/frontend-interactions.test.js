@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  bindDashboardControls,
   bindMachineInteractions,
   bindModalControls,
   bindReportGestureHandlers
@@ -46,6 +47,71 @@ test("bindMachineInteractions delegates row clicks and modal copy actions", asyn
       ["copy-id", "49697", machineIdButton],
       ["copy-ip", "10.0.0.65", ipButton]
     ]);
+  } finally {
+    restore();
+  }
+});
+
+test("bindDashboardControls routes GPU breakdown, selector, and chip interactions", () => {
+  const restore = installFakeDom();
+  try {
+    const breakdownBody = new FakeElement("tbody");
+    const gpuButton = new FakeElement("button", { gpuFilter: "RTX 4090" });
+    breakdownBody.appendChild(gpuButton);
+    const activeGpuFilterList = new FakeElement("div");
+    const activeGpuFilterButton = new FakeElement("button", { removeGpuFilter: "H100" });
+    activeGpuFilterList.appendChild(activeGpuFilterButton);
+    const filterGpuSelect = new FakeElement("select");
+
+    const calls = [];
+    bindDashboardControls({
+      machineViewTabs: new FakeCollection([]),
+      densityToggle: new FakeCollection([]),
+      settingsButton: new FakeElement("button"),
+      settingsBackdrop: new FakeElement("div"),
+      settingsClose: new FakeElement("button"),
+      settingsDashboardMode: new FakeElement("select"),
+      settingsDensity: new FakeElement("select"),
+      settingsReliability: new FakeElement("input"),
+      settingsTemperature: new FakeElement("input"),
+      settingsStaleMinutes: new FakeElement("input"),
+      settingsReset: new FakeElement("button"),
+      trendRange: new FakeCollection([]),
+      trendUtilGpuSelect: new FakeElement("select"),
+      breakdownBody,
+      activeGpuFilterList,
+      filterGpuSelect,
+      filterControls: [],
+      filterReset: new FakeElement("button"),
+      earningsPrevButton: new FakeElement("button"),
+      earningsNextButton: new FakeElement("button"),
+      onMachineViewChange: () => {},
+      onDensityChange: () => {},
+      onOpenSettings: () => {},
+      onCloseSettings: () => {},
+      onSettingsDashboardModeChange: () => {},
+      onSettingsDensityChange: () => {},
+      onSettingsReliabilityChange: () => {},
+      onSettingsTemperatureChange: () => {},
+      onSettingsStaleMinutesChange: () => {},
+      onSettingsReset: () => {},
+      onSort: () => {},
+      onTrendRangeChange: () => {},
+      onTrendGpuChange: () => {},
+      onGpuFilterSelect: () => calls.push("select"),
+      onBreakdownGpuClick: (gpuType) => calls.push(gpuType),
+      onRemoveGpuFilter: (gpuType) => calls.push(`remove:${gpuType}`),
+      onFiltersChanged: () => {},
+      onFilterReset: () => {},
+      onEarningsPrev: () => {},
+      onEarningsNext: () => {}
+    });
+
+    filterGpuSelect.dispatch("change", {});
+    breakdownBody.dispatch("click", { target: { parentElement: gpuButton } });
+    activeGpuFilterList.dispatch("click", { target: activeGpuFilterButton });
+
+    assert.deepEqual(calls, ["select", "RTX 4090", "remove:H100"]);
   } finally {
     restore();
   }
@@ -195,6 +261,12 @@ class FakeElement {
 function matchesSelector(element, selector) {
   if (selector === "[data-machine-row='1']") {
     return element.dataset.machineRow === "1";
+  }
+  if (selector === "[data-gpu-filter]") {
+    return typeof element.dataset.gpuFilter === "string";
+  }
+  if (selector === "[data-remove-gpu-filter]") {
+    return typeof element.dataset.removeGpuFilter === "string";
   }
   if (selector === "[data-copy-machine-id]") {
     return typeof element.dataset.copyMachineId === "string";

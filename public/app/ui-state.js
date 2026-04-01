@@ -40,6 +40,7 @@ export function loadMachineFilters(storageKey) {
       dc: ["all", "dc", "non-dc"].includes(parsed.dc) ? parsed.dc : "all",
       owner: typeof parsed.owner === "string" ? parsed.owner : "",
       team: typeof parsed.team === "string" ? parsed.team : "",
+      gpuTypes: normalizeGpuTypes(parsed.gpuTypes),
       errors: parsed.errors === true,
       reports: parsed.reports === true,
       maint: parsed.maint === true,
@@ -53,6 +54,7 @@ export function loadMachineFilters(storageKey) {
       dc: "all",
       owner: "",
       team: "",
+      gpuTypes: [],
       errors: false,
       reports: false,
       maint: false,
@@ -85,6 +87,9 @@ export function readInitialViewState({
     filterDc: searchParams.has("dc") ? (searchParams.get("dc") || "all") : savedMachineFilters.dc,
     filterOwner: searchParams.has("owner") ? (searchParams.get("owner") || "") : savedMachineFilters.owner,
     filterTeam: searchParams.has("team") ? (searchParams.get("team") || "") : savedMachineFilters.team,
+    filterGpuTypes: searchParams.has("gpu_types")
+      ? normalizeGpuTypes(searchParams.get("gpu_types").split(","))
+      : savedMachineFilters.gpuTypes,
     filterErrors: searchParams.has("errors") ? searchParams.get("errors") === "1" : savedMachineFilters.errors,
     filterReports: searchParams.has("reports") ? searchParams.get("reports") === "1" : savedMachineFilters.reports,
     filterMaint: searchParams.has("maint") ? searchParams.get("maint") === "1" : savedMachineFilters.maint,
@@ -106,6 +111,7 @@ export function persistViewStateToUrl({
   filterDc,
   filterOwner,
   filterTeam,
+  filterGpuTypes,
   filterErrors,
   filterReports,
   filterMaint,
@@ -122,6 +128,7 @@ export function persistViewStateToUrl({
   if (filterDc !== "all") params.set("dc", filterDc);
   if (filterOwner.trim()) params.set("owner", filterOwner.trim());
   if (filterTeam.trim()) params.set("team", filterTeam.trim());
+  if (Array.isArray(filterGpuTypes) && filterGpuTypes.length > 0) params.set("gpu_types", normalizeGpuTypes(filterGpuTypes).join(","));
   if (filterErrors) params.set("errors", "1");
   if (filterReports) params.set("reports", "1");
   if (filterMaint) params.set("maint", "1");
@@ -133,4 +140,12 @@ export function persistViewStateToUrl({
 
 function isValidUtcDateString(value) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function normalizeGpuTypes(values) {
+  return Array.from(new Set(
+    (Array.isArray(values) ? values : [])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+  ));
 }

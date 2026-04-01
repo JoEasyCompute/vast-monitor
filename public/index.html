@@ -138,30 +138,49 @@
           </div>
           <p class="machine-interaction-hint">Click a row for history. Ctrl/Cmd-click or long-press a report badge for reports.</p>
           <div class="machine-filters" id="machine-filters">
-            <input id="filter-search" class="filter-input" type="search" placeholder="Search hostname, ID, GPU..." title="Filter machines by hostname, machine ID, or GPU type." />
+            <input id="filter-search" class="filter-input" type="search" placeholder="Search..." title="Filter machines by hostname, machine ID, or GPU type." />
             <select id="filter-status" class="filter-select" title="Filter by current machine status.">
-              <option value="all">All status</option>
+              <option value="all">Status</option>
               <option value="online">Online</option>
               <option value="offline">Offline</option>
             </select>
             <select id="filter-listed" class="filter-select" title="Filter by whether the machine is currently listed on Vast.">
-              <option value="all">Listed + unlisted</option>
+              <option value="all">Listing</option>
               <option value="listed">Listed only</option>
               <option value="unlisted">Unlisted only</option>
             </select>
             <select id="filter-dc" class="filter-select" title="Filter by datacenter-tagged machines versus non-datacenter machines.">
-              <option value="all">All DC</option>
+              <option value="all">DC</option>
               <option value="dc">DC only</option>
               <option value="non-dc">Non-DC only</option>
             </select>
-            <label class="filter-toggle" title="Show only machines with an active machine-level error message."><input id="filter-errors" type="checkbox" /> Errors</label>
-            <label class="filter-toggle" title="Show only machines with a stored new-report alert from the last 72 hours."><input id="filter-reports" type="checkbox" /> New Report</label>
-            <label class="filter-toggle" title="Show only machines with active maintenance windows."><input id="filter-maint" type="checkbox" /> Maint</label>
+            <select id="filter-gpu-select" class="filter-select" title="Add or remove exact GPU type filters from the machine table.">
+              <option value="">GPU...</option>
+            </select>
+            <label class="filter-toggle filter-toggle-icon" title="Show only machines with an active machine-level error message." aria-label="Errors filter">
+              <input id="filter-errors" type="checkbox" />
+              <span aria-hidden="true">⚠</span>
+              <span class="sr-only">Errors</span>
+            </label>
+            <label class="filter-toggle filter-toggle-icon" title="Show only machines with a stored new-report alert from the last 72 hours." aria-label="Reports filter">
+              <input id="filter-reports" type="checkbox" />
+              <span aria-hidden="true">📝</span>
+              <span class="sr-only">Reports</span>
+            </label>
+            <label class="filter-toggle filter-toggle-icon" title="Show only machines with active maintenance windows." aria-label="Maintenance filter">
+              <input id="filter-maint" type="checkbox" />
+              <span aria-hidden="true">🛠</span>
+              <span class="sr-only">Maintenance</span>
+            </label>
             <div class="density-toggle" id="density-toggle">
-              <button class="density-button active" type="button" data-density="comfortable" title="Use the default row height and spacing in the machine table.">Comfortable</button>
+              <button class="density-button active" type="button" data-density="comfortable" title="Use the default row height and spacing in the machine table.">Comfort</button>
               <button class="density-button" type="button" data-density="compact" title="Use tighter row spacing so more machines fit on screen.">Compact</button>
             </div>
-            <button id="filter-reset" class="filter-reset" type="button" title="Clear all machine-table filters and return to the default filter state.">Reset</button>
+            <button id="filter-reset" class="filter-reset" type="button" title="Clear all machine-table filters and return to the default filter state.">Clear</button>
+          </div>
+          <div id="machine-active-filter-row" class="machine-filter-chip-row hidden">
+            <span id="machine-active-filter-summary" class="machine-filter-summary"></span>
+            <div id="machine-active-gpu-filter-list" class="machine-filter-chip-list"></div>
           </div>
           <div class="table-wrap machines-scroll" id="machines-scroll">
             <table>

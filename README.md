@@ -17,7 +17,8 @@ It polls your hosted machines from Vast, enriches them with datacenter metadata,
 - Computes rolling uptime for `24h`, `7d`, and `30d`
 - Shows fleet health, listed-only utilisation, earnings, trends, hoverable chart values, and datacenter tags in a browser dashboard
 - Adds local browser settings for dashboard mode, table density, and frontend-only alert thresholds
-- Persists machine table filters and the active/archive machine tab with a hybrid URL + local browser storage approach
+- Persists machine table filters, dedicated GPU-type filters, and the active/archive machine tab with a hybrid URL + local browser storage approach
+- Lets you click GPU names in `GPU Type Breakdown` to toggle exact GPU-type filters in the machine table
 - Exposes JSON endpoints for status, health, history, alerts, fleet trends, and hourly earnings
 
 ## Requirements
@@ -175,7 +176,7 @@ The dashboard includes:
 - Carousel mode keeps both rotating blocks at a matched height so lower sections do not shift during transitions
 - Dashboard shows a visible notice when one or more API-backed sections fail to refresh, instead of collapsing the whole page into a generic failure state
 - Stale-data warning banner when polls are too old
-- GPU type breakdown
+- GPU type breakdown with clickable GPU names that toggle exact GPU-type filters in the machine table
 - Fleet trends for `24h`, `7d`, and `30d`
 - Fleet utilisation chart with a GPU selector; default view is total fleet utilisation
 - GPU-type pricing trends using listed-only weighted averages
@@ -183,8 +184,10 @@ The dashboard includes:
 - Per-section source/freshness labels for summary, breakdown, hourly earnings, fleet trends, alerts, and poll monitor
 - Sortable machine table
 - Machine table split into `Main View` and `Archived` tabs, where archived machines are offline for more than 24 hours
-- Machine table filters for search, status, listed/unlisted, datacenter, errors, `New Report` (new report alert within 72 hours), and maintenance
-- Machine table density toggle (`Comfortable` / `Compact`)
+- Compact single-row machine filter bar for search, status, listing, datacenter, dedicated GPU-type filters, errors, reports, and maintenance
+- Active GPU-type filter chips with one-click removal and a result count summary
+- Machine filter reset button shows the number of active filters
+- Machine table density toggle (`Comfort` / `Compact`)
 - Datacenter `DC` indicator column
 - Listed status and maintenance columns
 - Bright orange highlighting for machines with active error messages
@@ -216,7 +219,7 @@ Local browser settings currently control:
 - high temperature highlight threshold
 - stale poll age threshold for the dashboard badge/warning
 - selected GPU type for the fleet utilisation chart
-- machine table filters and the selected `Main View` / `Archived` tab when those values are not explicitly set in the URL
+- machine table filters, dedicated GPU-type filters, and the selected `Main View` / `Archived` tab when those values are not explicitly set in the URL
 
 ## Datacenter Tagging
 

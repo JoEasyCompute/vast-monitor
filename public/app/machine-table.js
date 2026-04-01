@@ -43,10 +43,23 @@ export function getMachinesForActiveView(machines, activeMachineView, nowMs = Da
   return machines.filter((row) => isArchivedMachine(row, nowMs) === (activeMachineView === "archived"));
 }
 
+export function getAvailableGpuTypes(machines) {
+  return Array.from(new Set(
+    machines
+      .map((row) => String(row.gpu_type || "").trim())
+      .filter(Boolean)
+  )).sort((left, right) => left.localeCompare(right));
+}
+
 export function getFilteredMachines(machines, filters, activeMachineView, nowMs = Date.now()) {
   const searchTerm = filters.search.trim().toLowerCase();
   const ownerTerm = String(filters.owner || "").trim().toLowerCase();
   const teamTerm = String(filters.team || "").trim().toLowerCase();
+  const gpuTypeFilters = new Set(
+    Array.isArray(filters.gpuTypes)
+      ? filters.gpuTypes.map((value) => String(value || "").trim().toLowerCase()).filter(Boolean)
+      : []
+  );
 
   return getMachinesForActiveView(machines, activeMachineView, nowMs).filter((row) => {
     if (searchTerm) {
@@ -61,6 +74,10 @@ export function getFilteredMachines(machines, filters, activeMachineView, nowMs 
       if (!haystack.includes(searchTerm)) {
         return false;
       }
+    }
+
+    if (gpuTypeFilters.size > 0 && !gpuTypeFilters.has(String(row.gpu_type || "").trim().toLowerCase())) {
+      return false;
     }
 
     if (filters.status !== "all" && row.status !== filters.status) {
@@ -179,6 +196,7 @@ export function buildMachineEmptyStateMessage(count, filters, activeMachineView)
     || filters.status !== "all"
     || filters.listed !== "all"
     || filters.dc !== "all"
+    || (Array.isArray(filters.gpuTypes) && filters.gpuTypes.length > 0)
     || String(filters.owner || "").trim()
     || String(filters.team || "").trim()
     || filters.errors

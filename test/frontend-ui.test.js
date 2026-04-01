@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildMachineEmptyStateMessage,
   buildMachineRowsMarkup,
+  getAvailableGpuTypes,
   getFilteredMachines,
   getMachineViewCounts,
   getSortedMachines,
@@ -100,6 +101,31 @@ test("machine-table hostname search and markup include owner/team when present",
   assert.match(markup, /Alice \/ Inference/);
 });
 
+test("machine-table supports exact multi-select GPU-type filters", () => {
+  const machines = [
+    makeMachineRow({
+      machine_id: 11,
+      hostname: "A100-controller",
+      gpu_type: "H100"
+    }),
+    makeMachineRow({
+      machine_id: 22,
+      hostname: "worker-22",
+      gpu_type: "A100"
+    }),
+    makeMachineRow({
+      machine_id: 33,
+      hostname: "worker-33",
+      gpu_type: "RTX 4090"
+    })
+  ];
+
+  const filtered = getFilteredMachines(machines, defaultFilters({ gpuTypes: ["A100", "RTX 4090"] }), "active", NOW_MS);
+
+  assert.deepEqual(filtered.map((row) => row.machine_id), [22, 33]);
+  assert.deepEqual(getAvailableGpuTypes(machines), ["A100", "H100", "RTX 4090"]);
+});
+
 test("machine-table empty states distinguish filtered and archived views", () => {
   assert.equal(
     buildMachineEmptyStateMessage(0, defaultFilters({ search: "missing" }), "active"),
@@ -168,6 +194,7 @@ test("ui-state loaders sanitize persisted values", () => {
         dc: "dc",
         owner: "ops",
         team: "platform",
+        gpuTypes: ["A100", "H100"],
         errors: true,
         reports: true,
         maint: false,
@@ -203,6 +230,7 @@ test("ui-state loaders sanitize persisted values", () => {
       dc: "dc",
       owner: "ops",
       team: "platform",
+      gpuTypes: ["A100", "H100"],
       errors: true,
       reports: true,
       maint: false,
@@ -232,12 +260,13 @@ test("ui-state reads initial values from URL and persists trimmed state back to 
         dc: "all",
         owner: "ops",
         team: "platform",
+        gpuTypes: ["RTX 4090"],
         errors: false,
         reports: false,
         maint: false,
         machineTab: "active"
       },
-      searchParams: new URLSearchParams("sort=machine_id&desc=1&trend_hours=24&earnings_date=2026-03-20&search= beta &status=offline&reports=1&machine_tab=archived")
+      searchParams: new URLSearchParams("sort=machine_id&desc=1&trend_hours=24&earnings_date=2026-03-20&search= beta &status=offline&gpu_types=A100,H100&reports=1&machine_tab=archived")
     });
 
     assert.deepEqual(initial, {
@@ -251,6 +280,7 @@ test("ui-state reads initial values from URL and persists trimmed state back to 
       filterDc: "all",
       filterOwner: "ops",
       filterTeam: "platform",
+      filterGpuTypes: ["A100", "H100"],
       filterErrors: false,
       filterReports: true,
       filterMaint: false,
@@ -269,6 +299,7 @@ test("ui-state reads initial values from URL and persists trimmed state back to 
       filterDc: "all",
       filterOwner: "ops",
       filterTeam: "platform",
+      filterGpuTypes: ["A100", "H100"],
       filterErrors: false,
       filterReports: true,
       filterMaint: false,
@@ -279,7 +310,7 @@ test("ui-state reads initial values from URL and persists trimmed state back to 
       {
         state: {},
         title: "",
-        url: "/dashboard?sort=machine_id&desc=1&trend_hours=24&earnings_date=2026-03-20&search=beta&status=offline&owner=ops&team=platform&reports=1&machine_tab=archived"
+        url: "/dashboard?sort=machine_id&desc=1&trend_hours=24&earnings_date=2026-03-20&search=beta&status=offline&owner=ops&team=platform&gpu_types=A100%2CH100&reports=1&machine_tab=archived"
       }
     ]);
   } finally {
@@ -347,6 +378,7 @@ function defaultFilters(overrides = {}) {
     dc: "all",
     owner: "",
     team: "",
+    gpuTypes: [],
     errors: false,
     reports: false,
     maint: false,

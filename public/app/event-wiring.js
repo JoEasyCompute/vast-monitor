@@ -22,6 +22,9 @@ export function bindDashboardControls({
   settingsReset,
   trendRange,
   trendUtilGpuSelect,
+  breakdownBody,
+  activeGpuFilterList,
+  filterGpuSelect,
   filterControls,
   filterReset,
   earningsPrevButton,
@@ -39,6 +42,9 @@ export function bindDashboardControls({
   onSort,
   onTrendRangeChange,
   onTrendGpuChange,
+  onGpuFilterSelect,
+  onBreakdownGpuClick,
+  onRemoveGpuFilter,
   onFiltersChanged,
   onFilterReset,
   onEarningsPrev,
@@ -76,6 +82,45 @@ export function bindDashboardControls({
   });
 
   trendUtilGpuSelect.addEventListener("change", onTrendGpuChange);
+  filterGpuSelect?.addEventListener("change", onGpuFilterSelect);
+
+  breakdownBody?.addEventListener("click", (event) => {
+    const target = event.target instanceof Element
+      ? event.target
+      : event.target?.parentElement instanceof Element
+        ? event.target.parentElement
+        : null;
+    if (!target) {
+      return;
+    }
+
+    const gpuButton = target.closest("[data-gpu-filter]");
+    if (!gpuButton) {
+      return;
+    }
+
+    event.preventDefault();
+    onBreakdownGpuClick(gpuButton.dataset.gpuFilter || "");
+  });
+
+  activeGpuFilterList?.addEventListener("click", (event) => {
+    const target = event.target instanceof Element
+      ? event.target
+      : event.target?.parentElement instanceof Element
+        ? event.target.parentElement
+        : null;
+    if (!target) {
+      return;
+    }
+
+    const chip = target.closest("[data-remove-gpu-filter]");
+    if (!chip) {
+      return;
+    }
+
+    event.preventDefault();
+    onRemoveGpuFilter(chip.dataset.removeGpuFilter || "");
+  });
 
   filterControls.forEach((control) => {
     control.addEventListener("input", onFiltersChanged);

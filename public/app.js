@@ -42,6 +42,7 @@ import {
 import {
   buildMachineEmptyStateMessage,
   buildMachineRowsMarkup,
+  getAvailableGpuTypes,
   getFilteredMachines as getFilteredMachineRows,
   getMachineViewCounts,
   getSortedMachines as getSortedMachineRows,
@@ -105,12 +106,16 @@ const filterSearch = document.getElementById("filter-search");
 const filterStatus = document.getElementById("filter-status");
 const filterListed = document.getElementById("filter-listed");
 const filterDc = document.getElementById("filter-dc");
+const filterGpuSelect = document.getElementById("filter-gpu-select");
 const filterOwner = document.getElementById("filter-owner") || createOptionalElement();
 const filterTeam = document.getElementById("filter-team") || createOptionalElement();
 const filterErrors = document.getElementById("filter-errors");
 const filterReports = document.getElementById("filter-reports");
 const filterMaint = document.getElementById("filter-maint");
 const filterReset = document.getElementById("filter-reset");
+const activeGpuFilterRow = document.getElementById("machine-active-filter-row");
+const activeGpuFilterSummary = document.getElementById("machine-active-filter-summary");
+const activeGpuFilterList = document.getElementById("machine-active-gpu-filter-list");
 const densityToggle = document.getElementById("density-toggle");
 const machinesScroll = document.getElementById("machines-scroll");
 const machineViewTabs = document.getElementById("machine-view-tabs");
@@ -146,6 +151,7 @@ let currentMachineHistoryId = null;
 let currentMachineHistoryHours = 168;
 let currentReports = [];
 let currentReportIndex = 0;
+let currentGpuTypeBreakdown = [];
 let latestFleetHistoryPayload = null;
 let latestGpuTypePricePayload = null;
 let latestHourlyEarningsPayload = null;
@@ -157,6 +163,7 @@ let currentModalEarningsData = null;
 let currentModalTab = "charts";
 let activeMachineView = "active";
 let latestObservability = null;
+let activeGpuFilters = [];
 const REPORT_LONG_PRESS_MS = 550;
 let reportLongPressTimer = null;
 let reportLongPressActiveMachineId = null;
@@ -197,6 +204,8 @@ function updateSortHeaders() {
 function renderMachinesSorted() {
   const sorted = getSortedMachines();
   renderMachines(sorted);
+  renderActiveGpuFilters(sorted.length);
+  updateFilterResetState();
   renderMachineEmptyState(sorted.length);
   updateMachineViewTabs();
   updateModalNavigation();
@@ -208,6 +217,7 @@ function getMachineFilterState() {
     status: filterStatus.value,
     listed: filterListed.value,
     dc: filterDc.value,
+    gpuTypes: [...activeGpuFilters],
     owner: filterOwner.value,
     team: filterTeam.value,
     errors: filterErrors.checked,
@@ -222,6 +232,17 @@ function getFilteredMachines() {
 
 function getSortedMachines() {
   return getSortedMachineRows(currentMachinesData, getMachineFilterState(), activeMachineView, sortCol, sortDesc);
+}
+
+function toggleGpuFilter(gpuType) {
+  const normalized = String(gpuType || "").trim();
+  if (!normalized) {
+    return;
+  }
+
+  activeGpuFilters = activeGpuFilters.includes(normalized)
+    ? activeGpuFilters.filter((value) => value !== normalized)
+    : [...activeGpuFilters, normalized];
 }
 
 function renderSummary(summary) {
@@ -295,7 +316,13 @@ function renderBreakdown(rows) {
   breakdownBody.innerHTML = rows
     .map((row) => `
       <tr>
-        <td>${escapeHtml(row.gpu_type)}</td>
+        <td><button
+          type="button"
+          class="breakdown-gpu-filter"
+          data-gpu-filter="${escapeHtml(row.gpu_type)}"
+          aria-pressed="${activeGpuFilters.includes(row.gpu_type)}"
+          title="${activeGpuFilters.includes(row.gpu_type) ? `Remove ${escapeHtml(row.gpu_type)} GPU filter` : `Filter machines by ${escapeHtml(row.gpu_type)}`}"
+        >${escapeHtml(row.gpu_type)}</button></td>
         <td class="breakdown-num-col">${row.machines}</td>
         <td class="breakdown-gpus-col">${row.listed_gpus}/${row.unlisted_gpus}</td>
         <td><span class="util-chip ${utilClass(row.utilisation_pct)}">${row.utilisation_pct}%</span></td>
@@ -334,6 +361,82 @@ function renderMachineEmptyState(count) {
     machinesEmptyState.textContent = "";
     machinesEmptyState.classList.add("hidden");
   }
+}
+
+function renderActiveGpuFilters(resultCount) {
+  if (!activeGpuFilterRow || !activeGpuFilterSummary || !activeGpuFilterList) {
+    return;
+  }
+
+  if (activeGpuFilters.length === 0) {
+    activeGpuFilterSummary.textContent = "";
+    activeGpuFilterList.innerHTML = "";
+    activeGpuFilterRow.classList.add("hidden");
+    return;
+  }
+
+  const machineLabel = resultCount === 1 ? "machine" : "machines";
+  activeGpuFilterSummary.textContent = `GPU filters (${activeGpuFilters.length}) · ${resultCount} ${machineLabel}`;
+  activeGpuFilterList.innerHTML = activeGpuFilters
+    .map((gpuType) => `
+      <button
+        type="button"
+        class="machine-filter-chip active"
+        data-remove-gpu-filter="${escapeHtml(gpuType)}"
+        title="Remove GPU filter for ${escapeHtml(gpuType)}"
+        aria-label="Remove GPU filter for ${escapeHtml(gpuType)}"
+      >
+        <span>${escapeHtml(gpuType)}</span>
+        <span class="machine-filter-chip-close" aria-hidden="true">&times;</span>
+      </button>
+    `)
+    .join("");
+  activeGpuFilterRow.classList.remove("hidden");
+}
+
+function updateFilterGpuSelectOptions() {
+  if (!filterGpuSelect) {
+    return;
+  }
+
+  const options = getAvailableGpuTypes(currentMachinesData)
+    .map((gpuType) => `<option value="${escapeHtml(gpuType)}">${escapeHtml(gpuType)}</option>`)
+    .join("");
+
+  filterGpuSelect.innerHTML = `<option value="">GPU...</option>${options}`;
+  filterGpuSelect.disabled = options.length === 0;
+  filterGpuSelect.value = "";
+}
+
+function getActiveFilterCount() {
+  let count = 0;
+  if (filterSearch.value.trim()) count += 1;
+  if (filterStatus.value !== "all") count += 1;
+  if (filterListed.value !== "all") count += 1;
+  if (filterDc.value !== "all") count += 1;
+  if (filterOwner.value.trim()) count += 1;
+  if (filterTeam.value.trim()) count += 1;
+  if (filterErrors.checked) count += 1;
+  if (filterReports.checked) count += 1;
+  if (filterMaint.checked) count += 1;
+  count += activeGpuFilters.length;
+  return count;
+}
+
+function updateFilterResetState() {
+  if (!filterReset) {
+    return;
+  }
+
+  const activeFilterCount = getActiveFilterCount();
+  filterReset.textContent = activeFilterCount > 0 ? `Clear (${activeFilterCount})` : "Clear";
+  filterReset.classList.toggle("active", activeFilterCount > 0);
+  filterReset.setAttribute(
+    "title",
+    activeFilterCount > 0
+      ? `Clear ${activeFilterCount} active machine filter${activeFilterCount === 1 ? "" : "s"}`
+      : "Clear all machine-table filters and return to the default filter state."
+  );
 }
 
 function updateMachineViewTabs() {
@@ -911,6 +1014,7 @@ function initializeStateFromUrl() {
   filterDc.value = initialState.filterDc;
   filterOwner.value = initialState.filterOwner;
   filterTeam.value = initialState.filterTeam;
+  activeGpuFilters = [...initialState.filterGpuTypes];
   filterErrors.checked = initialState.filterErrors;
   filterReports.checked = initialState.filterReports;
   filterMaint.checked = initialState.filterMaint;
@@ -922,6 +1026,7 @@ function initializeStateFromUrl() {
 
   applyUiSettings();
   saveMachineFilters();
+  updateFilterResetState();
 }
 
 function persistStateToUrl() {
@@ -937,6 +1042,7 @@ function persistStateToUrl() {
     filterDc: filterDc.value,
     filterOwner: filterOwner.value,
     filterTeam: filterTeam.value,
+    filterGpuTypes: activeGpuFilters,
     filterErrors: filterErrors.checked,
     filterReports: filterReports.checked,
     filterMaint: filterMaint.checked,
@@ -953,6 +1059,7 @@ function saveMachineFilters() {
     dc: filterDc.value,
     owner: filterOwner.value,
     team: filterTeam.value,
+    gpuTypes: activeGpuFilters,
     errors: filterErrors.checked,
     reports: filterReports.checked,
     maint: filterMaint.checked,
@@ -1136,10 +1243,12 @@ const dashboardController = createDashboardController({
   applyStatusPayload: (status) => {
     ensureClientExtensionsLoaded(status.extensions);
     currentMachinesData = Array.isArray(status.machines) ? status.machines : [];
+    currentGpuTypeBreakdown = Array.isArray(status.gpuTypeBreakdown) ? status.gpuTypeBreakdown : [];
+    updateFilterGpuSelectOptions();
     renderSummary(status.summary);
     renderSummaryMeta(status.latestPollAt);
     renderSummaryComparison(status.summary?.comparison24h);
-    renderBreakdown(Array.isArray(status.gpuTypeBreakdown) ? status.gpuTypeBreakdown : []);
+    renderBreakdown(currentGpuTypeBreakdown);
     renderBreakdownMeta(status.latestPollAt);
     renderMachinesSorted();
     lastKnownHealth = status.health;
@@ -1377,6 +1486,9 @@ bindDashboardControls({
   settingsReset,
   trendRange,
   trendUtilGpuSelect,
+  breakdownBody,
+  activeGpuFilterList,
+  filterGpuSelect,
   filterControls: [
     filterSearch,
     filterStatus,
@@ -1454,6 +1566,34 @@ bindDashboardControls({
       renderFleetTrends(latestFleetHistoryPayload);
     }
   },
+  onGpuFilterSelect: () => {
+    const nextGpuType = filterGpuSelect.value || "";
+    if (!nextGpuType) {
+      return;
+    }
+    toggleGpuFilter(nextGpuType);
+    filterGpuSelect.value = "";
+    persistStateToUrl();
+    renderBreakdown(currentGpuTypeBreakdown);
+    renderMachinesSorted();
+    filterGpuSelect.focus();
+  },
+  onBreakdownGpuClick: (gpuType) => {
+    toggleGpuFilter(gpuType);
+    persistStateToUrl();
+    renderBreakdown(currentGpuTypeBreakdown);
+    renderMachinesSorted();
+  },
+  onRemoveGpuFilter: (gpuType) => {
+    if (!gpuType) {
+      return;
+    }
+    activeGpuFilters = activeGpuFilters.filter((value) => value !== gpuType);
+    persistStateToUrl();
+    renderBreakdown(currentGpuTypeBreakdown);
+    renderMachinesSorted();
+    filterGpuSelect.value = "";
+  },
   onFiltersChanged: () => {
     persistStateToUrl();
     renderMachinesSorted();
@@ -1463,12 +1603,17 @@ bindDashboardControls({
     filterStatus.value = "all";
     filterListed.value = "all";
     filterDc.value = "all";
+    if (filterGpuSelect) {
+      filterGpuSelect.value = "";
+    }
+    activeGpuFilters = [];
     filterOwner.value = "";
     filterTeam.value = "";
     filterErrors.checked = false;
     filterReports.checked = false;
     filterMaint.checked = false;
     persistStateToUrl();
+    renderBreakdown(currentGpuTypeBreakdown);
     renderMachinesSorted();
   },
   onEarningsPrev: () => {
