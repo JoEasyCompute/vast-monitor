@@ -201,7 +201,7 @@ The dashboard includes:
 - Configurable frontend highlighting thresholds for low reliability and high temperature
 - Recent alerts
 - Compact poll monitor panel with latest poll timings and counts
-- Dedicated `DB Admin` dashboard panel that uses the optional admin token from Settings to show database size, row counts, retention state, derived-state version info, per-route timing metrics, and a retention dry-run preview
+- Dedicated `DB Admin` dashboard panel that uses the optional admin token from Settings to show database size, row counts, retention state, derived-state version info, recent maintenance history, per-route timing metrics, and a retention dry-run preview
 - `DB Admin` also supports safe operator actions such as `Analyze`, `Vacuum`, retention dry-run preview, and on-demand derived-state rebuilds
 - Per-machine history modal with tabbed `Charts` and `Recent Events` views
 - Clicking a machine row opens the machine history modal
@@ -312,6 +312,7 @@ Returns:
 - row counts for `polls`, raw `fleet_snapshots`, hourly fleet rollups, raw `machine_snapshots`, hourly machine rollups, hourly GPU-utilization rollups, hourly GPU-price rollups, `alerts`, and `events`
 - configured retention windows
 - derived-state metadata such as the current fleet snapshot version
+- recent maintenance runs and in-progress maintenance state
 - recent in-process route timing metrics for operator troubleshooting
 
 ### `GET /api/admin/retention-preview`

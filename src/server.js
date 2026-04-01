@@ -51,10 +51,14 @@ export function createServer({ config, db, monitor, plugins = [] }) {
       return;
     }
 
-    res.json({
-      ok: true,
-      analyze: typeof db?.runAnalyze === "function" ? db.runAnalyze() : null
-    });
+    try {
+      res.json({
+        ok: true,
+        analyze: typeof db?.runAnalyze === "function" ? db.runAnalyze() : null
+      });
+    } catch (error) {
+      handleAdminActionError(res, error);
+    }
   }));
 
   app.post("/api/admin/vacuum", routeMetrics.wrap("admin_vacuum", (req, res) => {
@@ -62,10 +66,14 @@ export function createServer({ config, db, monitor, plugins = [] }) {
       return;
     }
 
-    res.json({
-      ok: true,
-      vacuum: typeof db?.runVacuum === "function" ? db.runVacuum() : null
-    });
+    try {
+      res.json({
+        ok: true,
+        vacuum: typeof db?.runVacuum === "function" ? db.runVacuum() : null
+      });
+    } catch (error) {
+      handleAdminActionError(res, error);
+    }
   }));
 
   app.post("/api/admin/rebuild-derived", routeMetrics.wrap("admin_rebuild_derived", (req, res) => {
@@ -73,10 +81,14 @@ export function createServer({ config, db, monitor, plugins = [] }) {
       return;
     }
 
-    res.json({
-      ok: true,
-      rebuild: typeof db?.runRebuildDerivedState === "function" ? db.runRebuildDerivedState() : null
-    });
+    try {
+      res.json({
+        ok: true,
+        rebuild: typeof db?.runRebuildDerivedState === "function" ? db.runRebuildDerivedState() : null
+      });
+    } catch (error) {
+      handleAdminActionError(res, error);
+    }
   }));
 
   app.get("/api/history", routeMetrics.wrap("history", (req, res) => {
@@ -627,6 +639,13 @@ function requireAdminAccess(req, res, config) {
   }
 
   return true;
+}
+
+function handleAdminActionError(res, error) {
+  const statusCode = Number.isFinite(error?.statusCode) ? error.statusCode : 500;
+  res.status(statusCode).json({
+    error: error instanceof Error ? error.message : String(error)
+  });
 }
 
 function createRouteMetricsStore() {

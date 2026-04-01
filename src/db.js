@@ -266,6 +266,29 @@ const SCHEMA_MIGRATIONS = [
         deduped_fleet_snapshot_rows: dedupedFleetSnapshotRows
       };
     }
+  },
+  {
+    id: "002_maintenance_runs",
+    description: "Track operator maintenance executions",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS maintenance_runs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          action TEXT NOT NULL,
+          status TEXT NOT NULL,
+          started_at TEXT NOT NULL,
+          completed_at TEXT,
+          duration_ms INTEGER,
+          result_json TEXT,
+          error_text TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_maintenance_runs_started_at
+          ON maintenance_runs(started_at DESC);
+      `);
+
+      return {};
+    }
   }
 ];
 
@@ -296,6 +319,25 @@ export function createDatabase(dbPath, options = {}) {
       SELECT key, value, updated_at
       FROM db_meta
       ORDER BY key ASC
+    `),
+    insertMaintenanceRun: db.prepare(`
+      INSERT INTO maintenance_runs (action, status, started_at)
+      VALUES (@action, @status, @started_at)
+    `),
+    completeMaintenanceRun: db.prepare(`
+      UPDATE maintenance_runs
+      SET status = @status,
+          completed_at = @completed_at,
+          duration_ms = @duration_ms,
+          result_json = @result_json,
+          error_text = @error_text
+      WHERE id = @id
+    `),
+    selectRecentMaintenanceRuns: db.prepare(`
+      SELECT id, action, status, started_at, completed_at, duration_ms, result_json, error_text
+      FROM maintenance_runs
+      ORDER BY started_at DESC, id DESC
+      LIMIT ?
     `),
     selectSchemaMigrations: db.prepare(`
       SELECT id, description, applied_at
@@ -672,6 +714,9 @@ export function createDatabase(dbPath, options = {}) {
     countSchemaMigrations: db.prepare(`
       SELECT COUNT(*) AS count FROM schema_migrations
     `),
+    countMaintenanceRuns: db.prepare(`
+      SELECT COUNT(*) AS count FROM maintenance_runs
+    `),
     countFleetSnapshots: db.prepare(`
       SELECT COUNT(*) AS count FROM fleet_snapshots
     `),
@@ -719,6 +764,7 @@ export function createDatabase(dbPath, options = {}) {
     retention: applyRetentionPolicies(statements, options),
     fleet_snapshots: reconcileFleetSnapshots(statements)
   };
+  let currentMaintenanceRun = null;
 
   const txRecordPoll = db.transaction(({ timestamp, machines, offlineMachines, events, alerts }) => {
     const pollId = statements.insertPoll.run(timestamp).lastInsertRowid;
@@ -1232,6 +1278,7 @@ export function createDatabase(dbPath, options = {}) {
       file_size_bytes: getDatabaseFileSize(db.name),
       row_counts: {
         schema_migrations: statements.countSchemaMigrations.get()?.count ?? 0,
+        maintenance_runs: statements.countMaintenanceRuns.get()?.count ?? 0,
         polls: statements.countPolls.get()?.count ?? 0,
         fleet_snapshots: statements.countFleetSnapshots.get()?.count ?? 0,
         fleet_snapshot_hourly_rollups: statements.countFleetSnapshotHourlyRollups.get()?.count ?? 0,
@@ -1251,6 +1298,24 @@ export function createDatabase(dbPath, options = {}) {
         fleet_snapshot_state_version: metadata.fleet_snapshot_state_version?.value ?? null,
         fleet_snapshot_state_updated_at: metadata.fleet_snapshot_state_version?.updated_at ?? null
       },
+      maintenance: {
+        in_progress: currentMaintenanceRun
+          ? {
+              action: currentMaintenanceRun.action,
+              started_at: currentMaintenanceRun.started_at
+            }
+          : null,
+        recent_runs: statements.selectRecentMaintenanceRuns.all(10).map((row) => ({
+          id: row.id,
+          action: row.action,
+          status: row.status,
+          started_at: row.started_at,
+          completed_at: row.completed_at,
+          duration_ms: row.duration_ms,
+          result: parseJsonOrNull(row.result_json),
+          error_text: row.error_text
+        }))
+      },
       schema_migrations: statements.selectSchemaMigrations.all(),
       metadata
     };
@@ -1266,141 +1331,199 @@ export function createDatabase(dbPath, options = {}) {
     return buildRetentionPreview(statements, options);
   }
 
-  function runAnalyze() {
-    const startedAt = Date.now();
-    db.exec("ANALYZE");
-    const completedAt = new Date().toISOString();
-    statements.upsertMeta.run({
-      key: "analyze_last_run_at",
-      value: completedAt,
-      updated_at: completedAt
-    });
+  function runMaintenanceAction(action, handler) {
+    if (currentMaintenanceRun) {
+      const error = new Error(`${currentMaintenanceRun.action} is already running`);
+      error.code = "MAINTENANCE_BUSY";
+      error.statusCode = 409;
+      throw error;
+    }
 
-    return {
-      completed_at: completedAt,
-      duration_ms: Date.now() - startedAt
+    const startedAt = new Date().toISOString();
+    const startedMs = Date.now();
+    const runId = statements.insertMaintenanceRun.run({
+      action,
+      status: "running",
+      started_at: startedAt
+    }).lastInsertRowid;
+
+    currentMaintenanceRun = {
+      action,
+      started_at: startedAt,
+      run_id: runId
     };
+
+    try {
+      const result = handler() || {};
+      const completedAt = result.completed_at || new Date().toISOString();
+      const durationMs = Number.isFinite(result.duration_ms) ? result.duration_ms : Date.now() - startedMs;
+      const finalResult = {
+        ...result,
+        completed_at: completedAt,
+        duration_ms: durationMs
+      };
+
+      statements.completeMaintenanceRun.run({
+        id: runId,
+        status: "succeeded",
+        completed_at: completedAt,
+        duration_ms: durationMs,
+        result_json: JSON.stringify(finalResult),
+        error_text: null
+      });
+
+      return finalResult;
+    } catch (error) {
+      const completedAt = new Date().toISOString();
+      statements.completeMaintenanceRun.run({
+        id: runId,
+        status: "failed",
+        completed_at: completedAt,
+        duration_ms: Date.now() - startedMs,
+        result_json: null,
+        error_text: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    } finally {
+      currentMaintenanceRun = null;
+    }
+  }
+
+  function runAnalyze() {
+    return runMaintenanceAction("analyze", () => {
+      db.exec("ANALYZE");
+      const completedAt = new Date().toISOString();
+      statements.upsertMeta.run({
+        key: "analyze_last_run_at",
+        value: completedAt,
+        updated_at: completedAt
+      });
+
+      return {
+        completed_at: completedAt
+      };
+    });
   }
 
   function runVacuum() {
-    const startedAt = Date.now();
-    db.exec("VACUUM");
-    const completedAt = new Date().toISOString();
-    statements.upsertMeta.run({
-      key: "vacuum_last_run_at",
-      value: completedAt,
-      updated_at: completedAt
-    });
-
-    return {
-      completed_at: completedAt,
-      duration_ms: Date.now() - startedAt,
-      file_size_bytes: getDatabaseFileSize(db.name)
-    };
-  }
-
-  function runRebuildDerivedState() {
-    const startedAt = Date.now();
-    const tx = db.transaction(() => {
-      const fleetSourcePolls = statements.selectAllFleetSnapshotSourcePolls.all();
-      const allMachineSnapshotRows = statements.selectAllMachineSnapshotsForRollups.all();
-
-      const deletedFleetSnapshots = statements.deleteAllFleetSnapshots.run().changes;
-      const deletedFleetRollups = statements.deleteAllFleetSnapshotHourlyRollups.run().changes;
-      const deletedMachineRollups = statements.deleteAllMachineSnapshotHourlyRollups.run().changes;
-      const deletedGpuUtilRollups = statements.deleteAllGpuTypeUtilizationHourlyRollups.run().changes;
-      const deletedGpuPriceRollups = statements.deleteAllGpuTypePriceHourlyRollups.run().changes;
-
-      let rebuiltFleetSnapshots = 0;
-      for (const snapshot of fleetSourcePolls) {
-        const pollId = Number(snapshot.poll_id);
-        const machines = statements.selectFleetSnapshotBackfillMachinesByPollId.all(pollId);
-        if (!machines.length) {
-          continue;
-        }
-
-        statements.insertFleetSnapshot.run({
-          poll_id: pollId,
-          polled_at: snapshot.polled_at,
-          ...buildFleetSnapshot(machines)
-        });
-        rebuiltFleetSnapshots += 1;
-      }
-
-      const allFleetSnapshotRows = statements.selectAllFleetSnapshotsForRollups.all();
-      const fleetRollups = groupFleetSnapshotRollupRows(allFleetSnapshotRows);
-      for (const [bucketStart, group] of fleetRollups.entries()) {
-        statements.upsertFleetSnapshotHourlyRollup.run({
-          bucket_start: bucketStart,
-          sample_count: group.length,
-          total_machines: averageFinite(group.map((row) => row.total_machines)) ?? 0,
-          datacenter_machines: averageFinite(group.map((row) => row.datacenter_machines)) ?? 0,
-          unlisted_machines: averageFinite(group.map((row) => row.unlisted_machines)) ?? 0,
-          listed_gpus: averageFinite(group.map((row) => row.listed_gpus)) ?? 0,
-          unlisted_gpus: averageFinite(group.map((row) => row.unlisted_gpus)) ?? 0,
-          occupied_gpus: averageFinite(group.map((row) => row.occupied_gpus)) ?? 0,
-          utilisation_pct: averageFinite(group.map((row) => row.utilisation_pct)) ?? 0,
-          total_daily_earnings: averageFinite(group.map((row) => row.total_daily_earnings)) ?? 0
-        });
-      }
-
-      const machineRollups = groupMachineSnapshotRollupRows(allMachineSnapshotRows);
-      for (const [key, group] of machineRollups.entries()) {
-        const latest = group[group.length - 1];
-        const bucketStart = key.slice(key.indexOf("|") + 1);
-        statements.upsertMachineSnapshotHourlyRollup.run({
-          bucket_start: bucketStart,
-          machine_id: latest.machine_id,
-          sample_count: group.length,
-          hostname: latest.hostname,
-          status: latest.status,
-          occupancy: latest.occupancy,
-          num_gpus: latest.num_gpus,
-          occupied_gpus: averageFinite(group.map((row) => row.occupied_gpus)),
-          current_rentals_running: averageFinite(group.map((row) => row.current_rentals_running)),
-          reliability: averageFinite(group.map((row) => row.reliability)),
-          gpu_max_cur_temp: maxFinite(group.map((row) => row.gpu_max_cur_temp)),
-          listed_gpu_cost: averageFinite(group.map((row) => row.listed_gpu_cost)),
-          earn_day: averageFinite(group.map((row) => row.earn_day))
-        });
-      }
-
-      const gpuRollups = rollupGpuTypeHistoryRows(allMachineSnapshotRows);
-      for (const row of gpuRollups.utilization_rows) {
-        statements.upsertGpuTypeUtilizationHourlyRollup.run(row);
-      }
-      for (const row of gpuRollups.price_rows) {
-        statements.upsertGpuTypePriceHourlyRollup.run(row);
-      }
-
+    return runMaintenanceAction("vacuum", () => {
+      db.exec("VACUUM");
       const completedAt = new Date().toISOString();
       statements.upsertMeta.run({
-        key: "derived_rebuild_last_run_at",
+        key: "vacuum_last_run_at",
         value: completedAt,
         updated_at: completedAt
       });
 
       return {
         completed_at: completedAt,
-        duration_ms: Date.now() - startedAt,
-        deleted: {
-          fleet_snapshots: deletedFleetSnapshots,
-          fleet_snapshot_hourly_rollups: deletedFleetRollups,
-          machine_snapshot_hourly_rollups: deletedMachineRollups,
-          gpu_type_utilization_hourly_rollups: deletedGpuUtilRollups,
-          gpu_type_price_hourly_rollups: deletedGpuPriceRollups
-        },
-        rebuilt: {
-          fleet_snapshots: rebuiltFleetSnapshots,
-          fleet_snapshot_hourly_rollups: fleetRollups.size,
-          machine_snapshot_hourly_rollups: machineRollups.size,
-          gpu_type_utilization_hourly_rollups: gpuRollups.utilization_upserted,
-          gpu_type_price_hourly_rollups: gpuRollups.price_upserted
-        }
+        file_size_bytes: getDatabaseFileSize(db.name)
       };
     });
+  }
 
-    return tx();
+  function runRebuildDerivedState() {
+    return runMaintenanceAction("rebuild_derived", () => {
+      const tx = db.transaction(() => {
+        const fleetSourcePolls = statements.selectAllFleetSnapshotSourcePolls.all();
+        const allMachineSnapshotRows = statements.selectAllMachineSnapshotsForRollups.all();
+
+        const deletedFleetSnapshots = statements.deleteAllFleetSnapshots.run().changes;
+        const deletedFleetRollups = statements.deleteAllFleetSnapshotHourlyRollups.run().changes;
+        const deletedMachineRollups = statements.deleteAllMachineSnapshotHourlyRollups.run().changes;
+        const deletedGpuUtilRollups = statements.deleteAllGpuTypeUtilizationHourlyRollups.run().changes;
+        const deletedGpuPriceRollups = statements.deleteAllGpuTypePriceHourlyRollups.run().changes;
+
+        let rebuiltFleetSnapshots = 0;
+        for (const snapshot of fleetSourcePolls) {
+          const pollId = Number(snapshot.poll_id);
+          const machines = statements.selectFleetSnapshotBackfillMachinesByPollId.all(pollId);
+          if (!machines.length) {
+            continue;
+          }
+
+          statements.insertFleetSnapshot.run({
+            poll_id: pollId,
+            polled_at: snapshot.polled_at,
+            ...buildFleetSnapshot(machines)
+          });
+          rebuiltFleetSnapshots += 1;
+        }
+
+        const allFleetSnapshotRows = statements.selectAllFleetSnapshotsForRollups.all();
+        const fleetRollups = groupFleetSnapshotRollupRows(allFleetSnapshotRows);
+        for (const [bucketStart, group] of fleetRollups.entries()) {
+          statements.upsertFleetSnapshotHourlyRollup.run({
+            bucket_start: bucketStart,
+            sample_count: group.length,
+            total_machines: averageFinite(group.map((row) => row.total_machines)) ?? 0,
+            datacenter_machines: averageFinite(group.map((row) => row.datacenter_machines)) ?? 0,
+            unlisted_machines: averageFinite(group.map((row) => row.unlisted_machines)) ?? 0,
+            listed_gpus: averageFinite(group.map((row) => row.listed_gpus)) ?? 0,
+            unlisted_gpus: averageFinite(group.map((row) => row.unlisted_gpus)) ?? 0,
+            occupied_gpus: averageFinite(group.map((row) => row.occupied_gpus)) ?? 0,
+            utilisation_pct: averageFinite(group.map((row) => row.utilisation_pct)) ?? 0,
+            total_daily_earnings: averageFinite(group.map((row) => row.total_daily_earnings)) ?? 0
+          });
+        }
+
+        const machineRollups = groupMachineSnapshotRollupRows(allMachineSnapshotRows);
+        for (const [key, group] of machineRollups.entries()) {
+          const latest = group[group.length - 1];
+          const bucketStart = key.slice(key.indexOf("|") + 1);
+          statements.upsertMachineSnapshotHourlyRollup.run({
+            bucket_start: bucketStart,
+            machine_id: latest.machine_id,
+            sample_count: group.length,
+            hostname: latest.hostname,
+            status: latest.status,
+            occupancy: latest.occupancy,
+            num_gpus: latest.num_gpus,
+            occupied_gpus: averageFinite(group.map((row) => row.occupied_gpus)),
+            current_rentals_running: averageFinite(group.map((row) => row.current_rentals_running)),
+            reliability: averageFinite(group.map((row) => row.reliability)),
+            gpu_max_cur_temp: maxFinite(group.map((row) => row.gpu_max_cur_temp)),
+            listed_gpu_cost: averageFinite(group.map((row) => row.listed_gpu_cost)),
+            earn_day: averageFinite(group.map((row) => row.earn_day))
+          });
+        }
+
+        const gpuRollups = rollupGpuTypeHistoryRows(allMachineSnapshotRows);
+        for (const row of gpuRollups.utilization_rows) {
+          statements.upsertGpuTypeUtilizationHourlyRollup.run(row);
+        }
+        for (const row of gpuRollups.price_rows) {
+          statements.upsertGpuTypePriceHourlyRollup.run(row);
+        }
+
+        const completedAt = new Date().toISOString();
+        statements.upsertMeta.run({
+          key: "derived_rebuild_last_run_at",
+          value: completedAt,
+          updated_at: completedAt
+        });
+
+        return {
+          completed_at: completedAt,
+          deleted: {
+            fleet_snapshots: deletedFleetSnapshots,
+            fleet_snapshot_hourly_rollups: deletedFleetRollups,
+            machine_snapshot_hourly_rollups: deletedMachineRollups,
+            gpu_type_utilization_hourly_rollups: deletedGpuUtilRollups,
+            gpu_type_price_hourly_rollups: deletedGpuPriceRollups
+          },
+          rebuilt: {
+            fleet_snapshots: rebuiltFleetSnapshots,
+            fleet_snapshot_hourly_rollups: fleetRollups.size,
+            machine_snapshot_hourly_rollups: machineRollups.size,
+            gpu_type_utilization_hourly_rollups: gpuRollups.utilization_upserted,
+            gpu_type_price_hourly_rollups: gpuRollups.price_upserted
+          }
+        };
+      });
+
+      return tx();
+    });
   }
 
   return {
@@ -1425,6 +1548,18 @@ export function createDatabase(dbPath, options = {}) {
 
 function buildFleetSnapshot(machines) {
   return buildFleetAggregate(machines).summary;
+}
+
+function parseJsonOrNull(value) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }
 
 function applySchemaMigrations(db) {

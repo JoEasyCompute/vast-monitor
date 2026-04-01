@@ -34,6 +34,7 @@ export function buildDbAdminPanelMarkup({
   const rowCounts = database.row_counts || {};
   const routeMetrics = database.route_metrics || dbHealth.route_metrics || {};
   const metadata = database.metadata || {};
+  const maintenance = database.maintenance || {};
   const cards = [
     ["DB Size", formatDbSize(database.file_size_bytes)],
     ["Fleet Ver", database.derived_state?.fleet_snapshot_state_version || "-"],
@@ -92,6 +93,7 @@ export function buildDbAdminPanelMarkup({
         <div class="db-admin-path">Last Analyze: ${escapeHtml(formatMaintenanceTimestamp(metadata.analyze_last_run_at?.value))}</div>
         <div class="db-admin-path">Last Vacuum: ${escapeHtml(formatMaintenanceTimestamp(metadata.vacuum_last_run_at?.value))}</div>
         <div class="db-admin-path">Last Derived Rebuild: ${escapeHtml(formatMaintenanceTimestamp(metadata.derived_rebuild_last_run_at?.value))}</div>
+        <div class="db-admin-path">Maintenance Active: ${escapeHtml(maintenance.in_progress?.action || "No")}</div>
       </div>
       <div class="table-wrap">
         <table class="db-admin-table">
@@ -109,6 +111,7 @@ export function buildDbAdminPanelMarkup({
           <tbody>${routeMetricMarkup || '<tr><td colspan="7" class="muted">No route timing data yet.</td></tr>'}</tbody>
         </table>
       </div>
+      ${buildMaintenanceHistoryMarkup(maintenance)}
       ${buildAnalyzeMarkup(analyzeResult, analyzeError)}
       ${buildVacuumMarkup(vacuumResult, vacuumError)}
       ${buildRebuildMarkup(rebuildResult, rebuildError)}
@@ -208,6 +211,40 @@ function buildAnalyzeMarkup(result, error) {
         <div class="db-admin-path">Completed: ${escapeHtml(result.completed_at || "unknown")}</div>
         <div class="db-admin-path">Duration: ${escapeHtml(formatMetricMs(result.duration_ms))}</div>
       </div>
+    </div>
+  `;
+}
+
+function buildMaintenanceHistoryMarkup(maintenance = {}) {
+  const runs = Array.isArray(maintenance.recent_runs) ? maintenance.recent_runs : [];
+  if (!runs.length) {
+    return "";
+  }
+
+  return `
+    <div class="table-wrap">
+      <table class="db-admin-table">
+        <thead>
+          <tr>
+            <th>Maintenance</th>
+            <th>Status</th>
+            <th>Started</th>
+            <th>Completed</th>
+            <th>Duration</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${runs.map((run) => `
+            <tr>
+              <td>${escapeHtml(run.action || "-")}</td>
+              <td>${escapeHtml(run.status || "-")}</td>
+              <td>${escapeHtml(formatMaintenanceTimestamp(run.started_at))}</td>
+              <td>${escapeHtml(formatMaintenanceTimestamp(run.completed_at))}</td>
+              <td>${escapeHtml(formatMetricMs(run.duration_ms))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
     </div>
   `;
 }

@@ -150,6 +150,7 @@ test("server integration returns expected API payloads and dependency failures",
     assert.equal(dbHealth.body.database.row_counts.machine_snapshot_hourly_rollups, 0);
     assert.equal(dbHealth.body.database.row_counts.gpu_type_utilization_hourly_rollups, 0);
     assert.equal(dbHealth.body.database.row_counts.gpu_type_price_hourly_rollups, 0);
+    assert.equal(dbHealth.body.database.row_counts.maintenance_runs, 0);
     assert.equal(dbHealth.body.database.row_counts.alerts, 1);
     assert.equal(dbHealth.body.database.derived_state.fleet_snapshot_state_version, "1");
     assert.equal(dbHealth.body.database.retention.snapshot_days, 0);
@@ -174,6 +175,13 @@ test("server integration returns expected API payloads and dependency failures",
     assert.ok(Number.isFinite(rebuild.body.rebuild.duration_ms));
     assert.ok(typeof rebuild.body.rebuild.completed_at === "string");
     assert.ok(Number.isFinite(rebuild.body.rebuild.rebuilt.fleet_snapshots));
+    const dbHealthAfterMaintenance = await invokeRoute(app, "/api/admin/db-health", {
+      headers: {
+        authorization: "Bearer secret-admin-token"
+      }
+    });
+    assert.equal(dbHealthAfterMaintenance.body.database.row_counts.maintenance_runs, 3);
+    assert.equal(dbHealthAfterMaintenance.body.database.maintenance.recent_runs[0].action, "rebuild_derived");
 
     assert.equal(fleet.statusCode, 200);
     assert.ok(Array.isArray(fleet.body.history));

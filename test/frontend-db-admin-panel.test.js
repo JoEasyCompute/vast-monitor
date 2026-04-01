@@ -61,6 +61,16 @@ test("db admin panel renders database counts and route metrics when health is av
             value: "2026-04-01T13:00:00.000Z"
           }
         },
+        maintenance: {
+          in_progress: null,
+          recent_runs: [{
+            action: "analyze",
+            status: "succeeded",
+            started_at: "2026-04-01T11:00:00.000Z",
+            completed_at: "2026-04-01T11:00:42.000Z",
+            duration_ms: 42
+          }]
+        },
         route_metrics: {
           status: {
             calls: 4,
@@ -95,6 +105,8 @@ test("db admin panel renders database counts and route metrics when health is av
   assert.match(result.markup, /Last Analyze:/);
   assert.match(result.markup, /Last Vacuum:/);
   assert.match(result.markup, /Last Derived Rebuild:/);
+  assert.match(result.markup, /Maintenance Active: No/);
+  assert.match(result.markup, /analyze/);
 });
 
 test("db admin panel renders retention preview actions and preview details", () => {

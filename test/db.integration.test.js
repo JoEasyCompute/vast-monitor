@@ -242,14 +242,21 @@ test("database startup records applied schema migrations on fresh databases", ()
       ORDER BY id ASC
     `).all();
 
-    assert.deepEqual(migrations, [{
-      id: "001_managed_schema_baseline",
-      description: "Create baseline tables/indexes and backfill additive columns"
-    }]);
+    assert.deepEqual(migrations, [
+      {
+        id: "001_managed_schema_baseline",
+        description: "Create baseline tables/indexes and backfill additive columns"
+      },
+      {
+        id: "002_maintenance_runs",
+        description: "Track operator maintenance executions"
+      }
+    ]);
 
     const dbHealth = store.getDatabaseHealth();
-    assert.equal(dbHealth.row_counts.schema_migrations, 1);
+    assert.equal(dbHealth.row_counts.schema_migrations, 2);
     assert.equal(dbHealth.schema_migrations[0].id, "001_managed_schema_baseline");
+    assert.equal(dbHealth.schema_migrations[1].id, "002_maintenance_runs");
   } finally {
     store.db.close();
   }
@@ -335,7 +342,10 @@ test("database startup upgrades legacy schema through managed migrations", () =>
     assert.ok(machineSnapshotColumns.includes("listed"));
     assert.ok(machineSnapshotColumns.includes("last_seen_at"));
     assert.ok(machineSnapshotColumns.includes("is_datacenter"));
-    assert.deepEqual(migrations, [{ id: "001_managed_schema_baseline" }]);
+    assert.deepEqual(migrations, [
+      { id: "001_managed_schema_baseline" },
+      { id: "002_maintenance_runs" }
+    ]);
   } finally {
     store.db.close();
   }
@@ -575,5 +585,32 @@ test("startup retention prunes old snapshots, polls, alerts, and events when con
     if (!firstStoreClosed) {
       firstStore.db.close();
     }
+  }
+});
+
+test("database maintenance actions are recorded in maintenance_runs", () => {
+  const dbPath = makeTempDbPath("vast-monitor-db-maintenance-runs-");
+  const store = createDatabase(dbPath);
+
+  try {
+    const analyze = store.runAnalyze();
+    const vacuum = store.runVacuum();
+    const rebuild = store.runRebuildDerivedState();
+    const dbHealth = store.getDatabaseHealth();
+
+    assert.ok(Number.isFinite(analyze.duration_ms));
+    assert.ok(Number.isFinite(vacuum.duration_ms));
+    assert.ok(Number.isFinite(rebuild.duration_ms));
+    assert.equal(dbHealth.row_counts.maintenance_runs, 3);
+    assert.equal(dbHealth.maintenance.in_progress, null);
+    assert.equal(dbHealth.maintenance.recent_runs[0].action, "rebuild_derived");
+    assert.equal(dbHealth.maintenance.recent_runs[1].action, "vacuum");
+    assert.equal(dbHealth.maintenance.recent_runs[2].action, "analyze");
+    assert.equal(dbHealth.maintenance.recent_runs[0].status, "succeeded");
+    assert.ok(dbHealth.metadata.analyze_last_run_at?.value);
+    assert.ok(dbHealth.metadata.vacuum_last_run_at?.value);
+    assert.ok(dbHealth.metadata.derived_rebuild_last_run_at?.value);
+  } finally {
+    store.db.close();
   }
 });
