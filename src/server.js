@@ -22,6 +22,13 @@ export function createServer({ config, db, monitor, plugins = [] }) {
     res.status(health.ok ? 200 : 503).json(health);
   });
 
+  app.get("/api/admin/db-health", (_req, res) => {
+    res.json({
+      ok: true,
+      database: typeof db?.getDatabaseHealth === "function" ? db.getDatabaseHealth() : null
+    });
+  });
+
   app.get("/api/history", (req, res) => {
     const machineId = Number(req.query.machine_id);
     const rawHours = req.query.hours == null ? 24 : Number(req.query.hours);

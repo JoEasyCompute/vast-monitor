@@ -22,8 +22,11 @@ export async function startApp(options = {}) {
     console.warn(`[startup] ${warning}`);
   }
 
-  const db = options.db || createDatabase(runtimeConfig.dbPath);
+  const db = options.db || createDatabase(runtimeConfig.dbPath, runtimeConfig);
   console.log(`[startup] Database ready at ${runtimeConfig.dbPath}`);
+  if (typeof db.getStartupMaintenanceSummary === "function") {
+    console.log(`[startup] Database maintenance: ${formatDatabaseMaintenanceSummary(db.getStartupMaintenanceSummary())}`);
+  }
 
   const plugins = options.plugins || await loadPlugins(runtimeConfig);
   if (plugins.length > 0) {
@@ -67,6 +70,39 @@ export async function startApp(options = {}) {
   }
 
   return { config: runtimeConfig, db, plugins, alertManager, monitor, app, server };
+}
+
+function formatDatabaseMaintenanceSummary(summary = {}) {
+  const parts = [];
+  const fleet = summary.fleet_snapshots || {};
+  const retention = summary.retention || {};
+
+  if ((summary.deduped_fleet_snapshot_rows || 0) > 0) {
+    parts.push(`deduped ${summary.deduped_fleet_snapshot_rows} fleet snapshot row(s)`);
+  }
+
+  if (fleet.mode === "full_rebuild") {
+    parts.push(`fleet snapshots rebuilt (${fleet.inserted_snapshots || 0} poll(s))`);
+  } else if ((fleet.inserted_snapshots || 0) > 0) {
+    parts.push(`fleet snapshots backfilled (${fleet.inserted_snapshots} poll(s))`);
+  }
+
+  const retentionDeleted = [
+    retention.fleet_snapshots_deleted || 0,
+    retention.machine_snapshots_deleted || 0,
+    retention.polls_deleted || 0,
+    retention.alerts_deleted || 0,
+    retention.events_deleted || 0
+  ].reduce((sum, count) => sum + count, 0);
+  if (retentionDeleted > 0) {
+    parts.push(`retention pruned ${retentionDeleted} row(s)`);
+  }
+
+  if (parts.length === 0) {
+    return "no maintenance needed";
+  }
+
+  return parts.join("; ");
 }
 
 const startedDirectly = process.argv[1] === new URL(import.meta.url).pathname;

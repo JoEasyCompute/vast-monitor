@@ -9,7 +9,9 @@ const UPTIME_WINDOWS = {
   "30d": 24 * 30
 };
 
-export function createDatabase(dbPath) {
+const FLEET_SNAPSHOT_STATE_VERSION = "1";
+
+export function createDatabase(dbPath, options = {}) {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
   const db = new Database(dbPath);
@@ -63,6 +65,12 @@ export function createDatabase(dbPath) {
       polled_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS db_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS fleet_snapshots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       poll_id INTEGER NOT NULL,
@@ -80,6 +88,9 @@ export function createDatabase(dbPath) {
 
     CREATE INDEX IF NOT EXISTS idx_fleet_snapshots_time
       ON fleet_snapshots(polled_at);
+
+    CREATE INDEX IF NOT EXISTS idx_polls_time
+      ON polls(polled_at DESC);
 
     CREATE TABLE IF NOT EXISTS machine_snapshots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,6 +125,12 @@ export function createDatabase(dbPath) {
     CREATE INDEX IF NOT EXISTS idx_machine_snapshots_machine_time
       ON machine_snapshots(machine_id, polled_at);
 
+    CREATE INDEX IF NOT EXISTS idx_machine_snapshots_time
+      ON machine_snapshots(polled_at);
+
+    CREATE INDEX IF NOT EXISTS idx_machine_snapshots_poll_id
+      ON machine_snapshots(poll_id);
+
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       created_at TEXT NOT NULL,
@@ -135,6 +152,26 @@ export function createDatabase(dbPath) {
       message TEXT NOT NULL,
       payload_json TEXT
     );
+
+    CREATE INDEX IF NOT EXISTS idx_alerts_created_at
+      ON alerts(created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_alerts_type_created_machine
+      ON alerts(alert_type, created_at, machine_id);
+  `);
+
+  const dedupedFleetSnapshotRows = db.prepare(`
+    DELETE FROM fleet_snapshots
+    WHERE id NOT IN (
+      SELECT MIN(id)
+      FROM fleet_snapshots
+      GROUP BY poll_id
+    );
+  `).run().changes;
+
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fleet_snapshots_poll_id
+      ON fleet_snapshots(poll_id);
   `);
 
   const machineStateColumns = new Set(
@@ -200,6 +237,23 @@ export function createDatabase(dbPath) {
     insertPoll: db.prepare(`
       INSERT INTO polls (polled_at) VALUES (?)
     `),
+    upsertMeta: db.prepare(`
+      INSERT INTO db_meta (key, value, updated_at)
+      VALUES (@key, @value, @updated_at)
+      ON CONFLICT(key) DO UPDATE SET
+        value = excluded.value,
+        updated_at = excluded.updated_at
+    `),
+    selectMeta: db.prepare(`
+      SELECT value, updated_at
+      FROM db_meta
+      WHERE key = ?
+    `),
+    selectAllMeta: db.prepare(`
+      SELECT key, value, updated_at
+      FROM db_meta
+      ORDER BY key ASC
+    `),
     insertFleetSnapshot: db.prepare(`
       INSERT INTO fleet_snapshots (
         poll_id, polled_at, total_machines, datacenter_machines, unlisted_machines,
@@ -208,9 +262,6 @@ export function createDatabase(dbPath) {
         @poll_id, @polled_at, @total_machines, @datacenter_machines, @unlisted_machines,
         @listed_gpus, @unlisted_gpus, @occupied_gpus, @utilisation_pct, @total_daily_earnings
       )
-    `),
-    deleteFleetSnapshots: db.prepare(`
-      DELETE FROM fleet_snapshots
     `),
     upsertRegistry: db.prepare(`
       INSERT INTO machine_registry (machine_id, hostname, gpu_type, num_gpus, created_at, updated_at)
@@ -324,14 +375,20 @@ export function createDatabase(dbPath) {
       WHERE polled_at >= ? AND polled_at < ?
       ORDER BY polled_at ASC
     `),
-    selectFleetSnapshotPollIds: db.prepare(`
-      SELECT poll_id FROM fleet_snapshots
-    `),
-    selectAllMachineSnapshots: db.prepare(`
-      SELECT poll_id, polled_at, machine_id, hostname, num_gpus, status, occupied_gpus,
-             listed, earn_day, is_datacenter, last_seen_at, last_online_at
+    selectMissingFleetSnapshotPolls: db.prepare(`
+      SELECT machine_snapshots.poll_id, MIN(machine_snapshots.polled_at) AS polled_at
       FROM machine_snapshots
-      ORDER BY poll_id ASC, machine_id ASC
+      LEFT JOIN fleet_snapshots
+        ON fleet_snapshots.poll_id = machine_snapshots.poll_id
+      WHERE fleet_snapshots.poll_id IS NULL
+      GROUP BY machine_snapshots.poll_id
+      ORDER BY machine_snapshots.poll_id ASC
+    `),
+    selectAllFleetSnapshotSourcePolls: db.prepare(`
+      SELECT machine_snapshots.poll_id, MIN(machine_snapshots.polled_at) AS polled_at
+      FROM machine_snapshots
+      GROUP BY machine_snapshots.poll_id
+      ORDER BY machine_snapshots.poll_id ASC
     `),
     selectFleetSnapshotsSince: db.prepare(`
       SELECT polled_at, total_machines, datacenter_machines, unlisted_machines,
@@ -370,10 +427,59 @@ export function createDatabase(dbPath) {
       SELECT listed, num_gpus, listed_gpu_cost
       FROM machine_snapshots
       WHERE poll_id = ?
+    `),
+    selectFleetSnapshotBackfillMachinesByPollId: db.prepare(`
+      SELECT machine_id, hostname, num_gpus, status, occupied_gpus,
+             listed, earn_day, is_datacenter, last_seen_at, last_online_at
+      FROM machine_snapshots
+      WHERE poll_id = ?
+      ORDER BY machine_id ASC
+    `),
+    deleteFleetSnapshotsBefore: db.prepare(`
+      DELETE FROM fleet_snapshots
+      WHERE polled_at < ?
+    `),
+    deleteMachineSnapshotsBefore: db.prepare(`
+      DELETE FROM machine_snapshots
+      WHERE polled_at < ?
+    `),
+    deletePollsBefore: db.prepare(`
+      DELETE FROM polls
+      WHERE polled_at < ?
+    `),
+    deleteAlertsBefore: db.prepare(`
+      DELETE FROM alerts
+      WHERE created_at < ?
+    `),
+    deleteEventsBefore: db.prepare(`
+      DELETE FROM events
+      WHERE created_at < ?
+    `),
+    countPolls: db.prepare(`
+      SELECT COUNT(*) AS count FROM polls
+    `),
+    countFleetSnapshots: db.prepare(`
+      SELECT COUNT(*) AS count FROM fleet_snapshots
+    `),
+    countMachineSnapshots: db.prepare(`
+      SELECT COUNT(*) AS count FROM machine_snapshots
+    `),
+    countAlerts: db.prepare(`
+      SELECT COUNT(*) AS count FROM alerts
+    `),
+    countEvents: db.prepare(`
+      SELECT COUNT(*) AS count FROM events
+    `),
+    deleteAllFleetSnapshots: db.prepare(`
+      DELETE FROM fleet_snapshots
     `)
   };
 
-  backfillFleetSnapshots(statements);
+  const startupMaintenanceSummary = {
+    deduped_fleet_snapshot_rows: dedupedFleetSnapshotRows,
+    retention: applyRetentionPolicies(statements, options),
+    fleet_snapshots: reconcileFleetSnapshots(statements)
+  };
 
   const txRecordPoll = db.transaction(({ timestamp, machines, offlineMachines, events, alerts }) => {
     const pollId = statements.insertPoll.run(timestamp).lastInsertRowid;
@@ -812,8 +918,50 @@ export function createDatabase(dbPath) {
     };
   }
 
+  function getDatabaseHealth() {
+    const metadata = Object.fromEntries(
+      statements.selectAllMeta.all().map((row) => [
+        row.key,
+        {
+          value: row.value,
+          updated_at: row.updated_at
+        }
+      ])
+    );
+
+    return {
+      path: db.name,
+      file_size_bytes: getDatabaseFileSize(db.name),
+      row_counts: {
+        polls: statements.countPolls.get()?.count ?? 0,
+        fleet_snapshots: statements.countFleetSnapshots.get()?.count ?? 0,
+        machine_snapshots: statements.countMachineSnapshots.get()?.count ?? 0,
+        alerts: statements.countAlerts.get()?.count ?? 0,
+        events: statements.countEvents.get()?.count ?? 0
+      },
+      retention: {
+        snapshot_days: normalizeRetentionDays(options.dbSnapshotRetentionDays),
+        alert_days: normalizeRetentionDays(options.dbAlertRetentionDays),
+        event_days: normalizeRetentionDays(options.dbEventRetentionDays)
+      },
+      derived_state: {
+        fleet_snapshot_state_version: metadata.fleet_snapshot_state_version?.value ?? null,
+        fleet_snapshot_state_updated_at: metadata.fleet_snapshot_state_version?.updated_at ?? null
+      },
+      metadata
+    };
+  }
+
+  function getStartupMaintenanceSummary() {
+    return {
+      ...startupMaintenanceSummary
+    };
+  }
+
   return {
     db,
+    getDatabaseHealth,
+    getStartupMaintenanceSummary,
     getCurrentFleetStatus,
     getFleetHistory,
     getGpuTypePriceHistory,
@@ -925,44 +1073,141 @@ function getGpuTypePriceBucketHours(hours) {
   return 24;
 }
 
-function backfillFleetSnapshots(statements) {
-  const rows = statements.selectAllMachineSnapshots.all();
-  if (!rows.length) {
-    return;
+function reconcileFleetSnapshots(statements) {
+  const currentVersion = statements.selectMeta.get("fleet_snapshot_state_version")?.value ?? null;
+  let summary;
+  if (currentVersion !== FLEET_SNAPSHOT_STATE_VERSION) {
+    summary = rebuildAllFleetSnapshots(statements, currentVersion);
+  } else {
+    summary = backfillMissingFleetSnapshots(statements, currentVersion);
   }
 
-  const snapshotsByPollId = new Map();
-  for (const row of rows) {
-    const pollId = Number(row.poll_id);
-    if (!snapshotsByPollId.has(pollId)) {
-      snapshotsByPollId.set(pollId, {
-        polled_at: row.polled_at,
-        machines: []
-      });
+  statements.upsertMeta.run({
+    key: "fleet_snapshot_state_version",
+    value: FLEET_SNAPSHOT_STATE_VERSION,
+    updated_at: new Date().toISOString()
+  });
+
+  return {
+    ...summary,
+    version_after: FLEET_SNAPSHOT_STATE_VERSION
+  };
+}
+
+function rebuildAllFleetSnapshots(statements, versionBefore = null) {
+  const polls = statements.selectAllFleetSnapshotSourcePolls.all();
+  const deletedSnapshots = statements.deleteAllFleetSnapshots.run().changes;
+  let insertedSnapshots = 0;
+
+  for (const snapshot of polls) {
+    const pollId = Number(snapshot.poll_id);
+    const machines = statements.selectFleetSnapshotBackfillMachinesByPollId.all(pollId);
+    if (!machines.length) {
+      continue;
     }
 
-    snapshotsByPollId.get(pollId).machines.push({
-      machine_id: row.machine_id,
-      hostname: row.hostname,
-      num_gpus: row.num_gpus,
-      status: row.status,
-      occupied_gpus: row.occupied_gpus,
-      listed: row.listed,
-      earn_day: row.earn_day,
-      is_datacenter: row.is_datacenter,
-      last_seen_at: row.last_seen_at,
-      last_online_at: row.last_online_at
-    });
-  }
-
-  statements.deleteFleetSnapshots.run();
-
-  for (const [pollId, snapshot] of snapshotsByPollId.entries()) {
     statements.insertFleetSnapshot.run({
       poll_id: pollId,
       polled_at: snapshot.polled_at,
-      ...buildFleetSnapshot(snapshot.machines)
+      ...buildFleetSnapshot(machines)
     });
+    insertedSnapshots += 1;
+  }
+
+  return {
+    mode: "full_rebuild",
+    version_before: versionBefore,
+    deleted_snapshots: deletedSnapshots,
+    inserted_snapshots: insertedSnapshots,
+    affected_polls: polls.length
+  };
+}
+
+function backfillMissingFleetSnapshots(statements, versionBefore = null) {
+  const missingPolls = statements.selectMissingFleetSnapshotPolls.all();
+  if (!missingPolls.length) {
+    return {
+      mode: "incremental_backfill",
+      version_before: versionBefore,
+      deleted_snapshots: 0,
+      inserted_snapshots: 0,
+      affected_polls: 0
+    };
+  }
+
+  let insertedSnapshots = 0;
+  for (const snapshot of missingPolls) {
+    const pollId = Number(snapshot.poll_id);
+    const machines = statements.selectFleetSnapshotBackfillMachinesByPollId.all(pollId);
+    if (!machines.length) {
+      continue;
+    }
+
+    statements.insertFleetSnapshot.run({
+      poll_id: pollId,
+      polled_at: snapshot.polled_at,
+      ...buildFleetSnapshot(machines)
+    });
+    insertedSnapshots += 1;
+  }
+
+  return {
+    mode: "incremental_backfill",
+    version_before: versionBefore,
+    deleted_snapshots: 0,
+    inserted_snapshots: insertedSnapshots,
+    affected_polls: missingPolls.length
+  };
+}
+
+function applyRetentionPolicies(statements, options) {
+  const summary = {
+    fleet_snapshots_deleted: 0,
+    machine_snapshots_deleted: 0,
+    polls_deleted: 0,
+    alerts_deleted: 0,
+    events_deleted: 0
+  };
+
+  const snapshotCutoff = buildRetentionCutoffIso(options.dbSnapshotRetentionDays);
+  if (snapshotCutoff) {
+    summary.fleet_snapshots_deleted = statements.deleteFleetSnapshotsBefore.run(snapshotCutoff).changes;
+    summary.machine_snapshots_deleted = statements.deleteMachineSnapshotsBefore.run(snapshotCutoff).changes;
+    summary.polls_deleted = statements.deletePollsBefore.run(snapshotCutoff).changes;
+  }
+
+  const alertCutoff = buildRetentionCutoffIso(options.dbAlertRetentionDays);
+  if (alertCutoff) {
+    summary.alerts_deleted = statements.deleteAlertsBefore.run(alertCutoff).changes;
+  }
+
+  const eventCutoff = buildRetentionCutoffIso(options.dbEventRetentionDays);
+  if (eventCutoff) {
+    summary.events_deleted = statements.deleteEventsBefore.run(eventCutoff).changes;
+  }
+
+  return summary;
+}
+
+function buildRetentionCutoffIso(days) {
+  const retentionDays = Number(days);
+  if (!Number.isFinite(retentionDays) || retentionDays <= 0) {
+    return null;
+  }
+
+  return new Date(Date.now() - (retentionDays * 24 * 60 * 60 * 1000)).toISOString();
+}
+
+function normalizeRetentionDays(days) {
+  const value = Number(days);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function getDatabaseFileSize(dbPath) {
+  try {
+    return fs.statSync(dbPath).size;
+  } catch {
+    return null;
   }
 }
 

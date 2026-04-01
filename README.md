@@ -53,7 +53,7 @@ Startup validates the configured Vast CLI path and API key file before the servi
 
 Startup also prints a warning if the detected `python-dateutil` version in the local `python3` environment is too old for live Vast earnings.
 
-On startup, additive SQLite schema changes are applied automatically. Existing `fleet_snapshots` are also rebuilt from `machine_snapshots` so historical fleet charts stay consistent with the current aggregation rules.
+On startup, additive SQLite schema changes are applied automatically. Missing `fleet_snapshots` are backfilled from `machine_snapshots` so historical fleet charts stay populated without forcing a full rebuild on every launch. A small internal metadata version also lets the app intentionally rebuild all derived fleet snapshots when aggregation rules change in the future.
 
 ## Configuration
 
@@ -69,6 +69,9 @@ Environment variables:
 - `ALERT_HOSTNAME_COLLISION_COOLDOWN_MINUTES`: longer cooldown for repeated hostname-collision alerts, default `360`
 - `PORT`: HTTP port, default `3000`
 - `DB_PATH`: SQLite database path, default `./data/vast-monitor.db`
+- `DB_SNAPSHOT_RETENTION_DAYS`: optional retention window for `polls`, `machine_snapshots`, and derived `fleet_snapshots`; `0` disables pruning
+- `DB_ALERT_RETENTION_DAYS`: optional retention window for `alerts`; `0` disables pruning
+- `DB_EVENT_RETENTION_DAYS`: optional retention window for `events`; `0` disables pruning
 - `PLUGIN_MODULES`: optional comma-separated plugin module paths relative to the project root or absolute paths
 
 ## Plugins
@@ -148,6 +151,7 @@ Startup is intentionally verbose so you can see progress during the initial poll
 ```text
 [startup] Loading configuration
 [startup] Database ready at ...
+[startup] Database maintenance: ...
 [startup] Starting HTTP server on port 3000
 [startup] Starting fleet monitor
 [monitor] Running initial poll
@@ -157,11 +161,13 @@ vast-monitor listening on http://localhost:3000
 
 The HTTP server starts before the initial poll finishes, so the process becomes visibly healthy earlier.
 
+Startup now also prints a concise database maintenance summary so operators can see whether the app deduped fleet snapshots, backfilled/rebuilt derived fleet history, or pruned old rows via retention settings.
+
 If the initial Vast poll fails, the server stays up and keeps retrying on the normal poll interval. The dashboard and `/api/health` will show stale state until a poll succeeds.
 
 Vast API enrichment and Vast CLI subprocess calls are also bounded by timeouts so transient network hangs do not leave polling stuck indefinitely. After a timeout or failure, the service retries on the normal poll interval.
 
-The fleet snapshot rebuild happens before polling starts. On older or larger databases, first startup after a pull may take a little longer while historical fleet trend rows are recomputed.
+Any needed fleet snapshot backfill happens before polling starts. On older or larger databases, startup may take a little longer only when historical fleet trend rows actually need to be filled in.
 
 ## Dashboard
 
@@ -283,6 +289,17 @@ Returns service and poll health details including:
 - current poll activity
 - last poll success/failure timestamps
 - last poll error, if any
+
+### `GET /api/admin/db-health`
+
+Internal operator-oriented database status endpoint.
+
+Returns:
+
+- database path and file size
+- row counts for `polls`, `fleet_snapshots`, `machine_snapshots`, `alerts`, and `events`
+- configured retention windows
+- derived-state metadata such as the current fleet snapshot version
 
 ### `GET /api/history?machine_id=49697&hours=24`
 

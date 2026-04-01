@@ -79,6 +79,7 @@ test("server integration returns expected API payloads and dependency failures",
   try {
     const status = await invokeRoute(app, "/api/status");
     const health = await invokeRoute(app, "/api/health");
+    const dbHealth = await invokeRoute(app, "/api/admin/db-health");
     const fleet = await invokeRoute(app, "/api/fleet/history", { query: { hours: "24" } });
     const history = await invokeRoute(app, "/api/history", { query: { machine_id: "1", hours: "24" } });
     const reports = await invokeRoute(app, "/api/reports", { query: { machine_id: "1" } });
@@ -109,6 +110,15 @@ test("server integration returns expected API payloads and dependency failures",
     assert.equal(health.body.liveDependencies.vastCli.ok, false);
     assert.equal(health.body.observability.lastFetchDurationMs, 1400);
     assert.equal(health.body.observability.lastAlertCount, 1);
+
+    assert.equal(dbHealth.statusCode, 200);
+    assert.equal(dbHealth.body.ok, true);
+    assert.equal(dbHealth.body.database.row_counts.polls, 1);
+    assert.equal(dbHealth.body.database.row_counts.machine_snapshots, 2);
+    assert.equal(dbHealth.body.database.row_counts.alerts, 1);
+    assert.equal(dbHealth.body.database.derived_state.fleet_snapshot_state_version, "1");
+    assert.equal(dbHealth.body.database.retention.snapshot_days, 0);
+    assert.ok(typeof dbHealth.body.database.file_size_bytes === "number");
 
     assert.equal(fleet.statusCode, 200);
     assert.ok(Array.isArray(fleet.body.history));
