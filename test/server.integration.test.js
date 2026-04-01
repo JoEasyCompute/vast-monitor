@@ -56,6 +56,7 @@ test("server integration returns expected API payloads and dependency failures",
       };
     }
   };
+  const decoratedDbRefs = [];
 
   const app = createServer({
     config,
@@ -63,7 +64,8 @@ test("server integration returns expected API payloads and dependency failures",
     monitor,
     plugins: [definePlugin({
       name: "Assignment Plugin",
-      async decorateStatusMachine({ machine }) {
+      async decorateStatusMachine({ machine, db: pluginDb }) {
+        decoratedDbRefs.push(pluginDb);
         if (machine.machine_id !== 1) {
           return machine;
         }
@@ -131,6 +133,8 @@ test("server integration returns expected API payloads and dependency failures",
     assert.equal(status.body.machines.find((machine) => machine.machine_id === 1)?.team_name, "Inference");
     assert.equal(status.body.machines.find((machine) => machine.machine_id === 1)?.has_new_report_72h, true);
     assert.equal(status.body.machines.find((machine) => machine.machine_id === 2)?.has_new_report_72h, false);
+    assert.equal(decoratedDbRefs.length, 2);
+    assert.ok(decoratedDbRefs.every((value) => value === db));
 
     assert.equal(health.statusCode, 200);
     assert.equal(health.body.status, "degraded");

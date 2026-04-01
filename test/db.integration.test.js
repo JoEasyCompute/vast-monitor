@@ -626,8 +626,8 @@ test("database maintenance actions respect cross-process maintenance locks", () 
   const store = createDatabase(dbPath);
 
   try {
-    const now = "2026-04-01T12:00:00.000Z";
-    const expires = "2026-04-01T13:00:00.000Z";
+    const now = "2099-04-01T12:00:00.000Z";
+    const expires = "2099-04-01T13:00:00.000Z";
     store.db.prepare(`
       INSERT INTO maintenance_locks (name, owner_id, action, acquired_at, expires_at)
       VALUES (?, ?, ?, ?, ?)

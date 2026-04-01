@@ -18,7 +18,7 @@ export function createServer({ config, db, monitor, plugins = [], adminActionSch
 
   app.get("/api/status", routeMetrics.wrap("status", async (_req, res) => {
     const fleet = db.getCurrentFleetStatus();
-    res.json(await buildFleetResponse(fleet, config, monitor, plugins));
+    res.json(await buildFleetResponse(fleet, config, db, monitor, plugins));
   }));
 
   app.get("/api/health", routeMetrics.wrap("health", (_req, res) => {
@@ -457,7 +457,7 @@ function buildComparisonMetric(current, previous, decimals = 2) {
   };
 }
 
-async function buildFleetResponse(fleet, config, monitor, plugins = []) {
+async function buildFleetResponse(fleet, config, db, monitor, plugins = []) {
   // Deduplicate machines by hostname to avoid double counting old offline machine IDs
   const byHostname = new Map();
   for (const m of fleet.machines) {
@@ -509,7 +509,7 @@ async function buildFleetResponse(fleet, config, monitor, plugins = []) {
     uptime: machine.uptime
   }));
 
-  machines = await decorateStatusMachines(machines, { config, db: null, monitor, plugins });
+  machines = await decorateStatusMachines(machines, { config, db, monitor, plugins });
 
   const fleetAggregate = buildFleetAggregate(machines);
   const fleetMachines = fleetAggregate.machines;
