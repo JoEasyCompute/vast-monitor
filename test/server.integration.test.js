@@ -102,6 +102,12 @@ test("server integration returns expected API payloads and dependency failures",
         authorization: "Bearer secret-admin-token"
       }
     });
+    const rebuild = await invokeRoute(app, "/api/admin/rebuild-derived", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer secret-admin-token"
+      }
+    });
     const fleet = await invokeRoute(app, "/api/fleet/history", { query: { hours: "24" } });
     const history = await invokeRoute(app, "/api/history", { query: { machine_id: "1", hours: "24" } });
     const reports = await invokeRoute(app, "/api/reports", { query: { machine_id: "1" } });
@@ -163,6 +169,11 @@ test("server integration returns expected API payloads and dependency failures",
     assert.ok(Number.isFinite(vacuum.body.vacuum.duration_ms));
     assert.ok(typeof vacuum.body.vacuum.completed_at === "string");
     assert.ok(Number.isFinite(vacuum.body.vacuum.file_size_bytes));
+    assert.equal(rebuild.statusCode, 200);
+    assert.equal(rebuild.body.ok, true);
+    assert.ok(Number.isFinite(rebuild.body.rebuild.duration_ms));
+    assert.ok(typeof rebuild.body.rebuild.completed_at === "string");
+    assert.ok(Number.isFinite(rebuild.body.rebuild.rebuilt.fleet_snapshots));
 
     assert.equal(fleet.statusCode, 200);
     assert.ok(Array.isArray(fleet.body.history));
@@ -279,6 +290,10 @@ test("admin db-health route requires configured auth token", async () => {
       method: "POST",
       headers: { authorization: "Bearer top-secret" }
     });
+    const rebuild = await invokeRoute(app, "/api/admin/rebuild-derived", {
+      method: "POST",
+      headers: { authorization: "Bearer top-secret" }
+    });
 
     assert.equal(missing.statusCode, 401);
     assert.equal(missing.body.error, "admin authorization required");
@@ -288,6 +303,7 @@ test("admin db-health route requires configured auth token", async () => {
     assert.equal(preview.statusCode, 200);
     assert.equal(analyze.statusCode, 200);
     assert.equal(vacuum.statusCode, 200);
+    assert.equal(rebuild.statusCode, 200);
   } finally {
     db.db.close();
   }

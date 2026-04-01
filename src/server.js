@@ -68,6 +68,17 @@ export function createServer({ config, db, monitor, plugins = [] }) {
     });
   }));
 
+  app.post("/api/admin/rebuild-derived", routeMetrics.wrap("admin_rebuild_derived", (req, res) => {
+    if (!requireAdminAccess(req, res, config)) {
+      return;
+    }
+
+    res.json({
+      ok: true,
+      rebuild: typeof db?.runRebuildDerivedState === "function" ? db.runRebuildDerivedState() : null
+    });
+  }));
+
   app.get("/api/history", routeMetrics.wrap("history", (req, res) => {
     const machineId = Number(req.query.machine_id);
     const rawHours = req.query.hours == null ? 24 : Number(req.query.hours);

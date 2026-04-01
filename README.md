@@ -53,7 +53,7 @@ Startup validates the configured Vast CLI path and API key file before the servi
 
 Startup also prints a warning if the detected `python-dateutil` version in the local `python3` environment is too old for live Vast earnings.
 
-On startup, additive SQLite schema changes are applied automatically. Missing `fleet_snapshots` are backfilled from `machine_snapshots` so historical fleet charts stay populated without forcing a full rebuild on every launch. A small internal metadata version also lets the app intentionally rebuild all derived fleet snapshots when aggregation rules change in the future.
+On startup, managed SQLite schema migrations are applied automatically via a `schema_migrations` table. Missing `fleet_snapshots` are backfilled from `machine_snapshots` so historical fleet charts stay populated without forcing a full rebuild on every launch. A small internal metadata version also lets the app intentionally rebuild all derived fleet snapshots when aggregation rules change in the future.
 
 ## Configuration
 
@@ -202,7 +202,7 @@ The dashboard includes:
 - Recent alerts
 - Compact poll monitor panel with latest poll timings and counts
 - Dedicated `DB Admin` dashboard panel that uses the optional admin token from Settings to show database size, row counts, retention state, derived-state version info, per-route timing metrics, and a retention dry-run preview
-- `DB Admin` also supports safe operator actions such as `Analyze`, `Vacuum`, and retention dry-run preview
+- `DB Admin` also supports safe operator actions such as `Analyze`, `Vacuum`, retention dry-run preview, and on-demand derived-state rebuilds
 - Per-machine history modal with tabbed `Charts` and `Recent Events` views
 - Clicking a machine row opens the machine history modal
 - Report badges support `Ctrl`/`Cmd`-click on desktop and long-press on touch devices to open the reports modal
@@ -346,6 +346,17 @@ Runs SQLite `VACUUM` and returns:
 - resulting database file size
 
 This is heavier than `ANALYZE` and is best run during lower-traffic periods.
+
+### `POST /api/admin/rebuild-derived`
+
+Internal operator maintenance endpoint.
+
+Rebuilds derived fleet snapshots and rollup tables from the currently retained raw snapshot history and returns:
+
+- completion timestamp
+- rebuild duration in milliseconds
+- deleted derived-row counts
+- rebuilt derived-row counts
 
 ### `GET /api/history?machine_id=49697&hours=24`
 

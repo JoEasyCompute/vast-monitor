@@ -172,6 +172,9 @@ let analyzeLoading = false;
 let latestVacuumResult = null;
 let vacuumError = "";
 let vacuumLoading = false;
+let latestRebuildResult = null;
+let rebuildError = "";
+let rebuildLoading = false;
 let latestPollMonitorAt = null;
 let lastKnownHealth = null;
 let selectedUtilizationGpuType = uiSettings.selectedUtilizationGpuType || "__fleet__";
@@ -849,7 +852,10 @@ function renderDbAdminPanel(dbHealth = null) {
     analyzeError,
     vacuumResult: latestVacuumResult,
     vacuumLoading,
-    vacuumError
+    vacuumError,
+    rebuildResult: latestRebuildResult,
+    rebuildLoading,
+    rebuildError
   });
   dbAdminPanel.innerHTML = markup;
   dbAdminMeta.textContent = meta;
@@ -1643,6 +1649,9 @@ bindDashboardControls({
     latestVacuumResult = null;
     vacuumError = "";
     vacuumLoading = false;
+    latestRebuildResult = null;
+    rebuildError = "";
+    rebuildLoading = false;
     renderPollMonitor(latestObservability, latestPollMonitorAt, latestDbHealthPayload);
     renderDbAdminPanel(latestDbHealthPayload);
     refreshDashboard().catch((error) => console.error(error));
@@ -1665,6 +1674,9 @@ bindDashboardControls({
     latestVacuumResult = null;
     vacuumError = "";
     vacuumLoading = false;
+    latestRebuildResult = null;
+    rebuildError = "";
+    rebuildLoading = false;
     renderPollMonitor(latestObservability, latestPollMonitorAt, latestDbHealthPayload);
     renderDbAdminPanel(latestDbHealthPayload);
     refreshDashboard().catch((error) => console.error(error));
@@ -1683,6 +1695,9 @@ bindDashboardControls({
     latestVacuumResult = null;
     vacuumError = "";
     vacuumLoading = false;
+    latestRebuildResult = null;
+    rebuildError = "";
+    rebuildLoading = false;
     isAdminTokenVisible = false;
     persistUiSettings(UI_SETTINGS_KEY, uiSettings);
     applyUiSettings();
@@ -1830,6 +1845,28 @@ dbAdminPanel?.addEventListener("click", (event) => {
       })
       .finally(() => {
         vacuumLoading = false;
+        renderDbAdminPanel(latestDbHealthPayload);
+        refreshDashboard().catch((refreshError) => console.error(refreshError));
+      });
+    return;
+  }
+
+  if (action === "rebuild-derived") {
+    rebuildLoading = true;
+    rebuildError = "";
+    renderDbAdminPanel(latestDbHealthPayload);
+
+    fetchAdminJson("/api/admin/rebuild-derived", { method: "POST" })
+      .then((payload) => {
+        latestRebuildResult = payload.rebuild || null;
+        rebuildError = "";
+      })
+      .catch((error) => {
+        latestRebuildResult = null;
+        rebuildError = error instanceof Error ? error.message : String(error);
+      })
+      .finally(() => {
+        rebuildLoading = false;
         renderDbAdminPanel(latestDbHealthPayload);
         refreshDashboard().catch((refreshError) => console.error(refreshError));
       });

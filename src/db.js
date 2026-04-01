@@ -10,290 +10,271 @@ const UPTIME_WINDOWS = {
 };
 
 const FLEET_SNAPSHOT_STATE_VERSION = "1";
+const SCHEMA_MIGRATIONS = [
+  {
+    id: "001_managed_schema_baseline",
+    description: "Create baseline tables/indexes and backfill additive columns",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS machine_registry (
+          machine_id INTEGER PRIMARY KEY,
+          hostname TEXT NOT NULL,
+          gpu_type TEXT,
+          num_gpus INTEGER,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS machine_state (
+          machine_id INTEGER PRIMARY KEY,
+          hostname TEXT NOT NULL,
+          gpu_type TEXT,
+          num_gpus INTEGER,
+          status TEXT NOT NULL,
+          occupancy TEXT,
+          occupied_gpus INTEGER,
+          current_rentals_running INTEGER,
+          listed INTEGER NOT NULL DEFAULT 1,
+          listed_gpu_cost REAL,
+          reliability REAL,
+          gpu_max_cur_temp REAL,
+          earn_day REAL,
+          num_reports INTEGER NOT NULL DEFAULT 0,
+          num_recent_reports REAL,
+          prev_day_reports INTEGER NOT NULL DEFAULT 0,
+          reports_changed INTEGER NOT NULL DEFAULT 0,
+          error_message TEXT,
+          machine_maintenance TEXT,
+          last_seen_at TEXT,
+          last_online_at TEXT,
+          idle_since TEXT,
+          host_id INTEGER,
+          hosting_type INTEGER,
+          is_datacenter INTEGER NOT NULL DEFAULT 0,
+          datacenter_id INTEGER,
+          temp_alert_active INTEGER NOT NULL DEFAULT 0,
+          idle_alert_active INTEGER NOT NULL DEFAULT 0,
+          public_ipaddr TEXT,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS polls (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          polled_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS db_meta (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS fleet_snapshots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          poll_id INTEGER NOT NULL,
+          polled_at TEXT NOT NULL,
+          total_machines INTEGER NOT NULL,
+          datacenter_machines INTEGER NOT NULL,
+          unlisted_machines INTEGER NOT NULL,
+          listed_gpus INTEGER NOT NULL,
+          unlisted_gpus INTEGER NOT NULL,
+          occupied_gpus INTEGER NOT NULL,
+          utilisation_pct REAL NOT NULL,
+          total_daily_earnings REAL NOT NULL,
+          FOREIGN KEY (poll_id) REFERENCES polls(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_fleet_snapshots_time
+          ON fleet_snapshots(polled_at);
+
+        CREATE TABLE IF NOT EXISTS fleet_snapshot_hourly_rollups (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          bucket_start TEXT NOT NULL UNIQUE,
+          sample_count INTEGER NOT NULL,
+          total_machines REAL NOT NULL,
+          datacenter_machines REAL NOT NULL,
+          unlisted_machines REAL NOT NULL,
+          listed_gpus REAL NOT NULL,
+          unlisted_gpus REAL NOT NULL,
+          occupied_gpus REAL NOT NULL,
+          utilisation_pct REAL NOT NULL,
+          total_daily_earnings REAL NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_fleet_snapshot_hourly_rollups_time
+          ON fleet_snapshot_hourly_rollups(bucket_start);
+
+        CREATE INDEX IF NOT EXISTS idx_polls_time
+          ON polls(polled_at DESC);
+
+        CREATE TABLE IF NOT EXISTS machine_snapshots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          poll_id INTEGER NOT NULL,
+          polled_at TEXT NOT NULL,
+          machine_id INTEGER NOT NULL,
+          hostname TEXT NOT NULL,
+          gpu_type TEXT,
+          num_gpus INTEGER,
+          occupancy TEXT,
+          occupied_gpus INTEGER,
+          current_rentals_running INTEGER,
+          listed INTEGER NOT NULL DEFAULT 1,
+          listed_gpu_cost REAL,
+          reliability REAL,
+          gpu_max_cur_temp REAL,
+          earn_day REAL,
+          num_reports INTEGER NOT NULL DEFAULT 0,
+          num_recent_reports REAL,
+          error_message TEXT,
+          machine_maintenance TEXT,
+          last_seen_at TEXT,
+          last_online_at TEXT,
+          host_id INTEGER,
+          hosting_type INTEGER,
+          is_datacenter INTEGER NOT NULL DEFAULT 0,
+          datacenter_id INTEGER,
+          status TEXT NOT NULL,
+          FOREIGN KEY (poll_id) REFERENCES polls(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_machine_snapshots_machine_time
+          ON machine_snapshots(machine_id, polled_at);
+
+        CREATE INDEX IF NOT EXISTS idx_machine_snapshots_time
+          ON machine_snapshots(polled_at);
+
+        CREATE INDEX IF NOT EXISTS idx_machine_snapshots_poll_id
+          ON machine_snapshots(poll_id);
+
+        CREATE TABLE IF NOT EXISTS machine_snapshot_hourly_rollups (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          bucket_start TEXT NOT NULL,
+          machine_id INTEGER NOT NULL,
+          sample_count INTEGER NOT NULL,
+          hostname TEXT NOT NULL,
+          status TEXT NOT NULL,
+          occupancy TEXT,
+          num_gpus INTEGER,
+          occupied_gpus REAL,
+          current_rentals_running REAL,
+          reliability REAL,
+          gpu_max_cur_temp REAL,
+          listed_gpu_cost REAL,
+          earn_day REAL,
+          UNIQUE(machine_id, bucket_start)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_machine_snapshot_hourly_rollups_machine_time
+          ON machine_snapshot_hourly_rollups(machine_id, bucket_start);
+
+        CREATE TABLE IF NOT EXISTS gpu_type_utilization_hourly_rollups (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          bucket_start TEXT NOT NULL,
+          gpu_type TEXT NOT NULL,
+          listed_gpus REAL NOT NULL,
+          occupied_gpus REAL NOT NULL,
+          UNIQUE(bucket_start, gpu_type)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_gpu_type_utilization_hourly_rollups_time
+          ON gpu_type_utilization_hourly_rollups(bucket_start, gpu_type);
+
+        CREATE TABLE IF NOT EXISTS gpu_type_price_hourly_rollups (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          bucket_start TEXT NOT NULL,
+          gpu_type TEXT NOT NULL,
+          priced_gpus REAL NOT NULL,
+          total_price_weighted REAL NOT NULL,
+          UNIQUE(bucket_start, gpu_type)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_gpu_type_price_hourly_rollups_time
+          ON gpu_type_price_hourly_rollups(bucket_start, gpu_type);
+
+        CREATE TABLE IF NOT EXISTS events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          created_at TEXT NOT NULL,
+          machine_id INTEGER,
+          hostname TEXT,
+          event_type TEXT NOT NULL,
+          severity TEXT NOT NULL,
+          message TEXT NOT NULL,
+          payload_json TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS alerts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          created_at TEXT NOT NULL,
+          machine_id INTEGER,
+          hostname TEXT,
+          alert_type TEXT NOT NULL,
+          severity TEXT NOT NULL,
+          message TEXT NOT NULL,
+          payload_json TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_alerts_created_at
+          ON alerts(created_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_alerts_type_created_machine
+          ON alerts(alert_type, created_at, machine_id);
+      `);
+
+      const dedupedFleetSnapshotRows = db.prepare(`
+        DELETE FROM fleet_snapshots
+        WHERE id NOT IN (
+          SELECT MIN(id)
+          FROM fleet_snapshots
+          GROUP BY poll_id
+        );
+      `).run().changes;
+
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_fleet_snapshots_poll_id
+          ON fleet_snapshots(poll_id);
+      `);
+
+      ensureColumns(db, "machine_state", [
+        ["last_seen_at", "TEXT"],
+        ["last_online_at", "TEXT"],
+        ["idle_since", "TEXT"],
+        ["public_ipaddr", "TEXT"],
+        ["listed", "INTEGER NOT NULL DEFAULT 1"],
+        ["host_id", "INTEGER"],
+        ["error_message", "TEXT"],
+        ["machine_maintenance", "TEXT"],
+        ["hosting_type", "INTEGER"],
+        ["is_datacenter", "INTEGER NOT NULL DEFAULT 0"],
+        ["datacenter_id", "INTEGER"],
+        ["temp_alert_active", "INTEGER NOT NULL DEFAULT 0"],
+        ["idle_alert_active", "INTEGER NOT NULL DEFAULT 0"]
+      ]);
+
+      ensureColumns(db, "machine_snapshots", [
+        ["host_id", "INTEGER"],
+        ["listed", "INTEGER NOT NULL DEFAULT 1"],
+        ["error_message", "TEXT"],
+        ["machine_maintenance", "TEXT"],
+        ["last_seen_at", "TEXT"],
+        ["last_online_at", "TEXT"],
+        ["hosting_type", "INTEGER"],
+        ["is_datacenter", "INTEGER NOT NULL DEFAULT 0"],
+        ["datacenter_id", "INTEGER"]
+      ]);
+
+      return {
+        deduped_fleet_snapshot_rows: dedupedFleetSnapshotRows
+      };
+    }
+  }
+];
 
 export function createDatabase(dbPath, options = {}) {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS machine_registry (
-      machine_id INTEGER PRIMARY KEY,
-      hostname TEXT NOT NULL,
-      gpu_type TEXT,
-      num_gpus INTEGER,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS machine_state (
-      machine_id INTEGER PRIMARY KEY,
-      hostname TEXT NOT NULL,
-      gpu_type TEXT,
-      num_gpus INTEGER,
-      status TEXT NOT NULL,
-      occupancy TEXT,
-      occupied_gpus INTEGER,
-      current_rentals_running INTEGER,
-      listed INTEGER NOT NULL DEFAULT 1,
-      listed_gpu_cost REAL,
-      reliability REAL,
-      gpu_max_cur_temp REAL,
-      earn_day REAL,
-      num_reports INTEGER NOT NULL DEFAULT 0,
-      num_recent_reports REAL,
-      prev_day_reports INTEGER NOT NULL DEFAULT 0,
-      reports_changed INTEGER NOT NULL DEFAULT 0,
-      error_message TEXT,
-      machine_maintenance TEXT,
-      last_seen_at TEXT,
-      last_online_at TEXT,
-      idle_since TEXT,
-      host_id INTEGER,
-      hosting_type INTEGER,
-      is_datacenter INTEGER NOT NULL DEFAULT 0,
-      datacenter_id INTEGER,
-      temp_alert_active INTEGER NOT NULL DEFAULT 0,
-      idle_alert_active INTEGER NOT NULL DEFAULT 0,
-      public_ipaddr TEXT,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS polls (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      polled_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS db_meta (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS fleet_snapshots (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      poll_id INTEGER NOT NULL,
-      polled_at TEXT NOT NULL,
-      total_machines INTEGER NOT NULL,
-      datacenter_machines INTEGER NOT NULL,
-      unlisted_machines INTEGER NOT NULL,
-      listed_gpus INTEGER NOT NULL,
-      unlisted_gpus INTEGER NOT NULL,
-      occupied_gpus INTEGER NOT NULL,
-      utilisation_pct REAL NOT NULL,
-      total_daily_earnings REAL NOT NULL,
-      FOREIGN KEY (poll_id) REFERENCES polls(id)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_fleet_snapshots_time
-      ON fleet_snapshots(polled_at);
-
-    CREATE TABLE IF NOT EXISTS fleet_snapshot_hourly_rollups (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      bucket_start TEXT NOT NULL UNIQUE,
-      sample_count INTEGER NOT NULL,
-      total_machines REAL NOT NULL,
-      datacenter_machines REAL NOT NULL,
-      unlisted_machines REAL NOT NULL,
-      listed_gpus REAL NOT NULL,
-      unlisted_gpus REAL NOT NULL,
-      occupied_gpus REAL NOT NULL,
-      utilisation_pct REAL NOT NULL,
-      total_daily_earnings REAL NOT NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_fleet_snapshot_hourly_rollups_time
-      ON fleet_snapshot_hourly_rollups(bucket_start);
-
-    CREATE INDEX IF NOT EXISTS idx_polls_time
-      ON polls(polled_at DESC);
-
-    CREATE TABLE IF NOT EXISTS machine_snapshots (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      poll_id INTEGER NOT NULL,
-      polled_at TEXT NOT NULL,
-      machine_id INTEGER NOT NULL,
-      hostname TEXT NOT NULL,
-      gpu_type TEXT,
-      num_gpus INTEGER,
-      occupancy TEXT,
-      occupied_gpus INTEGER,
-      current_rentals_running INTEGER,
-      listed INTEGER NOT NULL DEFAULT 1,
-      listed_gpu_cost REAL,
-      reliability REAL,
-      gpu_max_cur_temp REAL,
-      earn_day REAL,
-      num_reports INTEGER NOT NULL DEFAULT 0,
-      num_recent_reports REAL,
-      error_message TEXT,
-      machine_maintenance TEXT,
-      last_seen_at TEXT,
-      last_online_at TEXT,
-      host_id INTEGER,
-      hosting_type INTEGER,
-      is_datacenter INTEGER NOT NULL DEFAULT 0,
-      datacenter_id INTEGER,
-      status TEXT NOT NULL,
-      FOREIGN KEY (poll_id) REFERENCES polls(id)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_machine_snapshots_machine_time
-      ON machine_snapshots(machine_id, polled_at);
-
-    CREATE INDEX IF NOT EXISTS idx_machine_snapshots_time
-      ON machine_snapshots(polled_at);
-
-    CREATE INDEX IF NOT EXISTS idx_machine_snapshots_poll_id
-      ON machine_snapshots(poll_id);
-
-    CREATE TABLE IF NOT EXISTS machine_snapshot_hourly_rollups (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      bucket_start TEXT NOT NULL,
-      machine_id INTEGER NOT NULL,
-      sample_count INTEGER NOT NULL,
-      hostname TEXT NOT NULL,
-      status TEXT NOT NULL,
-      occupancy TEXT,
-      num_gpus INTEGER,
-      occupied_gpus REAL,
-      current_rentals_running REAL,
-      reliability REAL,
-      gpu_max_cur_temp REAL,
-      listed_gpu_cost REAL,
-      earn_day REAL,
-      UNIQUE(machine_id, bucket_start)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_machine_snapshot_hourly_rollups_machine_time
-      ON machine_snapshot_hourly_rollups(machine_id, bucket_start);
-
-    CREATE TABLE IF NOT EXISTS gpu_type_utilization_hourly_rollups (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      bucket_start TEXT NOT NULL,
-      gpu_type TEXT NOT NULL,
-      listed_gpus REAL NOT NULL,
-      occupied_gpus REAL NOT NULL,
-      UNIQUE(bucket_start, gpu_type)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_gpu_type_utilization_hourly_rollups_time
-      ON gpu_type_utilization_hourly_rollups(bucket_start, gpu_type);
-
-    CREATE TABLE IF NOT EXISTS gpu_type_price_hourly_rollups (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      bucket_start TEXT NOT NULL,
-      gpu_type TEXT NOT NULL,
-      priced_gpus REAL NOT NULL,
-      total_price_weighted REAL NOT NULL,
-      UNIQUE(bucket_start, gpu_type)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_gpu_type_price_hourly_rollups_time
-      ON gpu_type_price_hourly_rollups(bucket_start, gpu_type);
-
-    CREATE TABLE IF NOT EXISTS events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      created_at TEXT NOT NULL,
-      machine_id INTEGER,
-      hostname TEXT,
-      event_type TEXT NOT NULL,
-      severity TEXT NOT NULL,
-      message TEXT NOT NULL,
-      payload_json TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS alerts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      created_at TEXT NOT NULL,
-      machine_id INTEGER,
-      hostname TEXT,
-      alert_type TEXT NOT NULL,
-      severity TEXT NOT NULL,
-      message TEXT NOT NULL,
-      payload_json TEXT
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_alerts_created_at
-      ON alerts(created_at DESC);
-
-    CREATE INDEX IF NOT EXISTS idx_alerts_type_created_machine
-      ON alerts(alert_type, created_at, machine_id);
-  `);
-
-  const dedupedFleetSnapshotRows = db.prepare(`
-    DELETE FROM fleet_snapshots
-    WHERE id NOT IN (
-      SELECT MIN(id)
-      FROM fleet_snapshots
-      GROUP BY poll_id
-    );
-  `).run().changes;
-
-  db.exec(`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_fleet_snapshots_poll_id
-      ON fleet_snapshots(poll_id);
-  `);
-
-  const machineStateColumns = new Set(
-    db.prepare("PRAGMA table_info(machine_state)").all().map((column) => column.name)
-  );
-  if (!machineStateColumns.has("public_ipaddr")) {
-    db.exec("ALTER TABLE machine_state ADD COLUMN public_ipaddr TEXT");
-  }
-  if (!machineStateColumns.has("listed")) {
-    db.exec("ALTER TABLE machine_state ADD COLUMN listed INTEGER NOT NULL DEFAULT 1");
-  }
-  if (!machineStateColumns.has("host_id")) {
-    db.exec("ALTER TABLE machine_state ADD COLUMN host_id INTEGER");
-  }
-  if (!machineStateColumns.has("error_message")) {
-    db.exec("ALTER TABLE machine_state ADD COLUMN error_message TEXT");
-  }
-  if (!machineStateColumns.has("machine_maintenance")) {
-    db.exec("ALTER TABLE machine_state ADD COLUMN machine_maintenance TEXT");
-  }
-  if (!machineStateColumns.has("hosting_type")) {
-    db.exec("ALTER TABLE machine_state ADD COLUMN hosting_type INTEGER");
-  }
-  if (!machineStateColumns.has("is_datacenter")) {
-    db.exec("ALTER TABLE machine_state ADD COLUMN is_datacenter INTEGER NOT NULL DEFAULT 0");
-  }
-  if (!machineStateColumns.has("datacenter_id")) {
-    db.exec("ALTER TABLE machine_state ADD COLUMN datacenter_id INTEGER");
-  }
-
-  const machineSnapshotColumns = new Set(
-    db.prepare("PRAGMA table_info(machine_snapshots)").all().map((column) => column.name)
-  );
-  if (!machineSnapshotColumns.has("host_id")) {
-    db.exec("ALTER TABLE machine_snapshots ADD COLUMN host_id INTEGER");
-  }
-  if (!machineSnapshotColumns.has("listed")) {
-    db.exec("ALTER TABLE machine_snapshots ADD COLUMN listed INTEGER NOT NULL DEFAULT 1");
-  }
-  if (!machineSnapshotColumns.has("error_message")) {
-    db.exec("ALTER TABLE machine_snapshots ADD COLUMN error_message TEXT");
-  }
-  if (!machineSnapshotColumns.has("machine_maintenance")) {
-    db.exec("ALTER TABLE machine_snapshots ADD COLUMN machine_maintenance TEXT");
-  }
-  if (!machineSnapshotColumns.has("last_seen_at")) {
-    db.exec("ALTER TABLE machine_snapshots ADD COLUMN last_seen_at TEXT");
-  }
-  if (!machineSnapshotColumns.has("last_online_at")) {
-    db.exec("ALTER TABLE machine_snapshots ADD COLUMN last_online_at TEXT");
-  }
-  if (!machineSnapshotColumns.has("hosting_type")) {
-    db.exec("ALTER TABLE machine_snapshots ADD COLUMN hosting_type INTEGER");
-  }
-  if (!machineSnapshotColumns.has("is_datacenter")) {
-    db.exec("ALTER TABLE machine_snapshots ADD COLUMN is_datacenter INTEGER NOT NULL DEFAULT 0");
-  }
-  if (!machineSnapshotColumns.has("datacenter_id")) {
-    db.exec("ALTER TABLE machine_snapshots ADD COLUMN datacenter_id INTEGER");
-  }
+  const migrationSummary = applySchemaMigrations(db);
 
   const statements = {
     insertPoll: db.prepare(`
@@ -315,6 +296,11 @@ export function createDatabase(dbPath, options = {}) {
       SELECT key, value, updated_at
       FROM db_meta
       ORDER BY key ASC
+    `),
+    selectSchemaMigrations: db.prepare(`
+      SELECT id, description, applied_at
+      FROM schema_migrations
+      ORDER BY id ASC
     `),
     insertFleetSnapshot: db.prepare(`
       INSERT INTO fleet_snapshots (
@@ -584,6 +570,19 @@ export function createDatabase(dbPath, options = {}) {
       WHERE polled_at < ?
       ORDER BY machine_id ASC, polled_at ASC
     `),
+    selectAllMachineSnapshotsForRollups: db.prepare(`
+      SELECT polled_at, machine_id, hostname, gpu_type, status, occupancy, num_gpus, occupied_gpus,
+             current_rentals_running, reliability, gpu_max_cur_temp, listed_gpu_cost, earn_day,
+             listed, last_seen_at, last_online_at
+      FROM machine_snapshots
+      ORDER BY machine_id ASC, polled_at ASC
+    `),
+    selectAllFleetSnapshotsForRollups: db.prepare(`
+      SELECT polled_at, total_machines, datacenter_machines, unlisted_machines,
+             listed_gpus, unlisted_gpus, occupied_gpus, utilisation_pct, total_daily_earnings
+      FROM fleet_snapshots
+      ORDER BY polled_at ASC
+    `),
     upsertMachineSnapshotHourlyRollup: db.prepare(`
       INSERT INTO machine_snapshot_hourly_rollups (
         bucket_start, machine_id, sample_count, hostname, status, occupancy, num_gpus,
@@ -670,6 +669,9 @@ export function createDatabase(dbPath, options = {}) {
     countPolls: db.prepare(`
       SELECT COUNT(*) AS count FROM polls
     `),
+    countSchemaMigrations: db.prepare(`
+      SELECT COUNT(*) AS count FROM schema_migrations
+    `),
     countFleetSnapshots: db.prepare(`
       SELECT COUNT(*) AS count FROM fleet_snapshots
     `),
@@ -696,11 +698,24 @@ export function createDatabase(dbPath, options = {}) {
     `),
     deleteAllFleetSnapshots: db.prepare(`
       DELETE FROM fleet_snapshots
+    `),
+    deleteAllFleetSnapshotHourlyRollups: db.prepare(`
+      DELETE FROM fleet_snapshot_hourly_rollups
+    `),
+    deleteAllMachineSnapshotHourlyRollups: db.prepare(`
+      DELETE FROM machine_snapshot_hourly_rollups
+    `),
+    deleteAllGpuTypeUtilizationHourlyRollups: db.prepare(`
+      DELETE FROM gpu_type_utilization_hourly_rollups
+    `),
+    deleteAllGpuTypePriceHourlyRollups: db.prepare(`
+      DELETE FROM gpu_type_price_hourly_rollups
     `)
   };
 
   const startupMaintenanceSummary = {
-    deduped_fleet_snapshot_rows: dedupedFleetSnapshotRows,
+    schema_migrations: migrationSummary,
+    deduped_fleet_snapshot_rows: migrationSummary.deduped_fleet_snapshot_rows || 0,
     retention: applyRetentionPolicies(statements, options),
     fleet_snapshots: reconcileFleetSnapshots(statements)
   };
@@ -1216,6 +1231,7 @@ export function createDatabase(dbPath, options = {}) {
       path: db.name,
       file_size_bytes: getDatabaseFileSize(db.name),
       row_counts: {
+        schema_migrations: statements.countSchemaMigrations.get()?.count ?? 0,
         polls: statements.countPolls.get()?.count ?? 0,
         fleet_snapshots: statements.countFleetSnapshots.get()?.count ?? 0,
         fleet_snapshot_hourly_rollups: statements.countFleetSnapshotHourlyRollups.get()?.count ?? 0,
@@ -1235,6 +1251,7 @@ export function createDatabase(dbPath, options = {}) {
         fleet_snapshot_state_version: metadata.fleet_snapshot_state_version?.value ?? null,
         fleet_snapshot_state_updated_at: metadata.fleet_snapshot_state_version?.updated_at ?? null
       },
+      schema_migrations: statements.selectSchemaMigrations.all(),
       metadata
     };
   }
@@ -1282,10 +1299,115 @@ export function createDatabase(dbPath, options = {}) {
     };
   }
 
+  function runRebuildDerivedState() {
+    const startedAt = Date.now();
+    const tx = db.transaction(() => {
+      const fleetSourcePolls = statements.selectAllFleetSnapshotSourcePolls.all();
+      const allMachineSnapshotRows = statements.selectAllMachineSnapshotsForRollups.all();
+
+      const deletedFleetSnapshots = statements.deleteAllFleetSnapshots.run().changes;
+      const deletedFleetRollups = statements.deleteAllFleetSnapshotHourlyRollups.run().changes;
+      const deletedMachineRollups = statements.deleteAllMachineSnapshotHourlyRollups.run().changes;
+      const deletedGpuUtilRollups = statements.deleteAllGpuTypeUtilizationHourlyRollups.run().changes;
+      const deletedGpuPriceRollups = statements.deleteAllGpuTypePriceHourlyRollups.run().changes;
+
+      let rebuiltFleetSnapshots = 0;
+      for (const snapshot of fleetSourcePolls) {
+        const pollId = Number(snapshot.poll_id);
+        const machines = statements.selectFleetSnapshotBackfillMachinesByPollId.all(pollId);
+        if (!machines.length) {
+          continue;
+        }
+
+        statements.insertFleetSnapshot.run({
+          poll_id: pollId,
+          polled_at: snapshot.polled_at,
+          ...buildFleetSnapshot(machines)
+        });
+        rebuiltFleetSnapshots += 1;
+      }
+
+      const allFleetSnapshotRows = statements.selectAllFleetSnapshotsForRollups.all();
+      const fleetRollups = groupFleetSnapshotRollupRows(allFleetSnapshotRows);
+      for (const [bucketStart, group] of fleetRollups.entries()) {
+        statements.upsertFleetSnapshotHourlyRollup.run({
+          bucket_start: bucketStart,
+          sample_count: group.length,
+          total_machines: averageFinite(group.map((row) => row.total_machines)) ?? 0,
+          datacenter_machines: averageFinite(group.map((row) => row.datacenter_machines)) ?? 0,
+          unlisted_machines: averageFinite(group.map((row) => row.unlisted_machines)) ?? 0,
+          listed_gpus: averageFinite(group.map((row) => row.listed_gpus)) ?? 0,
+          unlisted_gpus: averageFinite(group.map((row) => row.unlisted_gpus)) ?? 0,
+          occupied_gpus: averageFinite(group.map((row) => row.occupied_gpus)) ?? 0,
+          utilisation_pct: averageFinite(group.map((row) => row.utilisation_pct)) ?? 0,
+          total_daily_earnings: averageFinite(group.map((row) => row.total_daily_earnings)) ?? 0
+        });
+      }
+
+      const machineRollups = groupMachineSnapshotRollupRows(allMachineSnapshotRows);
+      for (const [key, group] of machineRollups.entries()) {
+        const latest = group[group.length - 1];
+        const bucketStart = key.slice(key.indexOf("|") + 1);
+        statements.upsertMachineSnapshotHourlyRollup.run({
+          bucket_start: bucketStart,
+          machine_id: latest.machine_id,
+          sample_count: group.length,
+          hostname: latest.hostname,
+          status: latest.status,
+          occupancy: latest.occupancy,
+          num_gpus: latest.num_gpus,
+          occupied_gpus: averageFinite(group.map((row) => row.occupied_gpus)),
+          current_rentals_running: averageFinite(group.map((row) => row.current_rentals_running)),
+          reliability: averageFinite(group.map((row) => row.reliability)),
+          gpu_max_cur_temp: maxFinite(group.map((row) => row.gpu_max_cur_temp)),
+          listed_gpu_cost: averageFinite(group.map((row) => row.listed_gpu_cost)),
+          earn_day: averageFinite(group.map((row) => row.earn_day))
+        });
+      }
+
+      const gpuRollups = rollupGpuTypeHistoryRows(allMachineSnapshotRows);
+      for (const row of gpuRollups.utilization_rows) {
+        statements.upsertGpuTypeUtilizationHourlyRollup.run(row);
+      }
+      for (const row of gpuRollups.price_rows) {
+        statements.upsertGpuTypePriceHourlyRollup.run(row);
+      }
+
+      const completedAt = new Date().toISOString();
+      statements.upsertMeta.run({
+        key: "derived_rebuild_last_run_at",
+        value: completedAt,
+        updated_at: completedAt
+      });
+
+      return {
+        completed_at: completedAt,
+        duration_ms: Date.now() - startedAt,
+        deleted: {
+          fleet_snapshots: deletedFleetSnapshots,
+          fleet_snapshot_hourly_rollups: deletedFleetRollups,
+          machine_snapshot_hourly_rollups: deletedMachineRollups,
+          gpu_type_utilization_hourly_rollups: deletedGpuUtilRollups,
+          gpu_type_price_hourly_rollups: deletedGpuPriceRollups
+        },
+        rebuilt: {
+          fleet_snapshots: rebuiltFleetSnapshots,
+          fleet_snapshot_hourly_rollups: fleetRollups.size,
+          machine_snapshot_hourly_rollups: machineRollups.size,
+          gpu_type_utilization_hourly_rollups: gpuRollups.utilization_upserted,
+          gpu_type_price_hourly_rollups: gpuRollups.price_upserted
+        }
+      };
+    });
+
+    return tx();
+  }
+
   return {
     db,
     getDatabaseHealth,
     getRetentionPreview,
+    runRebuildDerivedState,
     runVacuum,
     runAnalyze,
     getStartupMaintenanceSummary,
@@ -1303,6 +1425,66 @@ export function createDatabase(dbPath, options = {}) {
 
 function buildFleetSnapshot(machines) {
   return buildFleetAggregate(machines).summary;
+}
+
+function applySchemaMigrations(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      id TEXT PRIMARY KEY,
+      description TEXT NOT NULL,
+      applied_at TEXT NOT NULL
+    );
+  `);
+
+  const hasMigration = db.prepare(`
+    SELECT 1
+    FROM schema_migrations
+    WHERE id = ?
+  `);
+  const insertMigration = db.prepare(`
+    INSERT INTO schema_migrations (id, description, applied_at)
+    VALUES (@id, @description, @applied_at)
+  `);
+
+  const summary = {
+    applied_count: 0,
+    applied_ids: [],
+    deduped_fleet_snapshot_rows: 0
+  };
+
+  for (const migration of SCHEMA_MIGRATIONS) {
+    if (hasMigration.get(migration.id)) {
+      continue;
+    }
+
+    const result = migration.up(db) || {};
+    const appliedAt = new Date().toISOString();
+    insertMigration.run({
+      id: migration.id,
+      description: migration.description,
+      applied_at: appliedAt
+    });
+
+    summary.applied_count += 1;
+    summary.applied_ids.push(migration.id);
+    summary.deduped_fleet_snapshot_rows += Number(result.deduped_fleet_snapshot_rows || 0);
+  }
+
+  return summary;
+}
+
+function ensureColumns(db, tableName, columns) {
+  const existingColumns = new Set(
+    db.prepare(`PRAGMA table_info(${tableName})`).all().map((column) => column.name)
+  );
+
+  for (const [name, definition] of columns) {
+    if (existingColumns.has(name)) {
+      continue;
+    }
+
+    db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${name} ${definition}`);
+  }
 }
 
 function buildComparisonMetric(current, previous, decimals = 2) {
@@ -1620,7 +1802,9 @@ function rollupGpuTypeHistoryRows(rows, statements = null) {
   if (!rows.length) {
     return {
       utilization_upserted: 0,
-      price_upserted: 0
+      price_upserted: 0,
+      utilization_rows: [],
+      price_rows: []
     };
   }
 
@@ -1654,20 +1838,24 @@ function rollupGpuTypeHistoryRows(rows, statements = null) {
   }
 
   let utilizationUpserted = 0;
-  for (const row of utilizationGroups.values()) {
+  const utilizationRows = [...utilizationGroups.values()];
+  for (const row of utilizationRows) {
     statements?.upsertGpuTypeUtilizationHourlyRollup.run(row);
     utilizationUpserted += 1;
   }
 
   let priceUpserted = 0;
-  for (const row of priceGroups.values()) {
+  const priceRows = [...priceGroups.values()];
+  for (const row of priceRows) {
     statements?.upsertGpuTypePriceHourlyRollup.run(row);
     priceUpserted += 1;
   }
 
   return {
     utilization_upserted: utilizationUpserted,
-    price_upserted: priceUpserted
+    price_upserted: priceUpserted,
+    utilization_rows: utilizationRows,
+    price_rows: priceRows
   };
 }
 

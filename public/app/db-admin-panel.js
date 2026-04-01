@@ -11,7 +11,10 @@ export function buildDbAdminPanelMarkup({
   analyzeError = "",
   vacuumResult = null,
   vacuumLoading = false,
-  vacuumError = ""
+  vacuumError = "",
+  rebuildResult = null,
+  rebuildLoading = false,
+  rebuildError = ""
 }) {
   if (!hasAdminToken) {
     return {
@@ -68,6 +71,9 @@ export function buildDbAdminPanelMarkup({
         <button class="settings-inline-button settings-inline-button-warn" type="button" data-db-admin-action="vacuum"${vacuumLoading ? " disabled" : ""}>
           ${vacuumLoading ? "Vacuuming..." : "Vacuum"}
         </button>
+        <button class="settings-inline-button settings-inline-button-warn" type="button" data-db-admin-action="rebuild-derived"${rebuildLoading ? " disabled" : ""}>
+          ${rebuildLoading ? "Rebuilding..." : "Rebuild Derived"}
+        </button>
         <button class="settings-inline-button" type="button" data-db-admin-action="retention-preview"${retentionPreviewLoading ? " disabled" : ""}>
           ${retentionPreviewLoading ? "Loading..." : "Preview Retention"}
         </button>
@@ -85,6 +91,7 @@ export function buildDbAdminPanelMarkup({
         <div class="db-admin-path">Path: ${escapeHtml(database.path || "-")}</div>
         <div class="db-admin-path">Last Analyze: ${escapeHtml(formatMaintenanceTimestamp(metadata.analyze_last_run_at?.value))}</div>
         <div class="db-admin-path">Last Vacuum: ${escapeHtml(formatMaintenanceTimestamp(metadata.vacuum_last_run_at?.value))}</div>
+        <div class="db-admin-path">Last Derived Rebuild: ${escapeHtml(formatMaintenanceTimestamp(metadata.derived_rebuild_last_run_at?.value))}</div>
       </div>
       <div class="table-wrap">
         <table class="db-admin-table">
@@ -104,6 +111,7 @@ export function buildDbAdminPanelMarkup({
       </div>
       ${buildAnalyzeMarkup(analyzeResult, analyzeError)}
       ${buildVacuumMarkup(vacuumResult, vacuumError)}
+      ${buildRebuildMarkup(rebuildResult, rebuildError)}
       ${buildRetentionPreviewMarkup(retentionPreview, retentionPreviewError)}
     `
   };
@@ -227,6 +235,37 @@ function buildVacuumMarkup(result, error) {
         <div class="db-admin-path">Completed: ${escapeHtml(result.completed_at || "unknown")}</div>
         <div class="db-admin-path">Duration: ${escapeHtml(formatMetricMs(result.duration_ms))}</div>
         <div class="db-admin-path">DB size: ${escapeHtml(formatDbSize(result.file_size_bytes))}</div>
+      </div>
+    </div>
+  `;
+}
+
+function buildRebuildMarkup(result, error) {
+  if (error) {
+    return `<div class="section-placeholder"><p class="muted">${escapeHtml(error)}</p></div>`;
+  }
+
+  if (!result) {
+    return `
+      <div class="db-admin-preview">
+        <div class="settings-section-title">Rebuild Derived</div>
+        <div class="db-admin-detail">
+          <div class="db-admin-path">Rebuilds derived fleet snapshots and rollup tables from currently retained raw snapshot history.</div>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="db-admin-preview">
+      <div class="settings-section-title">Rebuild Result</div>
+      <div class="db-admin-detail">
+        <div class="db-admin-path">Completed: ${escapeHtml(result.completed_at || "unknown")}</div>
+        <div class="db-admin-path">Duration: ${escapeHtml(formatMetricMs(result.duration_ms))}</div>
+        <div class="db-admin-path">Fleet snapshots rebuilt: ${escapeHtml(String(result.rebuilt?.fleet_snapshots ?? 0))}</div>
+        <div class="db-admin-path">Fleet rollups rebuilt: ${escapeHtml(String(result.rebuilt?.fleet_snapshot_hourly_rollups ?? 0))}</div>
+        <div class="db-admin-path">Machine rollups rebuilt: ${escapeHtml(String(result.rebuilt?.machine_snapshot_hourly_rollups ?? 0))}</div>
+        <div class="db-admin-path">GPU util/price rollups rebuilt: ${escapeHtml(`${result.rebuilt?.gpu_type_utilization_hourly_rollups ?? 0} / ${result.rebuilt?.gpu_type_price_hourly_rollups ?? 0}`)}</div>
       </div>
     </div>
   `;

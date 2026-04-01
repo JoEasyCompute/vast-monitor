@@ -56,6 +56,9 @@ test("db admin panel renders database counts and route metrics when health is av
           },
           vacuum_last_run_at: {
             value: "2026-04-01T12:00:00.000Z"
+          },
+          derived_rebuild_last_run_at: {
+            value: "2026-04-01T13:00:00.000Z"
           }
         },
         route_metrics: {
@@ -91,6 +94,7 @@ test("db admin panel renders database counts and route metrics when health is av
   assert.match(result.markup, /\/tmp\/vast-monitor\.db/);
   assert.match(result.markup, /Last Analyze:/);
   assert.match(result.markup, /Last Vacuum:/);
+  assert.match(result.markup, /Last Derived Rebuild:/);
 });
 
 test("db admin panel renders retention preview actions and preview details", () => {
@@ -195,4 +199,49 @@ test("db admin panel renders vacuum warning and vacuum result", () => {
   assert.match(result.markup, /Vacuum Result/);
   assert.match(result.markup, /120ms/);
   assert.match(result.markup, /1\.0 KB/);
+});
+
+test("db admin panel renders rebuild action and rebuild result", () => {
+  const warning = buildDbAdminPanelMarkup({
+    hasAdminToken: true,
+    dbHealth: {
+      database: {
+        path: "/tmp/vast-monitor.db",
+        file_size_bytes: 2048,
+        row_counts: {},
+        retention: { snapshot_days: 30, alert_days: 7, event_days: 7 },
+        derived_state: { fleet_snapshot_state_version: "1", fleet_snapshot_state_updated_at: null }
+      }
+    }
+  });
+
+  const result = buildDbAdminPanelMarkup({
+    hasAdminToken: true,
+    dbHealth: {
+      database: {
+        path: "/tmp/vast-monitor.db",
+        file_size_bytes: 2048,
+        row_counts: {},
+        retention: { snapshot_days: 30, alert_days: 7, event_days: 7 },
+        derived_state: { fleet_snapshot_state_version: "1", fleet_snapshot_state_updated_at: null }
+      }
+    },
+    rebuildResult: {
+      completed_at: "2026-04-01T14:00:00.000Z",
+      duration_ms: 250,
+      rebuilt: {
+        fleet_snapshots: 12,
+        fleet_snapshot_hourly_rollups: 4,
+        machine_snapshot_hourly_rollups: 7,
+        gpu_type_utilization_hourly_rollups: 5,
+        gpu_type_price_hourly_rollups: 5
+      }
+    }
+  });
+
+  assert.match(warning.markup, /Rebuild Derived/);
+  assert.match(warning.markup, /currently retained raw snapshot history/i);
+  assert.match(result.markup, /Rebuild Result/);
+  assert.match(result.markup, /12/);
+  assert.match(result.markup, /5 \/ 5/);
 });

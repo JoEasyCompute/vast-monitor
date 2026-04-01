@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import Database from "better-sqlite3";
 
 import { createDatabase } from "../src/db.js";
 import { makeMachine, makeTempDbPath } from "../support-helpers.js";
@@ -225,6 +226,116 @@ test("database startup creates hot-path indexes for snapshots, alerts, polls, an
     assert.ok(snapshotIndexes.includes("idx_machine_snapshots_poll_id"));
     assert.ok(alertIndexes.includes("idx_alerts_created_at"));
     assert.ok(alertIndexes.includes("idx_alerts_type_created_machine"));
+  } finally {
+    store.db.close();
+  }
+});
+
+test("database startup records applied schema migrations on fresh databases", () => {
+  const dbPath = makeTempDbPath("vast-monitor-db-migrations-fresh-");
+  const store = createDatabase(dbPath);
+
+  try {
+    const migrations = store.db.prepare(`
+      SELECT id, description
+      FROM schema_migrations
+      ORDER BY id ASC
+    `).all();
+
+    assert.deepEqual(migrations, [{
+      id: "001_managed_schema_baseline",
+      description: "Create baseline tables/indexes and backfill additive columns"
+    }]);
+
+    const dbHealth = store.getDatabaseHealth();
+    assert.equal(dbHealth.row_counts.schema_migrations, 1);
+    assert.equal(dbHealth.schema_migrations[0].id, "001_managed_schema_baseline");
+  } finally {
+    store.db.close();
+  }
+});
+
+test("database startup upgrades legacy schema through managed migrations", () => {
+  const dbPath = makeTempDbPath("vast-monitor-db-migrations-legacy-");
+  const legacyDb = new Database(dbPath);
+
+  try {
+    legacyDb.exec(`
+      CREATE TABLE machine_registry (
+        machine_id INTEGER PRIMARY KEY,
+        hostname TEXT NOT NULL,
+        gpu_type TEXT,
+        num_gpus INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE machine_state (
+        machine_id INTEGER PRIMARY KEY,
+        hostname TEXT NOT NULL,
+        gpu_type TEXT,
+        num_gpus INTEGER,
+        status TEXT NOT NULL,
+        occupancy TEXT,
+        occupied_gpus INTEGER,
+        current_rentals_running INTEGER,
+        listed_gpu_cost REAL,
+        reliability REAL,
+        gpu_max_cur_temp REAL,
+        earn_day REAL,
+        num_reports INTEGER NOT NULL DEFAULT 0,
+        num_recent_reports REAL,
+        prev_day_reports INTEGER NOT NULL DEFAULT 0,
+        reports_changed INTEGER NOT NULL DEFAULT 0,
+        idle_since TEXT,
+        temp_alert_active INTEGER NOT NULL DEFAULT 0,
+        idle_alert_active INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE polls (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        polled_at TEXT NOT NULL
+      );
+
+      CREATE TABLE machine_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        poll_id INTEGER NOT NULL,
+        polled_at TEXT NOT NULL,
+        machine_id INTEGER NOT NULL,
+        hostname TEXT NOT NULL,
+        gpu_type TEXT,
+        num_gpus INTEGER,
+        occupancy TEXT,
+        occupied_gpus INTEGER,
+        current_rentals_running INTEGER,
+        listed_gpu_cost REAL,
+        reliability REAL,
+        gpu_max_cur_temp REAL,
+        earn_day REAL,
+        num_reports INTEGER NOT NULL DEFAULT 0,
+        num_recent_reports REAL,
+        status TEXT NOT NULL
+      );
+    `);
+  } finally {
+    legacyDb.close();
+  }
+
+  const store = createDatabase(dbPath);
+
+  try {
+    const machineStateColumns = store.db.prepare("PRAGMA table_info(machine_state)").all().map((row) => row.name);
+    const machineSnapshotColumns = store.db.prepare("PRAGMA table_info(machine_snapshots)").all().map((row) => row.name);
+    const migrations = store.db.prepare("SELECT id FROM schema_migrations ORDER BY id ASC").all();
+
+    assert.ok(machineStateColumns.includes("public_ipaddr"));
+    assert.ok(machineStateColumns.includes("listed"));
+    assert.ok(machineStateColumns.includes("is_datacenter"));
+    assert.ok(machineSnapshotColumns.includes("listed"));
+    assert.ok(machineSnapshotColumns.includes("last_seen_at"));
+    assert.ok(machineSnapshotColumns.includes("is_datacenter"));
+    assert.deepEqual(migrations, [{ id: "001_managed_schema_baseline" }]);
   } finally {
     store.db.close();
   }
