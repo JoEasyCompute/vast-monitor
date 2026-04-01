@@ -758,6 +758,25 @@ th {
   z-index: 10;
 }
 
+.machine-col-id,
+.machine-col-hostname {
+  position: sticky;
+  background: rgba(9, 17, 31, 0.98);
+}
+
+th.machine-col-id,
+td.machine-col-id {
+  left: 0;
+  z-index: 11;
+}
+
+th.machine-col-hostname,
+td.machine-col-hostname {
+  left: 72px;
+  z-index: 11;
+  box-shadow: 10px 0 14px -14px rgba(2, 6, 23, 0.95);
+}
+
 th[data-sort] {
   cursor: pointer;
   user-select: none;
@@ -1943,6 +1962,11 @@ tr.machine-row:hover {
   background: rgba(255, 255, 255, 0.03);
 }
 
+tr.machine-row:hover .machine-col-id,
+tr.machine-row:hover .machine-col-hostname {
+  background: rgba(20, 30, 46, 0.98);
+}
+
 @media (max-width: 1180px) {
   .machine-col-occupancy,
   .machine-col-temp,
@@ -1967,6 +1991,11 @@ tr.machine-row:hover {
   .hero {
     flex-direction: column;
     align-items: start;
+  }
+
+  th.machine-col-hostname,
+  td.machine-col-hostname {
+    left: 64px;
   }
 
   .machine-col-price,
@@ -2003,6 +2032,12 @@ tr.machine-row:hover {
   .machine-view-tab {
     flex: 1 1 0;
     text-align: center;
+  }
+
+  .machine-col-id,
+  .machine-col-hostname {
+    position: static;
+    box-shadow: none;
   }
 
   .machine-col-rentals,
