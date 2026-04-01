@@ -36,7 +36,8 @@ test("server integration returns expected API payloads and dependency failures",
     projectRoot: path.resolve("."),
     pollIntervalMs: 5 * 60 * 1000,
     vastCliPath: "/definitely/missing/vast",
-    vastApiKeyPath: "/definitely/missing/api_key"
+    vastApiKeyPath: "/definitely/missing/api_key",
+    adminApiToken: "secret-admin-token"
   };
   const monitor = {
     getHealthSnapshot() {
@@ -79,7 +80,11 @@ test("server integration returns expected API payloads and dependency failures",
   try {
     const status = await invokeRoute(app, "/api/status");
     const health = await invokeRoute(app, "/api/health");
-    const dbHealth = await invokeRoute(app, "/api/admin/db-health");
+    const dbHealth = await invokeRoute(app, "/api/admin/db-health", {
+      headers: {
+        authorization: "Bearer secret-admin-token"
+      }
+    });
     const fleet = await invokeRoute(app, "/api/fleet/history", { query: { hours: "24" } });
     const history = await invokeRoute(app, "/api/history", { query: { machine_id: "1", hours: "24" } });
     const reports = await invokeRoute(app, "/api/reports", { query: { machine_id: "1" } });
@@ -200,12 +205,73 @@ test("status excludes machines offline for more than 24 hours from fleet summary
   }
 });
 
-async function invokeRoute(app, routePath, { query = {} } = {}) {
+test("admin db-health route requires configured auth token", async () => {
+  const dbPath = makeTempDbPath("vast-monitor-server-admin-auth-");
+  const db = createDatabase(dbPath);
+
+  const app = createServer({
+    config: {
+      projectRoot: path.resolve("."),
+      pollIntervalMs: 5 * 60 * 1000,
+      vastCliPath: "/definitely/missing/vast",
+      vastApiKeyPath: "/definitely/missing/api_key",
+      adminApiToken: "top-secret"
+    },
+    db,
+    monitor: null
+  });
+
+  try {
+    const missing = await invokeRoute(app, "/api/admin/db-health");
+    const wrong = await invokeRoute(app, "/api/admin/db-health", {
+      headers: { "x-admin-token": "wrong-token" }
+    });
+    const ok = await invokeRoute(app, "/api/admin/db-health", {
+      headers: { "x-admin-token": "top-secret" }
+    });
+
+    assert.equal(missing.statusCode, 401);
+    assert.equal(missing.body.error, "admin authorization required");
+    assert.equal(wrong.statusCode, 401);
+    assert.equal(ok.statusCode, 200);
+    assert.equal(ok.body.ok, true);
+  } finally {
+    db.db.close();
+  }
+});
+
+test("admin db-health route is disabled when no admin token is configured", async () => {
+  const dbPath = makeTempDbPath("vast-monitor-server-admin-disabled-");
+  const db = createDatabase(dbPath);
+
+  const app = createServer({
+    config: {
+      projectRoot: path.resolve("."),
+      pollIntervalMs: 5 * 60 * 1000,
+      vastCliPath: "/definitely/missing/vast",
+      vastApiKeyPath: "/definitely/missing/api_key",
+      adminApiToken: ""
+    },
+    db,
+    monitor: null
+  });
+
+  try {
+    const response = await invokeRoute(app, "/api/admin/db-health");
+    assert.equal(response.statusCode, 404);
+    assert.equal(response.body.error, "admin api disabled");
+  } finally {
+    db.db.close();
+  }
+});
+
+async function invokeRoute(app, routePath, { query = {}, headers = {} } = {}) {
   const layer = app.router.stack.find((entry) => entry.route?.path === routePath);
   assert.ok(layer, `Route ${routePath} not found`);
 
   const req = {
     query,
+    headers,
     method: "GET",
     url: routePath
   };

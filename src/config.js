@@ -44,6 +44,7 @@ export const config = {
   alertIdleHours: numberFromEnv("ALERT_IDLE_HOURS", 6),
   alertCooldownMinutes: numberFromEnv("ALERT_COOLDOWN_MINUTES", 60),
   alertHostnameCollisionCooldownMinutes: numberFromEnv("ALERT_HOSTNAME_COLLISION_COOLDOWN_MINUTES", 360),
+  adminApiToken: String(process.env.ADMIN_API_TOKEN || "").trim(),
   dbSnapshotRetentionDays: numberFromEnv("DB_SNAPSHOT_RETENTION_DAYS", 0),
   dbAlertRetentionDays: numberFromEnv("DB_ALERT_RETENTION_DAYS", 0),
   dbEventRetentionDays: numberFromEnv("DB_EVENT_RETENTION_DAYS", 0),

@@ -22,7 +22,11 @@ export function createServer({ config, db, monitor, plugins = [] }) {
     res.status(health.ok ? 200 : 503).json(health);
   });
 
-  app.get("/api/admin/db-health", (_req, res) => {
+  app.get("/api/admin/db-health", (req, res) => {
+    if (!requireAdminAccess(req, res, config)) {
+      return;
+    }
+
     res.json({
       ok: true,
       database: typeof db?.getDatabaseHealth === "function" ? db.getDatabaseHealth() : null
@@ -556,6 +560,26 @@ function parseMaintenance(value) {
   } catch {
     return [];
   }
+}
+
+function requireAdminAccess(req, res, config) {
+  const configuredToken = String(config?.adminApiToken || "").trim();
+  if (!configuredToken) {
+    res.status(404).json({ error: "admin api disabled" });
+    return false;
+  }
+
+  const authHeader = String(req.headers?.authorization || "").trim();
+  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : "";
+  const directToken = String(req.headers?.["x-admin-token"] || "").trim();
+  const suppliedToken = bearerToken || directToken;
+
+  if (suppliedToken !== configuredToken) {
+    res.status(401).json({ error: "admin authorization required" });
+    return false;
+  }
+
+  return true;
 }
 
 const IGNORED_ERROR_MESSAGES = new Set([

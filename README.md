@@ -67,6 +67,7 @@ Environment variables:
 - `ALERT_IDLE_HOURS`: idle alert threshold in hours, default `6`
 - `ALERT_COOLDOWN_MINUTES`: cooldown for repeated noisy alerts such as `new_reports`, `high_temp`, and `idle`, default `60`
 - `ALERT_HOSTNAME_COLLISION_COOLDOWN_MINUTES`: longer cooldown for repeated hostname-collision alerts, default `360`
+- `ADMIN_API_TOKEN`: optional shared secret required for `/api/admin/*`; when unset, admin routes are disabled
 - `PORT`: HTTP port, default `3000`
 - `DB_PATH`: SQLite database path, default `./data/vast-monitor.db`
 - `DB_SNAPSHOT_RETENTION_DAYS`: optional retention window for `polls`, `machine_snapshots`, and derived `fleet_snapshots`; `0` disables pruning
@@ -293,6 +294,14 @@ Returns service and poll health details including:
 ### `GET /api/admin/db-health`
 
 Internal operator-oriented database status endpoint.
+
+Auth:
+
+- requires `ADMIN_API_TOKEN` to be configured
+- send either:
+  - `Authorization: Bearer <token>`
+  - or `X-Admin-Token: <token>`
+- if `ADMIN_API_TOKEN` is unset, `/api/admin/*` routes are disabled
 
 Returns:
 
