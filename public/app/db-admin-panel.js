@@ -14,7 +14,8 @@ export function buildDbAdminPanelMarkup({
   vacuumError = "",
   rebuildResult = null,
   rebuildLoading = false,
-  rebuildError = ""
+  rebuildError = "",
+  confirmAction = ""
 }) {
   if (!hasAdminToken) {
     return {
@@ -35,6 +36,12 @@ export function buildDbAdminPanelMarkup({
   const routeMetrics = database.route_metrics || dbHealth.route_metrics || {};
   const metadata = database.metadata || {};
   const maintenance = database.maintenance || {};
+  const statusBadges = [
+    buildStatusBadge("Admin", "ok"),
+    buildStatusBadge("Retention", (database.retention?.snapshot_days || database.retention?.alert_days || database.retention?.event_days) ? "ok" : "warn"),
+    buildStatusBadge(maintenance.in_progress ? `Busy: ${maintenance.in_progress.action}` : "Idle", maintenance.in_progress ? "warn" : "ok")
+  ].join("");
+  const warningMarkup = buildWarningMarkup({ database, maintenance });
   const cards = [
     ["DB Size", formatDbSize(database.file_size_bytes)],
     ["Fleet Ver", database.derived_state?.fleet_snapshot_state_version || "-"],
@@ -62,6 +69,9 @@ export function buildDbAdminPanelMarkup({
     `)
     .join("");
 
+  const isConfirmingVacuum = confirmAction === "vacuum";
+  const isConfirmingRebuild = confirmAction === "rebuild-derived";
+
   return {
     meta: `Version updated ${database.derived_state?.fleet_snapshot_state_updated_at ? formatChartTimestamp(database.derived_state.fleet_snapshot_state_updated_at) : "unknown"}`,
     markup: `
@@ -69,17 +79,23 @@ export function buildDbAdminPanelMarkup({
         <button class="settings-inline-button" type="button" data-db-admin-action="analyze"${analyzeLoading ? " disabled" : ""}>
           ${analyzeLoading ? "Analyzing..." : "Analyze"}
         </button>
-        <button class="settings-inline-button settings-inline-button-warn" type="button" data-db-admin-action="vacuum"${vacuumLoading ? " disabled" : ""}>
-          ${vacuumLoading ? "Vacuuming..." : "Vacuum"}
+        <button class="settings-inline-button settings-inline-button-warn${isConfirmingVacuum ? " settings-inline-button-danger" : ""}" type="button" data-db-admin-action="vacuum"${vacuumLoading ? " disabled" : ""}>
+          ${vacuumLoading ? "Vacuuming..." : isConfirmingVacuum ? "Confirm Vacuum" : "Vacuum"}
         </button>
-        <button class="settings-inline-button settings-inline-button-warn" type="button" data-db-admin-action="rebuild-derived"${rebuildLoading ? " disabled" : ""}>
-          ${rebuildLoading ? "Rebuilding..." : "Rebuild Derived"}
+        <button class="settings-inline-button settings-inline-button-warn${isConfirmingRebuild ? " settings-inline-button-danger" : ""}" type="button" data-db-admin-action="rebuild-derived"${rebuildLoading ? " disabled" : ""}>
+          ${rebuildLoading ? "Rebuilding..." : isConfirmingRebuild ? "Confirm Rebuild" : "Rebuild Derived"}
         </button>
         <button class="settings-inline-button" type="button" data-db-admin-action="retention-preview"${retentionPreviewLoading ? " disabled" : ""}>
           ${retentionPreviewLoading ? "Loading..." : "Preview Retention"}
         </button>
+        <button class="settings-inline-button" type="button" data-db-admin-action="copy-diagnostics">Copy JSON</button>
+        <button class="settings-inline-button" type="button" data-db-admin-action="download-diagnostics">Download JSON</button>
         ${retentionPreview ? '<button class="settings-inline-button" type="button" data-db-admin-action="clear-retention-preview">Clear Preview</button>' : ""}
+        ${(isConfirmingVacuum || isConfirmingRebuild) ? '<button class="settings-inline-button" type="button" data-db-admin-action="cancel-confirm">Cancel</button>' : ""}
       </div>
+      <div class="db-admin-badges">${statusBadges}</div>
+      ${warningMarkup}
+      ${buildConfirmationMarkup(confirmAction)}
       <div class="db-admin-grid">
         ${cards.map(([label, value]) => `
           <article class="stat-card">
@@ -136,6 +152,42 @@ function formatDbSize(bytes) {
 
 function buildRetentionLabel(retention = {}) {
   return `S:${retention.snapshot_days ?? 0} A:${retention.alert_days ?? 0} E:${retention.event_days ?? 0}`;
+}
+
+function buildStatusBadge(label, kind) {
+  return `<span class="db-admin-badge ${kind === "warn" ? "warn" : "ok"}">${escapeHtml(label)}</span>`;
+}
+
+function buildWarningMarkup({ database, maintenance }) {
+  const warnings = [];
+  const retention = database.retention || {};
+  const fileSizeBytes = Number(database.file_size_bytes);
+
+  if (!(retention.snapshot_days || retention.alert_days || retention.event_days)) {
+    warnings.push("Retention is disabled. DB size will keep growing until retention is configured.");
+  }
+
+  if (Number.isFinite(fileSizeBytes) && fileSizeBytes >= 250 * 1024 * 1024) {
+    warnings.push(`Database file is large (${formatDbSize(fileSizeBytes)}). Consider retention preview, ANALYZE, or VACUUM during low-traffic periods.`);
+  }
+
+  if (maintenance?.in_progress?.action) {
+    warnings.push(`Maintenance is currently running: ${maintenance.in_progress.action}. Heavy actions may temporarily affect responsiveness.`);
+  }
+
+  if (!warnings.length) {
+    return "";
+  }
+
+  return `
+    <div class="db-admin-warning-list">
+      ${warnings.map((message) => `
+        <div class="db-admin-warning">
+          <strong>Heads up:</strong> ${escapeHtml(message)}
+        </div>
+      `).join("")}
+    </div>
+  `;
 }
 
 function formatMetricMs(value) {
@@ -195,6 +247,26 @@ function buildRetentionPreviewMarkup(preview, error) {
   `;
 }
 
+function buildConfirmationMarkup(confirmAction) {
+  if (!confirmAction) {
+    return "";
+  }
+
+  const label = confirmAction === "vacuum"
+    ? "VACUUM rewrites the database file and may temporarily block DB work."
+    : "Rebuild Derived recreates fleet snapshots and rollup tables from retained raw history.";
+
+  return `
+    <div class="db-admin-preview db-admin-confirm">
+      <div class="settings-section-title">Confirm Action</div>
+      <div class="db-admin-detail">
+        <div class="db-admin-path">${escapeHtml(label)}</div>
+        <div class="db-admin-path">Press the highlighted button again to continue, or Cancel.</div>
+      </div>
+    </div>
+  `;
+}
+
 function buildAnalyzeMarkup(result, error) {
   if (error) {
     return `<div class="section-placeholder"><p class="muted">${escapeHtml(error)}</p></div>`;
@@ -231,6 +303,7 @@ function buildMaintenanceHistoryMarkup(maintenance = {}) {
             <th>Started</th>
             <th>Completed</th>
             <th>Duration</th>
+            <th>Details</th>
           </tr>
         </thead>
         <tbody>
@@ -241,6 +314,7 @@ function buildMaintenanceHistoryMarkup(maintenance = {}) {
               <td>${escapeHtml(formatMaintenanceTimestamp(run.started_at))}</td>
               <td>${escapeHtml(formatMaintenanceTimestamp(run.completed_at))}</td>
               <td>${escapeHtml(formatMetricMs(run.duration_ms))}</td>
+              <td>${buildMaintenanceRunDetails(run)}</td>
             </tr>
           `).join("")}
         </tbody>
@@ -249,9 +323,43 @@ function buildMaintenanceHistoryMarkup(maintenance = {}) {
   `;
 }
 
+function buildMaintenanceRunDetails(run) {
+  const errorText = String(run?.error_text || "").trim();
+  if (errorText) {
+    return `
+      <details class="db-admin-run-details">
+        <summary>Error</summary>
+        <pre>${escapeHtml(errorText)}</pre>
+      </details>
+    `;
+  }
+
+  if (run?.result) {
+    return `
+      <details class="db-admin-run-details">
+        <summary>Result</summary>
+        <pre>${escapeHtml(JSON.stringify(run.result, null, 2))}</pre>
+      </details>
+    `;
+  }
+
+  return '<span class="muted">-</span>';
+}
+
 function buildVacuumMarkup(result, error) {
   if (error) {
     return `<div class="section-placeholder"><p class="muted">${escapeHtml(error)}</p></div>`;
+  }
+
+  if (result?.queued) {
+    return `
+      <div class="db-admin-preview">
+        <div class="settings-section-title">Vacuum Queued</div>
+        <div class="db-admin-detail">
+          <div class="db-admin-path">Background vacuum has been queued. The panel will refresh while maintenance is running.</div>
+        </div>
+      </div>
+    `;
   }
 
   if (!result) {
@@ -280,6 +388,17 @@ function buildVacuumMarkup(result, error) {
 function buildRebuildMarkup(result, error) {
   if (error) {
     return `<div class="section-placeholder"><p class="muted">${escapeHtml(error)}</p></div>`;
+  }
+
+  if (result?.queued) {
+    return `
+      <div class="db-admin-preview">
+        <div class="settings-section-title">Rebuild Queued</div>
+        <div class="db-admin-detail">
+          <div class="db-admin-path">Background rebuild has been queued. The panel will refresh while maintenance is running.</div>
+        </div>
+      </div>
+    `;
   }
 
   if (!result) {

@@ -130,13 +130,16 @@
 
         <section class="panel wide">
           <div class="panel-title-row">
-            <h2>Machines</h2>
+            <div>
+              <h2>Machines</h2>
+              <p id="machines-filter-meta" class="section-meta machine-filter-meta"></p>
+            </div>
             <div class="machine-view-tabs" id="machine-view-tabs">
               <button id="machine-tab-active" class="machine-view-tab active" type="button" data-tab="active" title="Show online machines and recently offline machines. Machines offline for more than 24 hours are excluded from this view.">Main View</button>
               <button id="machine-tab-archived" class="machine-view-tab" type="button" data-tab="archived" title="Show archived machines: machines that have been offline for more than 24 hours.">Archived</button>
             </div>
           </div>
-          <p class="machine-interaction-hint">Click a row for history. Ctrl/Cmd-click or long-press a report badge for reports.</p>
+          <p class="machine-interaction-hint">Click a row for history. Ctrl/Cmd-click or long-press a report badge for reports. Click GPU names in the breakdown above to filter this table.</p>
           <div class="machine-filters" id="machine-filters">
             <input id="filter-search" class="filter-input" type="search" placeholder="Search..." title="Filter machines by hostname, machine ID, or GPU type." />
             <select id="filter-status" class="filter-select" title="Filter by current machine status.">
@@ -187,20 +190,20 @@
               <thead>
                 <tr>
                   <th>#</th>
-                  <th data-sort="machine_id">ID</th>
+                  <th data-sort="machine_id" class="machine-col-id">ID</th>
                   <th class="dc-col"></th>
                   <th data-sort="listed" class="listed-col">List</th>
                   <th class="maint-col">Maint</th>
-                  <th data-sort="hostname">Hostname</th>
-                  <th data-sort="gpu_type">GPU Type</th>
+                  <th data-sort="hostname" class="machine-col-hostname">Hostname</th>
+                  <th data-sort="gpu_type" class="machine-col-gpu">GPU Type</th>
                   <th data-sort="num_gpus">GPUs</th>
-                  <th>Occupancy</th>
-                  <th data-sort="listed_gpu_cost">Price</th>
-                  <th data-sort="current_rentals_running">Rentals</th>
-                  <th data-sort="gpu_max_cur_temp">Temp</th>
-                  <th data-sort="num_reports">Reports</th>
-                  <th data-sort="reliability">Reliability</th>
-                  <th data-sort="uptime">Uptime 24h</th>
+                  <th class="machine-col-occupancy">Occupancy</th>
+                  <th data-sort="listed_gpu_cost" class="machine-col-price">Price</th>
+                  <th data-sort="current_rentals_running" class="machine-col-rentals">Rentals</th>
+                  <th data-sort="gpu_max_cur_temp" class="machine-col-temp">Temp</th>
+                  <th data-sort="num_reports" class="machine-col-reports">Reports</th>
+                  <th data-sort="reliability" class="machine-col-reliability">Reliability</th>
+                  <th data-sort="uptime" class="machine-col-uptime">Uptime 24h</th>
                   <th data-sort="status">Status</th>
                 </tr>
               </thead>

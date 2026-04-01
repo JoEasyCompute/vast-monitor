@@ -129,11 +129,11 @@ test("machine-table supports exact multi-select GPU-type filters", () => {
 test("machine-table empty states distinguish filtered and archived views", () => {
   assert.equal(
     buildMachineEmptyStateMessage(0, defaultFilters({ search: "missing" }), "active"),
-    "No main-view machines match the current filters."
+    "No main-view machines match the current filters. Try clear the search."
   );
   assert.equal(
     buildMachineEmptyStateMessage(0, defaultFilters(), "archived"),
-    "No archived machines yet."
+    "No archived machines yet. Machines move here after being offline for more than 24 hours."
   );
   assert.equal(buildMachineEmptyStateMessage(2, defaultFilters(), "active"), "");
 });

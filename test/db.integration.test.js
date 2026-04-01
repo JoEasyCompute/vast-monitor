@@ -250,13 +250,18 @@ test("database startup records applied schema migrations on fresh databases", ()
       {
         id: "002_maintenance_runs",
         description: "Track operator maintenance executions"
+      },
+      {
+        id: "003_maintenance_locks",
+        description: "Prevent overlapping maintenance actions across processes"
       }
     ]);
 
     const dbHealth = store.getDatabaseHealth();
-    assert.equal(dbHealth.row_counts.schema_migrations, 2);
+    assert.equal(dbHealth.row_counts.schema_migrations, 3);
     assert.equal(dbHealth.schema_migrations[0].id, "001_managed_schema_baseline");
     assert.equal(dbHealth.schema_migrations[1].id, "002_maintenance_runs");
+    assert.equal(dbHealth.schema_migrations[2].id, "003_maintenance_locks");
   } finally {
     store.db.close();
   }
@@ -344,7 +349,8 @@ test("database startup upgrades legacy schema through managed migrations", () =>
     assert.ok(machineSnapshotColumns.includes("is_datacenter"));
     assert.deepEqual(migrations, [
       { id: "001_managed_schema_baseline" },
-      { id: "002_maintenance_runs" }
+      { id: "002_maintenance_runs" },
+      { id: "003_maintenance_locks" }
     ]);
   } finally {
     store.db.close();
@@ -610,6 +616,58 @@ test("database maintenance actions are recorded in maintenance_runs", () => {
     assert.ok(dbHealth.metadata.analyze_last_run_at?.value);
     assert.ok(dbHealth.metadata.vacuum_last_run_at?.value);
     assert.ok(dbHealth.metadata.derived_rebuild_last_run_at?.value);
+  } finally {
+    store.db.close();
+  }
+});
+
+test("database maintenance actions respect cross-process maintenance locks", () => {
+  const dbPath = makeTempDbPath("vast-monitor-db-maintenance-lock-");
+  const store = createDatabase(dbPath);
+
+  try {
+    const now = "2026-04-01T12:00:00.000Z";
+    const expires = "2026-04-01T13:00:00.000Z";
+    store.db.prepare(`
+      INSERT INTO maintenance_locks (name, owner_id, action, acquired_at, expires_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run("global", "other-owner", "vacuum", now, expires);
+
+    assert.throws(() => store.runAnalyze(), (error) => {
+      assert.equal(error.code, "MAINTENANCE_BUSY");
+      assert.equal(error.statusCode, 409);
+      assert.match(error.message, /vacuum is already running/i);
+      return true;
+    });
+
+    const dbHealth = store.getDatabaseHealth();
+    assert.equal(dbHealth.maintenance.in_progress.action, "vacuum");
+    assert.equal(dbHealth.row_counts.maintenance_runs, 0);
+  } finally {
+    store.db.close();
+  }
+});
+
+test("database maintenance actions replace stale cross-process locks", () => {
+  const dbPath = makeTempDbPath("vast-monitor-db-maintenance-stale-lock-");
+  const store = createDatabase(dbPath);
+
+  try {
+    const realDateNow = Date.now;
+    Date.now = () => Date.parse("2026-04-01T12:00:00.000Z");
+
+    store.db.prepare(`
+      INSERT INTO maintenance_locks (name, owner_id, action, acquired_at, expires_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run("global", "stale-owner", "vacuum", "2026-04-01T00:00:00.000Z", "2026-04-01T01:00:00.000Z");
+
+    const analyze = store.runAnalyze();
+    const remainingLock = store.db.prepare("SELECT * FROM maintenance_locks WHERE name = ?").get("global");
+
+    assert.ok(Number.isFinite(analyze.duration_ms));
+    assert.equal(remainingLock, undefined);
+
+    Date.now = realDateNow;
   } finally {
     store.db.close();
   }

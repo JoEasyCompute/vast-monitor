@@ -151,6 +151,10 @@ h1, h2, p {
   font-size: 0.92rem;
 }
 
+.machine-filter-meta {
+  margin: 4px 0 0;
+}
+
 .machine-hostname-cell {
   display: flex;
   flex-direction: column;
@@ -699,6 +703,8 @@ h1 {
 .panel.wide .table-wrap.machines-scroll {
   overflow: auto;
   max-height: 80vh;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
 }
 
 .machines-empty-state {
@@ -1334,6 +1340,21 @@ tr.high-temperature td {
   background: rgba(120, 53, 15, 0.28);
 }
 
+.settings-inline-button-danger {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(127, 29, 29, 0.28);
+  color: #fecaca;
+}
+
+.settings-inline-button-danger:hover {
+  border-color: rgba(239, 68, 68, 0.7);
+  background: rgba(127, 29, 29, 0.4);
+}
+
+.db-admin-confirm {
+  border: 1px solid rgba(239, 68, 68, 0.24);
+}
+
 .settings-actions {
   display: flex;
   justify-content: flex-end;
@@ -1343,6 +1364,48 @@ tr.high-temperature td {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 12px;
+}
+
+.db-admin-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.db-admin-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.db-admin-badge.ok {
+  color: #bfdbfe;
+  background: rgba(96, 165, 250, 0.12);
+}
+
+.db-admin-badge.warn {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.14);
+}
+
+.db-admin-warning-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.db-admin-warning {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(245, 158, 11, 0.24);
+  background: rgba(120, 53, 15, 0.22);
+  color: #fde68a;
+  font-size: 0.88rem;
 }
 
 .db-admin-detail {
@@ -1358,6 +1421,23 @@ tr.high-temperature td {
 
 .db-admin-table {
   width: 100%;
+}
+
+.db-admin-run-details summary {
+  cursor: pointer;
+  color: #bfdbfe;
+}
+
+.db-admin-run-details pre {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.82);
+  color: var(--text);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.8rem;
 }
 
 .alert-item {
@@ -1863,6 +1943,14 @@ tr.machine-row:hover {
   background: rgba(255, 255, 255, 0.03);
 }
 
+@media (max-width: 1180px) {
+  .machine-col-occupancy,
+  .machine-col-temp,
+  .machine-col-uptime {
+    display: none;
+  }
+}
+
 @media (max-width: 980px) {
   .panel {
     grid-column: 1 / -1;
@@ -1879,6 +1967,11 @@ tr.machine-row:hover {
   .hero {
     flex-direction: column;
     align-items: start;
+  }
+
+  .machine-col-price,
+  .machine-col-reliability {
+    display: none;
   }
 }
 
@@ -1910,5 +2003,14 @@ tr.machine-row:hover {
   .machine-view-tab {
     flex: 1 1 0;
     text-align: center;
+  }
+
+  .machine-col-rentals,
+  .machine-col-reports {
+    display: none;
+  }
+
+  .machine-filter-meta {
+    font-size: 0.8rem;
   }
 }

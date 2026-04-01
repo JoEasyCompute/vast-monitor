@@ -165,20 +165,20 @@ export function buildMachineRowsMarkup(rows, uiSettings) {
       return `
       <tr class="machine-row ${rowClass}" data-machine-row="1" data-machine-id="${row.machine_id}">
         <td class="muted">${index + 1}</td>
-        <td class="muted">#${row.machine_id}</td>
+        <td class="muted machine-col-id">#${row.machine_id}</td>
         <td class="dc-cell">${renderDatacenter(row)}</td>
         <td class="listed-cell">${renderListed(row)}</td>
         <td class="maint-cell">${renderMaintenanceCheckbox(row)}</td>
-        <td>${renderHostnameCell(row)}</td>
-        <td>${escapeHtml(row.gpu_type)}</td>
+        <td class="machine-col-hostname">${renderHostnameCell(row)}</td>
+        <td class="machine-col-gpu">${escapeHtml(row.gpu_type)}</td>
         <td>${row.num_gpus}</td>
-        <td>${renderOccupancy(row)}</td>
-        <td>${renderPriceCell(row)}</td>
-        <td>${renderRentalsCell(row)}</td>
-        <td>${row.gpu_max_cur_temp == null ? "-" : `${row.gpu_max_cur_temp}C`}</td>
-        <td>${renderReports(row)}</td>
-        <td>${renderReliabilityCell(row, reliabilityScore)}</td>
-        <td>${row.uptime?.["24h"] == null ? "-" : `${row.uptime["24h"]}%`}</td>
+        <td class="machine-col-occupancy">${renderOccupancy(row)}</td>
+        <td class="machine-col-price">${renderPriceCell(row)}</td>
+        <td class="machine-col-rentals">${renderRentalsCell(row)}</td>
+        <td class="machine-col-temp">${row.gpu_max_cur_temp == null ? "-" : `${row.gpu_max_cur_temp}C`}</td>
+        <td class="machine-col-reports">${renderReports(row)}</td>
+        <td class="machine-col-reliability">${renderReliabilityCell(row, reliabilityScore)}</td>
+        <td class="machine-col-uptime">${row.uptime?.["24h"] == null ? "-" : `${row.uptime["24h"]}%`}</td>
         <td>${renderStatusCell(row)}</td>
       </tr>
     `;
@@ -204,11 +204,31 @@ export function buildMachineEmptyStateMessage(count, filters, activeMachineView)
     || filters.maint
   );
 
-  return hasFilters
-    ? `No ${activeMachineView === "archived" ? "archived" : "main-view"} machines match the current filters.`
-    : activeMachineView === "archived"
-      ? "No archived machines yet."
+  if (!hasFilters) {
+    return activeMachineView === "archived"
+      ? "No archived machines yet. Machines move here after being offline for more than 24 hours."
       : "No machines in the main view.";
+  }
+
+  const hints = [];
+  if (filters.search.trim()) {
+    hints.push("clear the search");
+  }
+  if (Array.isArray(filters.gpuTypes) && filters.gpuTypes.length > 0) {
+    hints.push("remove GPU filters");
+  }
+  if (filters.status !== "all" || filters.listed !== "all" || filters.dc !== "all") {
+    hints.push("broaden quick filters");
+  }
+  if (filters.errors || filters.reports || filters.maint) {
+    hints.push("untoggle filter chips");
+  }
+
+  const hintText = hints.length > 0
+    ? ` Try ${hints.slice(0, 2).join(" or ")}.`
+    : "";
+
+  return `No ${activeMachineView === "archived" ? "archived" : "main-view"} machines match the current filters.${hintText}`;
 }
 
 function renderPriceCell(row) {

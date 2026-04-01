@@ -77,6 +77,7 @@ const summaryCompareGrid = document.getElementById("summary-compare-grid");
 const breakdownBody = document.getElementById("breakdown-body");
 const machinesBody = document.getElementById("machines-body");
 const machinesEmptyState = document.getElementById("machines-empty-state");
+const machinesFilterMeta = document.getElementById("machines-filter-meta");
 const alertsList = document.getElementById("alerts-list");
 const alertsMeta = document.getElementById("alerts-meta");
 const lastUpdated = document.getElementById("last-updated");
@@ -175,6 +176,8 @@ let vacuumLoading = false;
 let latestRebuildResult = null;
 let rebuildError = "";
 let rebuildLoading = false;
+let pendingAdminConfirmation = "";
+let adminMaintenanceWatcherId = null;
 let latestPollMonitorAt = null;
 let lastKnownHealth = null;
 let selectedUtilizationGpuType = uiSettings.selectedUtilizationGpuType || "__fleet__";
@@ -226,6 +229,7 @@ function updateSortHeaders() {
 function renderMachinesSorted() {
   const sorted = getSortedMachines();
   renderMachines(sorted);
+  renderMachinesFilterMeta(sorted.length);
   renderActiveGpuFilters(sorted.length);
   updateFilterResetState();
   renderMachineEmptyState(sorted.length);
@@ -383,6 +387,46 @@ function renderMachineEmptyState(count) {
     machinesEmptyState.textContent = "";
     machinesEmptyState.classList.add("hidden");
   }
+}
+
+function renderMachinesFilterMeta(visibleCount) {
+  if (!machinesFilterMeta) {
+    return;
+  }
+
+  const counts = getMachineViewCounts(currentMachinesData);
+  const totalInView = activeMachineView === "archived" ? counts.archivedCount : counts.activeCount;
+  const filters = getMachineFilterState();
+  const parts = [];
+
+  parts.push(`Showing ${visibleCount} of ${totalInView} ${activeMachineView === "archived" ? "archived" : "main-view"} machines`);
+
+  if (filters.search.trim()) {
+    parts.push(`search: ${filters.search.trim()}`);
+  }
+  if (activeGpuFilters.length > 0) {
+    parts.push(`GPU: ${activeGpuFilters.join(", ")}`);
+  }
+  if (filters.status !== "all") {
+    parts.push(`status: ${filters.status}`);
+  }
+  if (filters.listed !== "all") {
+    parts.push(`listing: ${filters.listed}`);
+  }
+  if (filters.dc !== "all") {
+    parts.push(`dc: ${filters.dc}`);
+  }
+  if (filters.errors) {
+    parts.push("errors only");
+  }
+  if (filters.reports) {
+    parts.push("reports only");
+  }
+  if (filters.maint) {
+    parts.push("maintenance only");
+  }
+
+  machinesFilterMeta.textContent = parts.join(" · ");
 }
 
 function renderActiveGpuFilters(resultCount) {
@@ -855,7 +899,8 @@ function renderDbAdminPanel(dbHealth = null) {
     vacuumError,
     rebuildResult: latestRebuildResult,
     rebuildLoading,
-    rebuildError
+    rebuildError,
+    confirmAction: pendingAdminConfirmation
   });
   dbAdminPanel.innerHTML = markup;
   dbAdminMeta.textContent = meta;
@@ -875,6 +920,56 @@ async function fetchAdminJson(path, init = {}) {
     throw new Error(payload?.error || `Request failed (${response.status})`);
   }
   return payload;
+}
+
+function buildDiagnosticsPayload() {
+  return {
+    generated_at: new Date().toISOString(),
+    db_health: latestDbHealthPayload,
+    retention_preview: latestRetentionPreview,
+    analyze_result: latestAnalyzeResult,
+    vacuum_result: latestVacuumResult,
+    rebuild_result: latestRebuildResult
+  };
+}
+
+function copyDiagnostics() {
+  return copyTextToClipboard(JSON.stringify(buildDiagnosticsPayload(), null, 2));
+}
+
+function downloadDiagnostics() {
+  const blob = new Blob([JSON.stringify(buildDiagnosticsPayload(), null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `vast-monitor-db-admin-${new Date().toISOString().replaceAll(":", "-")}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function startAdminMaintenanceWatcher() {
+  if (adminMaintenanceWatcherId) {
+    window.clearInterval(adminMaintenanceWatcherId);
+  }
+
+  adminMaintenanceWatcherId = window.setInterval(async () => {
+    try {
+      const payload = await fetchAdminJson("/api/admin/db-health");
+      latestDbHealthPayload = payload;
+      renderPollMonitor(latestObservability, latestPollMonitorAt, latestDbHealthPayload);
+      renderDbAdminPanel(latestDbHealthPayload);
+
+      if (!payload?.database?.maintenance?.in_progress) {
+        window.clearInterval(adminMaintenanceWatcherId);
+        adminMaintenanceWatcherId = null;
+      }
+    } catch {
+      window.clearInterval(adminMaintenanceWatcherId);
+      adminMaintenanceWatcherId = null;
+    }
+  }, 2000);
 }
 
 function formatDbSize(bytes) {
@@ -1652,6 +1747,7 @@ bindDashboardControls({
     latestRebuildResult = null;
     rebuildError = "";
     rebuildLoading = false;
+    pendingAdminConfirmation = "";
     renderPollMonitor(latestObservability, latestPollMonitorAt, latestDbHealthPayload);
     renderDbAdminPanel(latestDbHealthPayload);
     refreshDashboard().catch((error) => console.error(error));
@@ -1677,6 +1773,7 @@ bindDashboardControls({
     latestRebuildResult = null;
     rebuildError = "";
     rebuildLoading = false;
+    pendingAdminConfirmation = "";
     renderPollMonitor(latestObservability, latestPollMonitorAt, latestDbHealthPayload);
     renderDbAdminPanel(latestDbHealthPayload);
     refreshDashboard().catch((error) => console.error(error));
@@ -1698,6 +1795,7 @@ bindDashboardControls({
     latestRebuildResult = null;
     rebuildError = "";
     rebuildLoading = false;
+    pendingAdminConfirmation = "";
     isAdminTokenVisible = false;
     persistUiSettings(UI_SETTINGS_KEY, uiSettings);
     applyUiSettings();
@@ -1807,7 +1905,27 @@ dbAdminPanel?.addEventListener("click", (event) => {
   }
 
   const action = actionButton.getAttribute("data-db-admin-action") || "";
+  if (action === "cancel-confirm") {
+    pendingAdminConfirmation = "";
+    renderDbAdminPanel(latestDbHealthPayload);
+    return;
+  }
+
+  if (action === "copy-diagnostics") {
+    copyDiagnostics()
+      .then(() => showDashboardToast("Diagnostics copied"))
+      .catch((error) => console.error(error));
+    return;
+  }
+
+  if (action === "download-diagnostics") {
+    downloadDiagnostics();
+    showDashboardToast("Diagnostics downloaded");
+    return;
+  }
+
   if (action === "analyze") {
+    pendingAdminConfirmation = "";
     analyzeLoading = true;
     analyzeError = "";
     renderDbAdminPanel(latestDbHealthPayload);
@@ -1816,12 +1934,16 @@ dbAdminPanel?.addEventListener("click", (event) => {
       .then((payload) => {
         latestAnalyzeResult = payload.analyze || null;
         analyzeError = "";
+        if (payload.queued) {
+          startAdminMaintenanceWatcher();
+        }
       })
       .catch((error) => {
         latestAnalyzeResult = null;
         analyzeError = error instanceof Error ? error.message : String(error);
       })
       .finally(() => {
+        pendingAdminConfirmation = "";
         analyzeLoading = false;
         renderDbAdminPanel(latestDbHealthPayload);
         refreshDashboard().catch((refreshError) => console.error(refreshError));
@@ -1830,20 +1952,35 @@ dbAdminPanel?.addEventListener("click", (event) => {
   }
 
   if (action === "vacuum") {
+    if (pendingAdminConfirmation !== "vacuum") {
+      pendingAdminConfirmation = "vacuum";
+      renderDbAdminPanel(latestDbHealthPayload);
+      return;
+    }
+
+    pendingAdminConfirmation = "";
     vacuumLoading = true;
     vacuumError = "";
     renderDbAdminPanel(latestDbHealthPayload);
 
-    fetchAdminJson("/api/admin/vacuum", { method: "POST" })
+    fetchAdminJson("/api/admin/vacuum?async=1", { method: "POST" })
       .then((payload) => {
         latestVacuumResult = payload.vacuum || null;
         vacuumError = "";
+        if (payload.queued) {
+          latestVacuumResult = {
+            queued: true,
+            action: payload.action
+          };
+          startAdminMaintenanceWatcher();
+        }
       })
       .catch((error) => {
         latestVacuumResult = null;
         vacuumError = error instanceof Error ? error.message : String(error);
       })
       .finally(() => {
+        pendingAdminConfirmation = "";
         vacuumLoading = false;
         renderDbAdminPanel(latestDbHealthPayload);
         refreshDashboard().catch((refreshError) => console.error(refreshError));
@@ -1852,20 +1989,35 @@ dbAdminPanel?.addEventListener("click", (event) => {
   }
 
   if (action === "rebuild-derived") {
+    if (pendingAdminConfirmation !== "rebuild-derived") {
+      pendingAdminConfirmation = "rebuild-derived";
+      renderDbAdminPanel(latestDbHealthPayload);
+      return;
+    }
+
+    pendingAdminConfirmation = "";
     rebuildLoading = true;
     rebuildError = "";
     renderDbAdminPanel(latestDbHealthPayload);
 
-    fetchAdminJson("/api/admin/rebuild-derived", { method: "POST" })
+    fetchAdminJson("/api/admin/rebuild-derived?async=1", { method: "POST" })
       .then((payload) => {
         latestRebuildResult = payload.rebuild || null;
         rebuildError = "";
+        if (payload.queued) {
+          latestRebuildResult = {
+            queued: true,
+            action: payload.action
+          };
+          startAdminMaintenanceWatcher();
+        }
       })
       .catch((error) => {
         latestRebuildResult = null;
         rebuildError = error instanceof Error ? error.message : String(error);
       })
       .finally(() => {
+        pendingAdminConfirmation = "";
         rebuildLoading = false;
         renderDbAdminPanel(latestDbHealthPayload);
         refreshDashboard().catch((refreshError) => console.error(refreshError));
@@ -1874,6 +2026,7 @@ dbAdminPanel?.addEventListener("click", (event) => {
   }
 
   if (action === "clear-retention-preview") {
+    pendingAdminConfirmation = "";
     latestRetentionPreview = null;
     retentionPreviewError = "";
     retentionPreviewLoading = false;
@@ -1885,6 +2038,7 @@ dbAdminPanel?.addEventListener("click", (event) => {
     return;
   }
 
+  pendingAdminConfirmation = "";
   retentionPreviewLoading = true;
   retentionPreviewError = "";
   renderDbAdminPanel(latestDbHealthPayload);
@@ -1899,6 +2053,7 @@ dbAdminPanel?.addEventListener("click", (event) => {
       retentionPreviewError = error instanceof Error ? error.message : String(error);
     })
     .finally(() => {
+      pendingAdminConfirmation = "";
       retentionPreviewLoading = false;
       renderDbAdminPanel(latestDbHealthPayload);
     });

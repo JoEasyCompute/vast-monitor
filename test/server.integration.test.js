@@ -317,6 +317,49 @@ test("admin db-health route requires configured auth token", async () => {
   }
 });
 
+test("admin heavy maintenance routes can be queued in background mode", async () => {
+  const dbPath = makeTempDbPath("vast-monitor-server-admin-async-");
+  const db = createDatabase(dbPath);
+  const scheduled = [];
+
+  const app = createServer({
+    config: {
+      projectRoot: path.resolve("."),
+      pollIntervalMs: 5 * 60 * 1000,
+      vastCliPath: "/definitely/missing/vast",
+      vastApiKeyPath: "/definitely/missing/api_key",
+      adminApiToken: "async-secret"
+    },
+    db,
+    monitor: null,
+    adminActionScheduler: (callback) => {
+      scheduled.push(callback);
+      return 1;
+    }
+  });
+
+  try {
+    const queuedVacuum = await invokeRoute(app, "/api/admin/vacuum", {
+      method: "POST",
+      query: { async: "1" },
+      headers: { authorization: "Bearer async-secret" }
+    });
+    const queuedRebuild = await invokeRoute(app, "/api/admin/rebuild-derived", {
+      method: "POST",
+      query: { async: "1" },
+      headers: { authorization: "Bearer async-secret" }
+    });
+
+    assert.equal(queuedVacuum.statusCode, 202);
+    assert.equal(queuedVacuum.body.queued, true);
+    assert.equal(queuedVacuum.body.action, "vacuum");
+    assert.ok([202, 409].includes(queuedRebuild.statusCode));
+    assert.equal(scheduled.length, 1);
+  } finally {
+    db.db.close();
+  }
+});
+
 test("admin db-health route is disabled when no admin token is configured", async () => {
   const dbPath = makeTempDbPath("vast-monitor-server-admin-disabled-");
   const db = createDatabase(dbPath);

@@ -63,13 +63,27 @@ test("db admin panel renders database counts and route metrics when health is av
         },
         maintenance: {
           in_progress: null,
-          recent_runs: [{
-            action: "analyze",
-            status: "succeeded",
-            started_at: "2026-04-01T11:00:00.000Z",
-            completed_at: "2026-04-01T11:00:42.000Z",
-            duration_ms: 42
-          }]
+          recent_runs: [
+            {
+              action: "analyze",
+              status: "succeeded",
+              started_at: "2026-04-01T11:00:00.000Z",
+              completed_at: "2026-04-01T11:00:42.000Z",
+              duration_ms: 42,
+              result: {
+                completed_at: "2026-04-01T11:00:42.000Z",
+                duration_ms: 42
+              }
+            },
+            {
+              action: "vacuum",
+              status: "failed",
+              started_at: "2026-04-01T12:00:00.000Z",
+              completed_at: "2026-04-01T12:00:10.000Z",
+              duration_ms: 10,
+              error_text: "database is locked"
+            }
+          ]
         },
         route_metrics: {
           status: {
@@ -107,6 +121,35 @@ test("db admin panel renders database counts and route metrics when health is av
   assert.match(result.markup, /Last Derived Rebuild:/);
   assert.match(result.markup, /Maintenance Active: No/);
   assert.match(result.markup, /analyze/);
+  assert.match(result.markup, /<summary>Result<\/summary>/);
+  assert.match(result.markup, /duration_ms/);
+  assert.match(result.markup, /<summary>Error<\/summary>/);
+  assert.match(result.markup, /database is locked/);
+});
+
+test("db admin panel renders operator warnings for disabled retention, large DBs, and active maintenance", () => {
+  const result = buildDbAdminPanelMarkup({
+    hasAdminToken: true,
+    dbHealth: {
+      database: {
+        path: "/tmp/vast-monitor.db",
+        file_size_bytes: 300 * 1024 * 1024,
+        row_counts: {},
+        retention: { snapshot_days: 0, alert_days: 0, event_days: 0 },
+        derived_state: { fleet_snapshot_state_version: "1", fleet_snapshot_state_updated_at: null },
+        maintenance: {
+          in_progress: {
+            action: "vacuum"
+          },
+          recent_runs: []
+        }
+      }
+    }
+  });
+
+  assert.match(result.markup, /Retention is disabled/i);
+  assert.match(result.markup, /Database file is large/i);
+  assert.match(result.markup, /Maintenance is currently running: vacuum/i);
 });
 
 test("db admin panel renders retention preview actions and preview details", () => {
@@ -211,6 +254,63 @@ test("db admin panel renders vacuum warning and vacuum result", () => {
   assert.match(result.markup, /Vacuum Result/);
   assert.match(result.markup, /120ms/);
   assert.match(result.markup, /1\.0 KB/);
+});
+
+test("db admin panel renders queued state for background maintenance", () => {
+  const result = buildDbAdminPanelMarkup({
+    hasAdminToken: true,
+    dbHealth: {
+      database: {
+        path: "/tmp/vast-monitor.db",
+        file_size_bytes: 2048,
+        row_counts: {},
+        retention: { snapshot_days: 30, alert_days: 7, event_days: 7 },
+        derived_state: { fleet_snapshot_state_version: "1", fleet_snapshot_state_updated_at: null }
+      }
+    },
+    vacuumResult: {
+      queued: true,
+      action: "vacuum"
+    }
+  });
+
+  assert.match(result.markup, /Vacuum Queued/);
+  assert.match(result.markup, /Background vacuum has been queued/);
+});
+
+test("db admin panel renders confirmation state for destructive actions", () => {
+  const vacuumConfirm = buildDbAdminPanelMarkup({
+    hasAdminToken: true,
+    dbHealth: {
+      database: {
+        path: "/tmp/vast-monitor.db",
+        file_size_bytes: 2048,
+        row_counts: {},
+        retention: { snapshot_days: 30, alert_days: 7, event_days: 7 },
+        derived_state: { fleet_snapshot_state_version: "1", fleet_snapshot_state_updated_at: null }
+      }
+    },
+    confirmAction: "vacuum"
+  });
+
+  const rebuildConfirm = buildDbAdminPanelMarkup({
+    hasAdminToken: true,
+    dbHealth: {
+      database: {
+        path: "/tmp/vast-monitor.db",
+        file_size_bytes: 2048,
+        row_counts: {},
+        retention: { snapshot_days: 30, alert_days: 7, event_days: 7 },
+        derived_state: { fleet_snapshot_state_version: "1", fleet_snapshot_state_updated_at: null }
+      }
+    },
+    confirmAction: "rebuild-derived"
+  });
+
+  assert.match(vacuumConfirm.markup, /Confirm Vacuum/);
+  assert.match(vacuumConfirm.markup, /Press the highlighted button again/);
+  assert.match(vacuumConfirm.markup, /Cancel/);
+  assert.match(rebuildConfirm.markup, /Confirm Rebuild/);
 });
 
 test("db admin panel renders rebuild action and rebuild result", () => {

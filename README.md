@@ -192,9 +192,11 @@ The dashboard includes:
 - Sortable machine table
 - Machine table split into `Main View` and `Archived` tabs, where archived machines are offline for more than 24 hours
 - Compact single-row machine filter bar for search, status, listing, datacenter, dedicated GPU-type filters, errors, reports, and maintenance
+- Inline machine filter summary showing visible machines plus the currently active filter terms
 - Active GPU-type filter chips with one-click removal and a result count summary
 - Machine filter reset button shows the number of active filters
 - Machine table density toggle (`Comfort` / `Compact`)
+- Responsive machine table that hides lower-priority columns on narrower screens to reduce horizontal overload
 - Datacenter `DC` indicator column
 - Listed status and maintenance columns
 - Bright orange highlighting for machines with active error messages
@@ -202,7 +204,9 @@ The dashboard includes:
 - Recent alerts
 - Compact poll monitor panel with latest poll timings and counts
 - Dedicated `DB Admin` dashboard panel that uses the optional admin token from Settings to show database size, row counts, retention state, derived-state version info, recent maintenance history, per-route timing metrics, and a retention dry-run preview
-- `DB Admin` also supports safe operator actions such as `Analyze`, `Vacuum`, retention dry-run preview, and on-demand derived-state rebuilds
+- `DB Admin` also supports safe operator actions such as `Analyze`, `Vacuum`, retention dry-run preview, and on-demand derived-state rebuilds, with explicit confirmation for destructive actions, diagnostics copy/download, and background execution for heavier maintenance
+- recent maintenance history in `DB Admin` now includes expandable result/error details for troubleshooting
+- `DB Admin` also shows inline warnings for disabled retention, large DB size, and active maintenance
 - Per-machine history modal with tabbed `Charts` and `Recent Events` views
 - Clicking a machine row opens the machine history modal
 - Report badges support `Ctrl`/`Cmd`-click on desktop and long-press on touch devices to open the reports modal
@@ -315,6 +319,8 @@ Returns:
 - recent maintenance runs and in-progress maintenance state
 - recent in-process route timing metrics for operator troubleshooting
 
+Admin maintenance actions now use a database-backed maintenance lock so overlapping `ANALYZE`, `VACUUM`, or derived rebuild runs are rejected even when multiple service processes point at the same SQLite database.
+
 ### `GET /api/admin/retention-preview`
 
 Internal operator dry-run endpoint.
@@ -336,6 +342,8 @@ Runs SQLite `ANALYZE` and returns:
 - completion timestamp
 - analyze duration in milliseconds
 
+This route can also be queued in background mode via `?async=1`.
+
 ### `POST /api/admin/vacuum`
 
 Internal operator maintenance endpoint.
@@ -347,6 +355,7 @@ Runs SQLite `VACUUM` and returns:
 - resulting database file size
 
 This is heavier than `ANALYZE` and is best run during lower-traffic periods.
+This route can also be queued in background mode via `?async=1`.
 
 ### `POST /api/admin/rebuild-derived`
 
@@ -358,6 +367,8 @@ Rebuilds derived fleet snapshots and rollup tables from the currently retained r
 - rebuild duration in milliseconds
 - deleted derived-row counts
 - rebuilt derived-row counts
+
+This route can also be queued in background mode via `?async=1`.
 
 ### `GET /api/history?machine_id=49697&hours=24`
 

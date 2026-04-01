@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import { buildFleetAggregate, isFleetEligibleMachine } from "./fleet-metrics.js";
 
@@ -10,6 +11,8 @@ const UPTIME_WINDOWS = {
 };
 
 const FLEET_SNAPSHOT_STATE_VERSION = "1";
+const MAINTENANCE_LOCK_NAME = "global";
+const MAINTENANCE_LOCK_TTL_MS = 6 * 60 * 60 * 1000;
 const SCHEMA_MIGRATIONS = [
   {
     id: "001_managed_schema_baseline",
@@ -289,6 +292,23 @@ const SCHEMA_MIGRATIONS = [
 
       return {};
     }
+  },
+  {
+    id: "003_maintenance_locks",
+    description: "Prevent overlapping maintenance actions across processes",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS maintenance_locks (
+          name TEXT PRIMARY KEY,
+          owner_id TEXT NOT NULL,
+          action TEXT NOT NULL,
+          acquired_at TEXT NOT NULL,
+          expires_at TEXT NOT NULL
+        );
+      `);
+
+      return {};
+    }
   }
 ];
 
@@ -319,6 +339,23 @@ export function createDatabase(dbPath, options = {}) {
       SELECT key, value, updated_at
       FROM db_meta
       ORDER BY key ASC
+    `),
+    insertMaintenanceLock: db.prepare(`
+      INSERT INTO maintenance_locks (name, owner_id, action, acquired_at, expires_at)
+      VALUES (@name, @owner_id, @action, @acquired_at, @expires_at)
+    `),
+    selectMaintenanceLock: db.prepare(`
+      SELECT name, owner_id, action, acquired_at, expires_at
+      FROM maintenance_locks
+      WHERE name = ?
+    `),
+    deleteMaintenanceLockByName: db.prepare(`
+      DELETE FROM maintenance_locks
+      WHERE name = ?
+    `),
+    deleteMaintenanceLockByOwner: db.prepare(`
+      DELETE FROM maintenance_locks
+      WHERE name = @name AND owner_id = @owner_id
     `),
     insertMaintenanceRun: db.prepare(`
       INSERT INTO maintenance_runs (action, status, started_at)
@@ -1294,17 +1331,13 @@ export function createDatabase(dbPath, options = {}) {
         alert_days: normalizeRetentionDays(options.dbAlertRetentionDays),
         event_days: normalizeRetentionDays(options.dbEventRetentionDays)
       },
+      maintenance_lock: normalizeMaintenanceLock(statements.selectMaintenanceLock.get(MAINTENANCE_LOCK_NAME) || null),
       derived_state: {
         fleet_snapshot_state_version: metadata.fleet_snapshot_state_version?.value ?? null,
         fleet_snapshot_state_updated_at: metadata.fleet_snapshot_state_version?.updated_at ?? null
       },
       maintenance: {
-        in_progress: currentMaintenanceRun
-          ? {
-              action: currentMaintenanceRun.action,
-              started_at: currentMaintenanceRun.started_at
-            }
-          : null,
+        in_progress: normalizeMaintenanceLock(statements.selectMaintenanceLock.get(MAINTENANCE_LOCK_NAME) || null),
         recent_runs: statements.selectRecentMaintenanceRuns.all(10).map((row) => ({
           id: row.id,
           action: row.action,
@@ -1331,16 +1364,47 @@ export function createDatabase(dbPath, options = {}) {
     return buildRetentionPreview(statements, options);
   }
 
-  function runMaintenanceAction(action, handler) {
-    if (currentMaintenanceRun) {
-      const error = new Error(`${currentMaintenanceRun.action} is already running`);
-      error.code = "MAINTENANCE_BUSY";
-      error.statusCode = 409;
-      throw error;
-    }
+  function acquireMaintenanceLock({ action, ownerId, startedAt }) {
+    const acquiredAt = startedAt;
+    const expiresAt = new Date(Date.parse(acquiredAt) + MAINTENANCE_LOCK_TTL_MS).toISOString();
+    const tx = db.transaction(() => {
+      const existing = statements.selectMaintenanceLock.get(MAINTENANCE_LOCK_NAME) || null;
+      if (isMaintenanceLockActive(existing, acquiredAt)) {
+        const error = new Error(`${existing.action} is already running`);
+        error.code = "MAINTENANCE_BUSY";
+        error.statusCode = 409;
+        error.active_lock = normalizeMaintenanceLock(existing);
+        throw error;
+      }
 
+      if (existing) {
+        statements.deleteMaintenanceLockByName.run(MAINTENANCE_LOCK_NAME);
+      }
+
+      statements.insertMaintenanceLock.run({
+        name: MAINTENANCE_LOCK_NAME,
+        owner_id: ownerId,
+        action,
+        acquired_at: acquiredAt,
+        expires_at: expiresAt
+      });
+    });
+
+    tx();
+  }
+
+  function releaseMaintenanceLock(ownerId) {
+    statements.deleteMaintenanceLockByOwner.run({
+      name: MAINTENANCE_LOCK_NAME,
+      owner_id: ownerId
+    });
+  }
+
+  function runMaintenanceAction(action, handler) {
+    const ownerId = randomUUID();
     const startedAt = new Date().toISOString();
     const startedMs = Date.now();
+    acquireMaintenanceLock({ action, ownerId, startedAt });
     const runId = statements.insertMaintenanceRun.run({
       action,
       status: "running",
@@ -1350,7 +1414,8 @@ export function createDatabase(dbPath, options = {}) {
     currentMaintenanceRun = {
       action,
       started_at: startedAt,
-      run_id: runId
+      run_id: runId,
+      owner_id: ownerId
     };
 
     try {
@@ -1385,6 +1450,7 @@ export function createDatabase(dbPath, options = {}) {
       });
       throw error;
     } finally {
+      releaseMaintenanceLock(ownerId);
       currentMaintenanceRun = null;
     }
   }
@@ -1560,6 +1626,27 @@ function parseJsonOrNull(value) {
   } catch {
     return null;
   }
+}
+
+function normalizeMaintenanceLock(lockRow) {
+  if (!lockRow) {
+    return null;
+  }
+
+  return {
+    action: lockRow.action,
+    started_at: lockRow.acquired_at,
+    expires_at: lockRow.expires_at,
+    owner_id: lockRow.owner_id
+  };
+}
+
+function isMaintenanceLockActive(lockRow, nowIso) {
+  if (!lockRow) {
+    return false;
+  }
+
+  return Date.parse(lockRow.expires_at) > Date.parse(nowIso);
 }
 
 function applySchemaMigrations(db) {

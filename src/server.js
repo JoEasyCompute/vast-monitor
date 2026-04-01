@@ -6,9 +6,12 @@ import { buildFleetAggregate } from "./fleet-metrics.js";
 import { getClientExtensionManifest, resolvePluginPublicDir } from "./plugins/index.js";
 import { fetchMachineEarnings, fetchMachineReports } from "./vast-client.js";
 
-export function createServer({ config, db, monitor, plugins = [] }) {
+export function createServer({ config, db, monitor, plugins = [], adminActionScheduler } = {}) {
   const app = express();
   const routeMetrics = createRouteMetricsStore();
+  const queueAdminAction = createAdminActionQueue({
+    schedule: adminActionScheduler
+  });
 
   app.use(express.static(path.join(config.projectRoot, "public")));
   registerPluginStaticDirs(app, config, plugins);
@@ -51,6 +54,20 @@ export function createServer({ config, db, monitor, plugins = [] }) {
       return;
     }
 
+    if (isAsyncAdminRequest(req)) {
+      if (!queueAdminAction({
+        db,
+        action: "analyze",
+        runner: () => db.runAnalyze()
+      })) {
+        res.status(409).json({ error: "maintenance already running" });
+        return;
+      }
+
+      res.status(202).json({ ok: true, queued: true, action: "analyze" });
+      return;
+    }
+
     try {
       res.json({
         ok: true,
@@ -66,6 +83,20 @@ export function createServer({ config, db, monitor, plugins = [] }) {
       return;
     }
 
+    if (isAsyncAdminRequest(req)) {
+      if (!queueAdminAction({
+        db,
+        action: "vacuum",
+        runner: () => db.runVacuum()
+      })) {
+        res.status(409).json({ error: "maintenance already running" });
+        return;
+      }
+
+      res.status(202).json({ ok: true, queued: true, action: "vacuum" });
+      return;
+    }
+
     try {
       res.json({
         ok: true,
@@ -78,6 +109,20 @@ export function createServer({ config, db, monitor, plugins = [] }) {
 
   app.post("/api/admin/rebuild-derived", routeMetrics.wrap("admin_rebuild_derived", (req, res) => {
     if (!requireAdminAccess(req, res, config)) {
+      return;
+    }
+
+    if (isAsyncAdminRequest(req)) {
+      if (!queueAdminAction({
+        db,
+        action: "rebuild_derived",
+        runner: () => db.runRebuildDerivedState()
+      })) {
+        res.status(409).json({ error: "maintenance already running" });
+        return;
+      }
+
+      res.status(202).json({ ok: true, queued: true, action: "rebuild_derived" });
       return;
     }
 
@@ -646,6 +691,33 @@ function handleAdminActionError(res, error) {
   res.status(statusCode).json({
     error: error instanceof Error ? error.message : String(error)
   });
+}
+
+function isAsyncAdminRequest(req) {
+  return String(req.query?.async || "") === "1";
+}
+
+function createAdminActionQueue({ schedule = (callback) => setTimeout(callback, 0) } = {}) {
+  let queued = false;
+
+  return ({ db, action, runner }) => {
+    if (queued || db?.getDatabaseHealth?.().maintenance?.in_progress) {
+      return false;
+    }
+
+    queued = true;
+    schedule(() => {
+      try {
+        runner();
+      } catch (error) {
+        console.error(`[admin] Background maintenance failed for ${action}:`, error);
+      } finally {
+        queued = false;
+      }
+    }, 0);
+
+    return true;
+  };
 }
 
 function createRouteMetricsStore() {
