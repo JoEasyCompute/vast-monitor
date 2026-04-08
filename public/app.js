@@ -207,6 +207,8 @@ let currentModalTab = "charts";
 let activeMachineView = "active";
 let latestObservability = null;
 let activeGpuFilters = [];
+let activeBreakdownTooltipTrigger = null;
+let activeBreakdownTooltipLock = null;
 const REPORT_LONG_PRESS_MS = 550;
 let reportLongPressTimer = null;
 let reportLongPressActiveMachineId = null;
@@ -392,8 +394,24 @@ function renderBreakdown(rows) {
         <td class="breakdown-num-col">${row.machines}</td>
         <td class="breakdown-gpus-col">${row.listed_gpus}/${row.unlisted_gpus}</td>
         <td><span class="util-chip ${utilClass(row.utilisation_pct)}">${row.utilisation_pct}%</span></td>
-        <td class="breakdown-num-col market-util-cell" data-market-tooltip="${escapeHtml(serializeMarketTooltipData(row))}">${formatMarketUtilizationCell(row)}</td>
-        <td class="breakdown-num-col market-price-cell" data-market-price-tooltip="${escapeHtml(serializeMarketPriceTooltipData(row))}">${renderBreakdownPriceCell(row)}</td>
+        <td class="breakdown-num-col market-util-cell">
+          <button
+            type="button"
+            class="breakdown-metric-button"
+            data-market-tooltip="${escapeHtml(serializeMarketTooltipData(row))}"
+            aria-expanded="false"
+            aria-label="${escapeHtml(`Show Vast utilization details for ${row.gpu_type}`)}"
+          >${formatMarketUtilizationCell(row)}</button>
+        </td>
+        <td class="breakdown-num-col market-price-cell">
+          <button
+            type="button"
+            class="breakdown-metric-button"
+            data-market-price-tooltip="${escapeHtml(serializeMarketPriceTooltipData(row))}"
+            aria-expanded="false"
+            aria-label="${escapeHtml(`Show average price comparison for ${row.gpu_type}`)}"
+          >${renderBreakdownPriceCell(row)}</button>
+        </td>
         <td class="breakdown-num-col">$${row.earnings.toFixed(2)}</td>
       </tr>
     `)
@@ -410,49 +428,125 @@ function renderBreakdownMeta(latestPollAt) {
     .join(" · ");
 }
 
-function showMarketTooltip(serializedPayload, event) {
+function showMarketTooltip(serializedPayload, event, triggerEl, mode = "hover") {
   const payload = parseMarketTooltipData(serializedPayload);
   if (!payload) {
     hideBreakdownTooltip();
     return;
   }
 
-  marketTooltip.innerHTML = buildMarketTooltipMarkup(payload);
-  marketTooltip.classList.remove("hidden");
-  marketTooltip.setAttribute("aria-hidden", "false");
-  positionMarketTooltip(event);
+  if (mode === "toggle") {
+    toggleBreakdownTooltip({
+      triggerEl,
+      event,
+      lockMode: "manual",
+      markup: buildMarketTooltipMarkup(payload)
+    });
+    return;
+  }
+
+  if (activeBreakdownTooltipLock === "manual" && activeBreakdownTooltipTrigger !== triggerEl) {
+    return;
+  }
+
+  openBreakdownTooltip({
+    triggerEl,
+    event,
+    lockMode: mode === "focus" ? "focus" : null,
+    markup: buildMarketTooltipMarkup(payload)
+  });
 }
 
-function showMarketPriceTooltip(serializedPayload, event) {
+function showMarketPriceTooltip(serializedPayload, event, triggerEl, mode = "hover") {
   const payload = parseMarketPriceTooltipData(serializedPayload);
   if (!payload) {
     hideBreakdownTooltip();
     return;
   }
 
-  marketTooltip.innerHTML = buildMarketPriceTooltipMarkup(payload);
-  marketTooltip.classList.remove("hidden");
-  marketTooltip.setAttribute("aria-hidden", "false");
-  positionMarketTooltip(event);
+  if (mode === "toggle") {
+    toggleBreakdownTooltip({
+      triggerEl,
+      event,
+      lockMode: "manual",
+      markup: buildMarketPriceTooltipMarkup(payload)
+    });
+    return;
+  }
+
+  if (activeBreakdownTooltipLock === "manual" && activeBreakdownTooltipTrigger !== triggerEl) {
+    return;
+  }
+
+  openBreakdownTooltip({
+    triggerEl,
+    event,
+    lockMode: mode === "focus" ? "focus" : null,
+    markup: buildMarketPriceTooltipMarkup(payload)
+  });
 }
 
-function moveMarketTooltip(event) {
+function moveMarketTooltip(event, triggerEl = activeBreakdownTooltipTrigger) {
   if (marketTooltip.classList?.contains?.("hidden")) {
     return;
   }
 
-  positionMarketTooltip(event);
+  if (activeBreakdownTooltipLock === "manual") {
+    return;
+  }
+
+  positionMarketTooltip(event, triggerEl);
 }
 
-function hideBreakdownTooltip() {
+function hideBreakdownTooltip(mode = "manual") {
+  if (mode === "hover" && activeBreakdownTooltipLock === "manual") {
+    return;
+  }
+
   marketTooltip.classList.add("hidden");
   marketTooltip.setAttribute("aria-hidden", "true");
+  if (activeBreakdownTooltipTrigger) {
+    activeBreakdownTooltipTrigger.setAttribute?.("aria-expanded", "false");
+    activeBreakdownTooltipTrigger.removeAttribute?.("aria-describedby");
+  }
+  activeBreakdownTooltipTrigger = null;
+  activeBreakdownTooltipLock = null;
 }
 
-function positionMarketTooltip(event) {
+function openBreakdownTooltip({ triggerEl, event, lockMode = null, markup }) {
+  if (activeBreakdownTooltipTrigger && activeBreakdownTooltipTrigger !== triggerEl) {
+    activeBreakdownTooltipTrigger.setAttribute?.("aria-expanded", "false");
+    activeBreakdownTooltipTrigger.removeAttribute?.("aria-describedby");
+  }
+
+  activeBreakdownTooltipTrigger = triggerEl || null;
+  activeBreakdownTooltipLock = lockMode;
+  if (activeBreakdownTooltipTrigger) {
+    activeBreakdownTooltipTrigger.setAttribute?.("aria-expanded", "true");
+    activeBreakdownTooltipTrigger.setAttribute?.("aria-describedby", "market-tooltip");
+  }
+
+  marketTooltip.innerHTML = markup;
+  marketTooltip.classList.remove("hidden");
+  marketTooltip.setAttribute("aria-hidden", "false");
+  positionMarketTooltip(event, triggerEl);
+}
+
+function toggleBreakdownTooltip({ triggerEl, event, lockMode, markup }) {
+  const isSameTrigger = activeBreakdownTooltipTrigger === triggerEl;
+  const isVisible = !marketTooltip.classList?.contains?.("hidden");
+  if (isSameTrigger && isVisible && activeBreakdownTooltipLock === lockMode) {
+    hideBreakdownTooltip();
+    return;
+  }
+
+  openBreakdownTooltip({ triggerEl, event, lockMode, markup });
+}
+
+function positionMarketTooltip(event, triggerEl = activeBreakdownTooltipTrigger) {
   const clientX = Number(event?.clientX);
   const clientY = Number(event?.clientY);
-  if (!Number.isFinite(clientX) || !Number.isFinite(clientY) || !marketTooltip?.style) {
+  if (!marketTooltip?.style) {
     return;
   }
 
@@ -461,8 +555,19 @@ function positionMarketTooltip(event) {
   const viewportHeight = window.innerHeight || 720;
   const tooltipWidth = marketTooltip.offsetWidth || 280;
   const tooltipHeight = marketTooltip.offsetHeight || 260;
-  const left = Math.max(margin, Math.min(viewportWidth - tooltipWidth - margin, clientX + 18));
-  const top = Math.max(margin, Math.min(viewportHeight - tooltipHeight - margin, clientY + 18));
+  let left;
+  let top;
+
+  if (Number.isFinite(clientX) && Number.isFinite(clientY)) {
+    left = Math.max(margin, Math.min(viewportWidth - tooltipWidth - margin, clientX + 18));
+    top = Math.max(margin, Math.min(viewportHeight - tooltipHeight - margin, clientY + 18));
+  } else if (triggerEl?.getBoundingClientRect) {
+    const rect = triggerEl.getBoundingClientRect();
+    left = Math.max(margin, Math.min(viewportWidth - tooltipWidth - margin, rect.left));
+    top = Math.max(margin, Math.min(viewportHeight - tooltipHeight - margin, rect.bottom + 10));
+  } else {
+    return;
+  }
 
   marketTooltip.style.left = `${left}px`;
   marketTooltip.style.top = `${top}px`;
@@ -1215,6 +1320,7 @@ function createOptionalElement() {
     },
     addEventListener() {},
     setAttribute() {},
+    removeAttribute() {},
     getAttribute() { return ""; }
   };
 }
@@ -2011,23 +2117,23 @@ bindDashboardControls({
     renderBreakdown(currentGpuTypeBreakdown);
     renderMachinesSorted();
   },
-  onShowMarketTooltip: (serializedPayload, event) => {
-    showMarketTooltip(serializedPayload, event);
+  onShowMarketTooltip: (serializedPayload, event, triggerEl, mode) => {
+    showMarketTooltip(serializedPayload, event, triggerEl, mode);
   },
-  onMoveMarketTooltip: (_serializedPayload, event) => {
-    moveMarketTooltip(event);
+  onMoveMarketTooltip: (_serializedPayload, event, triggerEl) => {
+    moveMarketTooltip(event, triggerEl);
   },
-  onHideMarketTooltip: () => {
-    hideBreakdownTooltip();
+  onHideMarketTooltip: (mode) => {
+    hideBreakdownTooltip(mode);
   },
-  onShowMarketPriceTooltip: (serializedPayload, event) => {
-    showMarketPriceTooltip(serializedPayload, event);
+  onShowMarketPriceTooltip: (serializedPayload, event, triggerEl, mode) => {
+    showMarketPriceTooltip(serializedPayload, event, triggerEl, mode);
   },
-  onMoveMarketPriceTooltip: (_serializedPayload, event) => {
-    moveMarketTooltip(event);
+  onMoveMarketPriceTooltip: (_serializedPayload, event, triggerEl) => {
+    moveMarketTooltip(event, triggerEl);
   },
-  onHideMarketPriceTooltip: () => {
-    hideBreakdownTooltip();
+  onHideMarketPriceTooltip: (mode) => {
+    hideBreakdownTooltip(mode);
   },
   onRemoveGpuFilter: (gpuType) => {
     if (!gpuType) {

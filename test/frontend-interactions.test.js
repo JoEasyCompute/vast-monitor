@@ -131,6 +131,12 @@ test("bindDashboardControls routes GPU breakdown, selector, and chip interaction
     breakdownBody.dispatch("mouseover", { target: priceCell, clientX: 120, clientY: 160 });
     breakdownBody.dispatch("mousemove", { target: priceCell, clientX: 130, clientY: 170 });
     breakdownBody.dispatch("mouseout", { target: priceCell, clientX: 130, clientY: 170 });
+    breakdownBody.dispatch("focusin", { target: marketCell });
+    breakdownBody.dispatch("keydown", { target: marketCell, key: "Enter" });
+    breakdownBody.dispatch("keydown", { target: marketCell, key: "Escape" });
+    breakdownBody.dispatch("focusout", { target: marketCell });
+    breakdownBody.dispatch("click", { target: priceCell });
+    global.window.dispatch("click", { target: new FakeElement("div") });
     activeGpuFilterList.dispatch("click", { target: activeGpuFilterButton });
 
     assert.deepEqual(calls, [
@@ -141,6 +147,13 @@ test("bindDashboardControls routes GPU breakdown, selector, and chip interaction
       "hide",
       "show-price:price-456:120:160",
       "move-price:price-456:130:170",
+      "hide-price",
+      "show:payload-123:undefined:undefined",
+      "show:payload-123:undefined:undefined",
+      "hide",
+      "hide",
+      "show-price:price-456:undefined:undefined",
+      "hide",
       "hide-price",
       "remove:H100"
     ]);

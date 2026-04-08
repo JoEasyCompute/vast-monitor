@@ -5,9 +5,8 @@ import { getLiveDependencyHealth } from "./config.js";
 import { buildFleetAggregate } from "./fleet-metrics.js";
 import {
   buildPlatformGpuMetricIndex,
-  computeFleetWeightedPlatformUtilization,
-  computeMarketPriceComparison,
-  matchPlatformGpuMetric
+  buildMarketEnrichedBreakdownRows,
+  computeFleetWeightedPlatformUtilization
 } from "./platform-metrics.js";
 import { getClientExtensionManifest, resolvePluginPublicDir } from "./plugins/index.js";
 import { fetchMachineEarnings, fetchMachineReports } from "./vast-client.js";
@@ -570,34 +569,7 @@ async function buildFleetResponse(fleet, config, db, monitor, plugins = [], plat
     gpuTypes.set(key, current);
   }
 
-  const breakdown = [...gpuTypes.values()].map((item) => {
-    const marketMatch = matchPlatformGpuMetric(item.gpu_type, marketMetricIndex);
-    const matchedMetric = marketMatch.matched_metric;
-
-    return {
-      gpu_type: item.gpu_type,
-      machines: item.machines,
-      listed_gpus: item.listed_gpus,
-      unlisted_gpus: item.unlisted_gpus,
-      utilisation_pct: item.listed_gpus > 0 ? Number(((item.occupied_gpus / item.listed_gpus) * 100).toFixed(2)) : 0,
-      avg_price: item.priced_gpus > 0 ? Number((item.total_price_weighted / item.priced_gpus).toFixed(3)) : null,
-      earnings: Number(item.earnings.toFixed(2)),
-      market_utilisation_pct: matchedMetric?.market_utilisation_pct ?? null,
-      market_gpus_on_platform: matchedMetric?.market_gpus_on_platform ?? null,
-      market_gpus_available: matchedMetric?.market_gpus_available ?? null,
-      market_gpus_rented: matchedMetric?.market_gpus_rented ?? null,
-      market_machines_available: matchedMetric?.market_machines_available ?? null,
-      market_median_price: matchedMetric?.market_median_price ?? null,
-      market_minimum_price: matchedMetric?.market_minimum_price ?? null,
-      market_p10_price: matchedMetric?.market_p10_price ?? null,
-      market_p90_price: matchedMetric?.market_p90_price ?? null,
-      ...computeMarketPriceComparison(
-        item.priced_gpus > 0 ? Number((item.total_price_weighted / item.priced_gpus).toFixed(3)) : null,
-        matchedMetric?.market_median_price ?? null
-      ),
-      market_match_status: marketMatch.market_match_status
-    };
-  });
+  const breakdown = buildMarketEnrichedBreakdownRows([...gpuTypes.values()], marketMetricIndex);
   const marketSummary = computeFleetWeightedPlatformUtilization(breakdown);
 
   return {

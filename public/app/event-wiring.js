@@ -129,7 +129,7 @@ export function bindDashboardControls({
       return;
     }
 
-    onShowMarketTooltip?.(marketCell.dataset.marketTooltip || "", event);
+    onShowMarketTooltip?.(marketCell.dataset.marketTooltip || "", event, marketCell, "hover");
   });
 
   breakdownBody?.addEventListener("mousemove", (event) => {
@@ -143,7 +143,7 @@ export function bindDashboardControls({
       return;
     }
 
-    onMoveMarketTooltip?.(marketCell.dataset.marketTooltip || "", event);
+    onMoveMarketTooltip?.(marketCell.dataset.marketTooltip || "", event, marketCell, "hover");
   });
 
   breakdownBody?.addEventListener("mouseout", (event) => {
@@ -161,7 +161,7 @@ export function bindDashboardControls({
       return;
     }
 
-    onHideMarketTooltip?.();
+    onHideMarketTooltip?.("hover");
   });
 
   breakdownBody?.addEventListener("mouseover", (event) => {
@@ -175,7 +175,7 @@ export function bindDashboardControls({
       return;
     }
 
-    onShowMarketPriceTooltip?.(marketCell.dataset.marketPriceTooltip || "", event);
+    onShowMarketPriceTooltip?.(marketCell.dataset.marketPriceTooltip || "", event, marketCell, "hover");
   });
 
   breakdownBody?.addEventListener("mousemove", (event) => {
@@ -189,7 +189,7 @@ export function bindDashboardControls({
       return;
     }
 
-    onMoveMarketPriceTooltip?.(marketCell.dataset.marketPriceTooltip || "", event);
+    onMoveMarketPriceTooltip?.(marketCell.dataset.marketPriceTooltip || "", event, marketCell, "hover");
   });
 
   breakdownBody?.addEventListener("mouseout", (event) => {
@@ -207,7 +207,81 @@ export function bindDashboardControls({
       return;
     }
 
-    onHideMarketPriceTooltip?.();
+    onHideMarketPriceTooltip?.("hover");
+  });
+
+  breakdownBody?.addEventListener("focusin", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const marketCell = target?.closest?.("[data-market-tooltip]");
+    const marketPriceCell = target?.closest?.("[data-market-price-tooltip]");
+    if (marketCell) {
+      onShowMarketTooltip?.(marketCell.dataset.marketTooltip || "", event, marketCell, "focus");
+      return;
+    }
+    if (marketPriceCell) {
+      onShowMarketPriceTooltip?.(marketPriceCell.dataset.marketPriceTooltip || "", event, marketPriceCell, "focus");
+    }
+  });
+
+  breakdownBody?.addEventListener("focusout", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const relatedTarget = event.relatedTarget instanceof Element ? event.relatedTarget : null;
+    const marketCell = target?.closest?.("[data-market-tooltip]");
+    const marketPriceCell = target?.closest?.("[data-market-price-tooltip]");
+    if (marketCell && (!relatedTarget || !marketCell.contains?.(relatedTarget))) {
+      onHideMarketTooltip?.("focus");
+      return;
+    }
+    if (marketPriceCell && (!relatedTarget || !marketPriceCell.contains?.(relatedTarget))) {
+      onHideMarketPriceTooltip?.("focus");
+    }
+  });
+
+  breakdownBody?.addEventListener("keydown", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const marketCell = target?.closest?.("[data-market-tooltip]");
+    const marketPriceCell = target?.closest?.("[data-market-price-tooltip]");
+    if (!marketCell && !marketPriceCell) {
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (marketCell) {
+        onHideMarketTooltip?.("manual");
+      } else {
+        onHideMarketPriceTooltip?.("manual");
+      }
+      return;
+    }
+
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+
+    event.preventDefault();
+    if (marketCell) {
+      onShowMarketTooltip?.(marketCell.dataset.marketTooltip || "", event, marketCell, "toggle");
+    } else {
+      onShowMarketPriceTooltip?.(marketPriceCell.dataset.marketPriceTooltip || "", event, marketPriceCell, "toggle");
+    }
+  });
+
+  breakdownBody?.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const marketCell = target?.closest?.("[data-market-tooltip]");
+    const marketPriceCell = target?.closest?.("[data-market-price-tooltip]");
+    if (!marketCell && !marketPriceCell) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (marketCell) {
+      onShowMarketTooltip?.(marketCell.dataset.marketTooltip || "", event, marketCell, "toggle");
+    } else {
+      onShowMarketPriceTooltip?.(marketPriceCell.dataset.marketPriceTooltip || "", event, marketPriceCell, "toggle");
+    }
   });
 
   activeGpuFilterList?.addEventListener("click", (event) => {
@@ -239,6 +313,12 @@ export function bindDashboardControls({
   earningsNextButton.addEventListener("click", onEarningsNext);
 
   window.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target?.closest?.("[data-market-tooltip]") && !target?.closest?.("[data-market-price-tooltip]")) {
+      onHideMarketTooltip?.("manual");
+      onHideMarketPriceTooltip?.("manual");
+    }
+
     if (event.target === settingsBackdrop) {
       onCloseSettings();
     }
