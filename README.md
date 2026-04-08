@@ -191,9 +191,11 @@ The dashboard includes:
 - GPU type breakdown with clickable GPU names that toggle exact GPU-type filters in the machine table
 - GPU type breakdown now also shows current Vast-wide utilisation benchmarks when the fleet GPU label safely matches the external benchmark source
 - Hovering `Vast Util` opens a custom tooltip card with current platform stats such as total GPUs, available/rented GPUs, machines available, and median/minimum/10th/90th percentile prices
-- GPU type breakdown `Avg Price` now also signals whether the fleet's current average listed price is above, below, or at the current Vast median for safely matched GPU types
+- Hovering `Avg Price` opens a custom tooltip card comparing the fleet's current average listed price against the current Vast median for safely matched GPU types
 - Fleet trends for `24h`, `7d`, and `30d`
-- Fleet utilisation chart with a GPU selector; default view is total fleet utilisation, and it now prefers historical Vast benchmark lines for persisted matched GPU snapshots when available, falling back to a dashed current benchmark line otherwise
+- Fleet utilisation chart with a GPU selector; default view is total fleet utilisation, and it now prefers historical Vast benchmark lines for persisted matched GPU snapshots when available
+- When historical Vast benchmark data starts later than the visible fleet-history window, the chart backfills the leading gap with the first available benchmark value so the comparison line starts at the beginning of the visible range
+- When no historical Vast benchmark data exists for the selected series, the chart falls back to a dashed synthetic benchmark line derived from the current benchmark value across the visible range
 - GPU-type pricing trends using listed-only weighted averages
 - `Hourly Earnings Overview` with previous/next day navigation, rolling total, and average hourly earnings
 - Per-section source/freshness labels for summary, breakdown, hourly earnings, fleet trends, alerts, and poll monitor
@@ -307,6 +309,7 @@ Returns service and poll health details including:
 - current poll activity
 - last poll success/failure timestamps
 - last poll error, if any
+- current external Vast benchmark status, freshness, source, and any benchmark fetch error
 - in-process endpoint timing metrics for key API routes such as status, health, fleet history, GPU price history, and hourly earnings
 
 ### `GET /api/admin/db-health`
@@ -324,10 +327,11 @@ Auth:
 Returns:
 
 - database path and file size
-- row counts for `polls`, raw `fleet_snapshots`, hourly fleet rollups, raw `machine_snapshots`, hourly machine rollups, hourly GPU-utilization rollups, hourly GPU-price rollups, `alerts`, and `events`
+- row counts for `polls`, raw `fleet_snapshots`, hourly fleet rollups, raw `machine_snapshots`, hourly machine rollups, hourly GPU-utilization rollups, hourly GPU-price rollups, raw benchmark snapshots, hourly benchmark rollups, `alerts`, and `events`
 - configured retention windows
 - derived-state metadata such as the current fleet snapshot version
 - recent maintenance runs and in-progress maintenance state
+- external Vast benchmark status, freshness, source, and last error (if any)
 - recent in-process route timing metrics for operator troubleshooting
 
 Admin maintenance actions now use a database-backed maintenance lock so overlapping `ANALYZE`, `VACUUM`, or derived rebuild runs are rejected even when multiple service processes point at the same SQLite database.
@@ -340,7 +344,7 @@ Returns:
 
 - effective retention cutoffs
 - counts of rows that would be deleted
-- counts of hourly rollups that would be upserted
+- counts of hourly rollups that would be upserted, including persisted Vast benchmark rollups
 
 This endpoint does not mutate the database.
 
