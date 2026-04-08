@@ -214,6 +214,34 @@ export function computeFleetWeightedPlatformUtilization(breakdownRows) {
   };
 }
 
+export function computeMarketPriceComparison(currentPrice, marketMedianPrice) {
+  const current = currentPrice == null ? NaN : Number(currentPrice);
+  const marketMedian = marketMedianPrice == null ? NaN : Number(marketMedianPrice);
+  if (!Number.isFinite(current) || !Number.isFinite(marketMedian)) {
+    return {
+      market_price_delta: null,
+      market_price_delta_pct: null,
+      market_price_position: "unknown"
+    };
+  }
+
+  const delta = Number((current - marketMedian).toFixed(3));
+  const pctDelta = marketMedian === 0
+    ? null
+    : Number((((current - marketMedian) / marketMedian) * 100).toFixed(2));
+  const epsilon = 0.0005;
+
+  return {
+    market_price_delta: delta,
+    market_price_delta_pct: pctDelta,
+    market_price_position: Math.abs(delta) <= epsilon
+      ? "at_market"
+      : delta > 0
+        ? "above_market"
+        : "below_market"
+  };
+}
+
 export function canonicalizeGpuType(value) {
   return String(value || "")
     .toLowerCase()

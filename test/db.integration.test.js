@@ -29,7 +29,17 @@ test("database integration returns fleet history, gpu utilization, price history
       ],
       offlineMachines: [],
       events: [],
-      alerts: []
+      alerts: [],
+      platformMetricsSnapshot: {
+        ok: true,
+        fetchedAt: firstDate,
+        rows: [
+          { gpu_type: "rtx 4090", market_utilisation_pct: 90, market_gpus_on_platform: 3000, market_median_price: 1.7 },
+          { gpu_type: "rtx a4000", market_utilisation_pct: 35, market_gpus_on_platform: 800, market_median_price: 0.55 },
+          { gpu_type: "rtx 6000ada", market_utilisation_pct: 55, market_gpus_on_platform: 120, market_median_price: 1.25 },
+          { gpu_type: "rtx 5090", market_utilisation_pct: 70, market_gpus_on_platform: 4000, market_median_price: 2.1 }
+        ]
+      }
     });
 
     store.recordPoll({
@@ -64,7 +74,17 @@ test("database integration returns fleet history, gpu utilization, price history
           message: "alpha appeared twice",
           payload_json: "{}"
         }
-      ]
+      ],
+      platformMetricsSnapshot: {
+        ok: true,
+        fetchedAt: secondDate,
+        rows: [
+          { gpu_type: "rtx 4090", market_utilisation_pct: 85, market_gpus_on_platform: 3200, market_median_price: 1.85 },
+          { gpu_type: "rtx a4000", market_utilisation_pct: 40, market_gpus_on_platform: 780, market_median_price: 0.58 },
+          { gpu_type: "rtx 6000ada", market_utilisation_pct: 60, market_gpus_on_platform: 140, market_median_price: 1.28 },
+          { gpu_type: "rtx 5090", market_utilisation_pct: 75, market_gpus_on_platform: 4100, market_median_price: 2.2 }
+        ]
+      }
     });
 
     const fleet = store.getCurrentFleetStatus();
@@ -85,6 +105,11 @@ test("database integration returns fleet history, gpu utilization, price history
     assert.ok(fleetHistory.gpu_type_utilization.some((series) => series.gpu_type === "RTX A4000"));
     assert.ok(fleetHistory.gpu_type_utilization.some((series) => series.gpu_type === "RTX 6000ADA"));
     assert.ok(fleetHistory.gpu_type_utilization.some((series) => series.gpu_type === "RTX 5090"));
+    assert.ok(fleetHistory.market_gpu_type_utilization.some((series) => series.canonical_gpu_type === "rtx4090"));
+    assert.equal(fleetHistory.market_gpu_type_utilization.find((series) => series.canonical_gpu_type === "rtx4090")?.points[1]?.utilisation_pct, 85);
+    assert.equal(fleetHistory.market_weighted_utilization_history.length, 2);
+    assert.equal(fleetHistory.market_weighted_utilization_history[1].utilisation_pct, 65);
+    assert.equal(fleetHistory.market_weighted_utilization_history[1].coverage_pct, 40);
     assert.equal(priceHistory.series.length, 6);
     assert.equal(priceHistory.series[0].gpu_type, "A100");
     assert.equal(hourly.total, 7.9);
@@ -254,14 +279,19 @@ test("database startup records applied schema migrations on fresh databases", ()
       {
         id: "003_maintenance_locks",
         description: "Prevent overlapping maintenance actions across processes"
+      },
+      {
+        id: "004_platform_gpu_metric_snapshots",
+        description: "Persist external platform GPU benchmark snapshots"
       }
     ]);
 
     const dbHealth = store.getDatabaseHealth();
-    assert.equal(dbHealth.row_counts.schema_migrations, 3);
+    assert.equal(dbHealth.row_counts.schema_migrations, 4);
     assert.equal(dbHealth.schema_migrations[0].id, "001_managed_schema_baseline");
     assert.equal(dbHealth.schema_migrations[1].id, "002_maintenance_runs");
     assert.equal(dbHealth.schema_migrations[2].id, "003_maintenance_locks");
+    assert.equal(dbHealth.schema_migrations[3].id, "004_platform_gpu_metric_snapshots");
   } finally {
     store.db.close();
   }
@@ -350,7 +380,8 @@ test("database startup upgrades legacy schema through managed migrations", () =>
     assert.deepEqual(migrations, [
       { id: "001_managed_schema_baseline" },
       { id: "002_maintenance_runs" },
-      { id: "003_maintenance_locks" }
+      { id: "003_maintenance_locks" },
+      { id: "004_platform_gpu_metric_snapshots" }
     ]);
   } finally {
     store.db.close();

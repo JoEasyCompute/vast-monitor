@@ -6,6 +6,7 @@ import { buildFleetAggregate } from "./fleet-metrics.js";
 import {
   buildPlatformGpuMetricIndex,
   computeFleetWeightedPlatformUtilization,
+  computeMarketPriceComparison,
   matchPlatformGpuMetric
 } from "./platform-metrics.js";
 import { getClientExtensionManifest, resolvePluginPublicDir } from "./plugins/index.js";
@@ -176,7 +177,9 @@ export function createServer({ config, db, monitor, plugins = [], adminActionSch
     res.json({
       hours,
       history: fleetHistory.history,
-      gpu_type_utilization: fleetHistory.gpu_type_utilization
+      gpu_type_utilization: fleetHistory.gpu_type_utilization,
+      market_gpu_type_utilization: fleetHistory.market_gpu_type_utilization,
+      market_weighted_utilization_history: fleetHistory.market_weighted_utilization_history
     });
   }));
 
@@ -580,6 +583,10 @@ async function buildFleetResponse(fleet, config, db, monitor, plugins = [], plat
       market_minimum_price: matchedMetric?.market_minimum_price ?? null,
       market_p10_price: matchedMetric?.market_p10_price ?? null,
       market_p90_price: matchedMetric?.market_p90_price ?? null,
+      ...computeMarketPriceComparison(
+        item.priced_gpus > 0 ? Number((item.total_price_weighted / item.priced_gpus).toFixed(3)) : null,
+        matchedMetric?.market_median_price ?? null
+      ),
       market_match_status: marketMatch.market_match_status
     };
   });

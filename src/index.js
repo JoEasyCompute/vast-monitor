@@ -38,8 +38,14 @@ export async function startApp(options = {}) {
     defaultCooldownMinutes: runtimeConfig.alertCooldownMinutes,
     hostnameCollisionCooldownMinutes: runtimeConfig.alertHostnameCollisionCooldownMinutes
   });
-  const monitor = options.monitor || new FleetMonitor({ config: runtimeConfig, db, alertManager, plugins });
   const platformMetricsClient = options.platformMetricsClient || createPlatformMetricsClient();
+  const monitor = options.monitor || new FleetMonitor({
+    config: runtimeConfig,
+    db,
+    alertManager,
+    plugins,
+    platformMetricsClient
+  });
   const app = options.app || createServer({
     config: runtimeConfig,
     db,
@@ -98,6 +104,7 @@ function formatDatabaseMaintenanceSummary(summary = {}) {
   const retentionDeleted = [
     retention.fleet_snapshots_deleted || 0,
     retention.machine_snapshots_deleted || 0,
+    retention.platform_gpu_metric_snapshots_deleted || 0,
     retention.polls_deleted || 0,
     retention.alerts_deleted || 0,
     retention.events_deleted || 0

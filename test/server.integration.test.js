@@ -369,9 +369,13 @@ test("status includes current market utilization benchmarks for exact GPU matche
     assert.equal(rtx4090.market_utilisation_pct, 87.38);
     assert.equal(rtx4090.market_machines_available, 879);
     assert.equal(rtx4090.market_minimum_price, 0.201);
+    assert.equal(rtx4090.market_price_position, "at_market");
+    assert.equal(rtx4090.market_price_delta, 0);
     assert.equal(rtx5090.market_match_status, "matched");
     assert.equal(rtx5090.market_gpus_rented, 3408);
     assert.equal(rtx5090.market_p90_price, 0.653);
+    assert.equal(rtx5090.market_price_position, "at_market");
+    assert.equal(rtx5090.market_price_delta_pct, 0);
   } finally {
     db.db.close();
   }

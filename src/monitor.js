@@ -1,11 +1,12 @@
 import { fetchMachines } from "./vast-client.js";
 
 export class FleetMonitor {
-  constructor({ config, db, alertManager, plugins = [] }) {
+  constructor({ config, db, alertManager, plugins = [], platformMetricsClient = null }) {
     this.config = config;
     this.db = db;
     this.alertManager = alertManager;
     this.plugins = plugins;
+    this.platformMetricsClient = platformMetricsClient;
     this.intervalHandle = null;
     this.isPolling = false;
     this.lastPollStartedAt = null;
@@ -199,12 +200,14 @@ export class FleetMonitor {
       }
 
       const persistStartedMs = Date.now();
+      const platformMetricsSnapshot = await this.getPlatformMetricsSnapshot();
       this.db.recordPoll({
         timestamp,
         machines: onlineMachines,
         offlineMachines,
         events,
-        alerts
+        alerts,
+        platformMetricsSnapshot
       });
       this.lastPersistDurationMs = Date.now() - persistStartedMs;
 
@@ -287,6 +290,24 @@ export class FleetMonitor {
     }
 
     return { events, alerts };
+  }
+
+  async getPlatformMetricsSnapshot() {
+    if (!this.platformMetricsClient || typeof this.platformMetricsClient.getSnapshot !== "function") {
+      return null;
+    }
+
+    try {
+      const snapshot = await this.platformMetricsClient.getSnapshot();
+      if (!snapshot?.ok || !Array.isArray(snapshot?.rows) || snapshot.rows.length === 0) {
+        return null;
+      }
+
+      return snapshot;
+    } catch (error) {
+      console.warn("[monitor] Platform metrics refresh failed:", error instanceof Error ? error.message : String(error));
+      return null;
+    }
   }
 }
 

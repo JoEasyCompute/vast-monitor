@@ -21,6 +21,8 @@ It polls your hosted machines from Vast, enriches them with datacenter metadata,
 - Lets you click GPU names in `GPU Type Breakdown` to toggle exact GPU-type filters in the machine table
 - Adds current Vast-wide GPU utilisation benchmarks from `gpu-treemap.replit.app` to matched GPU rows in `GPU Type Breakdown`
 - Shows a custom hover card on `Vast Util` with platform-wide GPU counts and pricing percentiles for matched GPU rows
+- Persists matched Vast-wide benchmark snapshots so the utilisation chart can compare your fleet history against historical market benchmarks
+- Highlights average listed GPU prices against the current Vast median in `GPU Type Breakdown`
 - Exposes JSON endpoints for status, health, history, alerts, fleet trends, and hourly earnings
 
 ## Requirements
@@ -188,8 +190,9 @@ The dashboard includes:
 - GPU type breakdown with clickable GPU names that toggle exact GPU-type filters in the machine table
 - GPU type breakdown now also shows current Vast-wide utilisation benchmarks when the fleet GPU label safely matches the external benchmark source
 - Hovering `Vast Util` opens a custom tooltip card with current platform stats such as total GPUs, available/rented GPUs, machines available, and median/minimum/10th/90th percentile prices
+- GPU type breakdown `Avg Price` now also signals whether the fleet's current average listed price is above, below, or at the current Vast median for safely matched GPU types
 - Fleet trends for `24h`, `7d`, and `30d`
-- Fleet utilisation chart with a GPU selector; default view is total fleet utilisation, and a dashed benchmark line can show the current Vast-wide comparison when available
+- Fleet utilisation chart with a GPU selector; default view is total fleet utilisation, and it now prefers historical Vast benchmark lines for persisted matched GPU snapshots when available, falling back to a dashed current benchmark line otherwise
 - GPU-type pricing trends using listed-only weighted averages
 - `Hourly Earnings Overview` with previous/next day navigation, rolling total, and average hourly earnings
 - Per-section source/freshness labels for summary, breakdown, hourly earnings, fleet trends, alerts, and poll monitor
@@ -237,6 +240,7 @@ Local browser settings currently control:
 - stale poll age threshold for the dashboard badge/warning
 - selected GPU type for the fleet utilisation chart
 - current Vast-wide utilisation benchmarks are intentionally strict-match only; generic internal labels such as `H100` or `A100` are left unmatched when the external source only exposes variant-specific entries like `h100 pcie` or `a100 sxm4`
+- persisted benchmark history follows the same strict-match rule, so generic `H100` / `A100` fleet labels will not synthesize a historical line from variant-specific external entries
 - machine table filters, dedicated GPU-type filters, and the selected `Main View` / `Archived` tab when those values are not explicitly set in the URL
 
 ## Datacenter Tagging

@@ -68,6 +68,11 @@ import {
   formatGpuMachineLabel
 } from "./app/machine-modal.js";
 import {
+  findMatchingMarketUtilizationSeries,
+  mergeHistoryWithMarketSeries,
+  renderBreakdownPriceCell
+} from "./app/market-benchmarks.js";
+import {
   buildMarketTooltipMarkup,
   parseMarketTooltipData,
   serializeMarketTooltipData
@@ -384,7 +389,7 @@ function renderBreakdown(rows) {
         <td class="breakdown-gpus-col">${row.listed_gpus}/${row.unlisted_gpus}</td>
         <td><span class="util-chip ${utilClass(row.utilisation_pct)}">${row.utilisation_pct}%</span></td>
         <td class="breakdown-num-col market-util-cell" data-market-tooltip="${escapeHtml(serializeMarketTooltipData(row))}">${formatMarketUtilizationCell(row)}</td>
-        <td class="breakdown-num-col">${row.avg_price == null ? "-" : `$${row.avg_price.toFixed(3)}`}</td>
+        <td class="breakdown-num-col">${renderBreakdownPriceCell(row)}</td>
         <td class="breakdown-num-col">$${row.earnings.toFixed(2)}</td>
       </tr>
     `)
@@ -896,14 +901,47 @@ function renderFleetTrends(payload) {
   const selectedSeries = utilizationHistory.series.find((item) => item.key === selectedUtilizationGpuType)
     || utilizationHistory.series[0]
     || { key: "utilisation_pct", label: "Fleet", color: "#f43f5e" };
-  const benchmarkLine = resolveUtilizationBenchmarkLine({
+  let chartHistory = utilizationHistory.history;
+  const chartSeries = [selectedSeries];
+  let benchmarkLine = resolveUtilizationBenchmarkLine({
     selectedSeries,
     summary: currentSummary,
     breakdownRows: currentGpuTypeBreakdown,
     marketBenchmark: currentMarketBenchmark
   });
 
-  drawMultiSeriesChart(trendUtilChart, utilizationHistory.history, [selectedSeries], {
+  if (selectedSeries.key === "__fleet__" && Array.isArray(payload?.market_weighted_utilization_history) && payload.market_weighted_utilization_history.length > 0) {
+    chartHistory = mergeHistoryWithMarketSeries(
+      chartHistory,
+      payload.market_weighted_utilization_history,
+      "__market_weighted_utilisation__"
+    );
+    chartSeries.push({
+      key: "__market_weighted_utilisation__",
+      sourceKey: "__market_weighted_utilisation__",
+      label: "Vast benchmark",
+      color: "#94a3b8"
+    });
+    benchmarkLine = null;
+  } else {
+    const marketSeries = findMatchingMarketUtilizationSeries(selectedSeries, payload?.market_gpu_type_utilization);
+    if (marketSeries?.points?.length) {
+      chartHistory = mergeHistoryWithMarketSeries(
+        chartHistory,
+        marketSeries.points,
+        "__market_gpu_utilisation__"
+      );
+      chartSeries.push({
+        key: "__market_gpu_utilisation__",
+        sourceKey: "__market_gpu_utilisation__",
+        label: "Vast benchmark",
+        color: "#94a3b8"
+      });
+      benchmarkLine = null;
+    }
+  }
+
+  drawMultiSeriesChart(trendUtilChart, chartHistory, chartSeries, {
     min: 0,
     max: 100,
     formatValue: (value) => `${Math.round(value)}%`,

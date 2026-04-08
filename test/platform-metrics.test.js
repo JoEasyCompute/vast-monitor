@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildPlatformGpuMetricIndex,
   computeFleetWeightedPlatformUtilization,
+  computeMarketPriceComparison,
   createPlatformMetricsClient,
   matchPlatformGpuMetric,
   normalizePlatformGpuMetrics
@@ -88,6 +89,24 @@ test("platform metrics compute weighted fleet utilization from matched listed GP
   assert.equal(summary.marketMatchedListedGpus, 10);
   assert.equal(summary.marketTotalListedGpus, 13);
   assert.equal(summary.marketCoveragePct, 76.92);
+});
+
+test("platform metrics compute market price comparison deltas without guessing direction", () => {
+  assert.deepEqual(computeMarketPriceComparison(0.375, 0.35), {
+    market_price_delta: 0.025,
+    market_price_delta_pct: 7.14,
+    market_price_position: "above_market"
+  });
+  assert.deepEqual(computeMarketPriceComparison(0.35, 0.35), {
+    market_price_delta: 0,
+    market_price_delta_pct: 0,
+    market_price_position: "at_market"
+  });
+  assert.deepEqual(computeMarketPriceComparison(null, 0.35), {
+    market_price_delta: null,
+    market_price_delta_pct: null,
+    market_price_position: "unknown"
+  });
 });
 
 test("platform metrics client returns stale cached snapshot when refresh fails after cache expiry", async () => {
