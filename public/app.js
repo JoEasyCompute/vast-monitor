@@ -68,6 +68,7 @@ import {
   formatGpuMachineLabel
 } from "./app/machine-modal.js";
 import {
+  addSyntheticBaselineSeries,
   buildMarketPriceTooltipMarkup,
   findMatchingMarketUtilizationSeries,
   mergeHistoryWithMarketSeries,
@@ -936,7 +937,8 @@ function renderFleetTrends(payload) {
       key: "__market_weighted_utilisation__",
       sourceKey: "__market_weighted_utilisation__",
       label: "Vast benchmark",
-      color: "#94a3b8"
+      color: "#94a3b8",
+      dashed: true
     });
     benchmarkLine = null;
   } else {
@@ -951,7 +953,19 @@ function renderFleetTrends(payload) {
         key: "__market_gpu_utilisation__",
         sourceKey: "__market_gpu_utilisation__",
         label: "Vast benchmark",
-        color: "#94a3b8"
+        color: "#94a3b8",
+        dashed: true
+      });
+      benchmarkLine = null;
+    } else if (benchmarkLine) {
+      const syntheticKey = "__market_baseline_utilisation__";
+      chartHistory = addSyntheticBaselineSeries(chartHistory, benchmarkLine.value, syntheticKey);
+      chartSeries.push({
+        key: syntheticKey,
+        sourceKey: syntheticKey,
+        label: benchmarkLine.label || "Vast benchmark",
+        color: benchmarkLine.color || "#94a3b8",
+        dashed: true
       });
       benchmarkLine = null;
     }

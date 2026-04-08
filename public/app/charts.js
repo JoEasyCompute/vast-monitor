@@ -174,7 +174,7 @@ export function drawMultiSeriesChart(svg, history, series, options = {}) {
       (row) => scaleY(Number(row[valueKey]))
     );
 
-    svgContent += `<path d="${path}" class="trend-line" style="stroke:${item.color}" />`;
+    svgContent += `<path d="${path}" class="trend-line" style="stroke:${item.color};stroke-dasharray:${item.dashed ? "6 4" : "none"}" />`;
   }
 
   const benchmarkLine = options.benchmarkLine;
@@ -201,7 +201,7 @@ export function drawMultiSeriesChart(svg, history, series, options = {}) {
   </g>`;
 
   const legendItems = [
-    ...series.map((item) => ({ label: item.label, color: item.color, dashed: false })),
+    ...series.map((item) => ({ label: item.label, color: item.color, dashed: item.dashed === true })),
     ...(Number.isFinite(benchmarkLine?.value)
       ? [{ label: benchmarkLine.label || "Benchmark", color: benchmarkLine.color || "#94a3b8", dashed: benchmarkLine.dashed === true }]
       : [])

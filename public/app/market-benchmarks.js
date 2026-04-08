@@ -110,6 +110,18 @@ export function mergeHistoryWithMarketSeries(historyRows, marketPoints, sourceKe
   return [...rowsByTimestamp.values()].sort((left, right) => Date.parse(left.polled_at) - Date.parse(right.polled_at));
 }
 
+export function addSyntheticBaselineSeries(historyRows, value, sourceKey) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return Array.isArray(historyRows) ? [...historyRows] : [];
+  }
+
+  return (Array.isArray(historyRows) ? historyRows : []).map((row) => ({
+    ...row,
+    [sourceKey]: numeric
+  }));
+}
+
 function buildMarketPriceTooltipPayload(row) {
   const gpuType = String(row?.gpu_type || "").trim();
   const avgPrice = toFiniteNumberOrNull(row?.avg_price);
