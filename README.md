@@ -235,6 +235,8 @@ The dashboard includes:
 - Cursor hover inspection for fleet trend charts and machine modal charts
 - Resize-aware chart redraw for fleet and modal charts
 
+For an implementation map of the market-benchmark feature, see [docs/benchmark-architecture.md](./docs/benchmark-architecture.md).
+
 Local browser settings currently control:
 
 - dashboard mode (`Normal` / `Carousel`)
