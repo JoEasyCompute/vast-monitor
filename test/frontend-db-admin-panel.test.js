@@ -39,6 +39,7 @@ test("db admin panel renders database counts and route metrics when health is av
           gpu_type_utilization_hourly_rollups: 4,
           gpu_type_price_hourly_rollups: 4,
           platform_gpu_metric_snapshots: 9,
+          platform_gpu_metric_hourly_rollups: 3,
           alerts: 2,
           events: 3
         },
@@ -120,8 +121,8 @@ test("db admin panel renders database counts and route metrics when health is av
   assert.match(result.markup, /1\.0 MB/);
   assert.match(result.markup, /Fleet Raw\/Roll/);
   assert.match(result.markup, /50 \/ 12/);
-  assert.match(result.markup, /Benchmark Snap/);
-  assert.match(result.markup, />9</);
+  assert.match(result.markup, /Benchmark Raw\/Roll/);
+  assert.match(result.markup, /9 \/ 3/);
   assert.match(result.markup, /status/);
   assert.match(result.markup, /200/);
   assert.match(result.markup, /\/tmp\/vast-monitor\.db/);
@@ -201,7 +202,8 @@ test("db admin panel renders retention preview actions and preview details", () 
         fleet_snapshot_hourly_rollups: 6,
         machine_snapshot_hourly_rollups: 20,
         gpu_type_utilization_hourly_rollups: 8,
-        gpu_type_price_hourly_rollups: 8
+        gpu_type_price_hourly_rollups: 8,
+        platform_gpu_metric_hourly_rollups: 5
       }
     }
   });
@@ -211,6 +213,7 @@ test("db admin panel renders retention preview actions and preview details", () 
   assert.match(result.markup, /Snapshot cutoff/);
   assert.match(result.markup, /120/);
   assert.match(result.markup, /GPU Price Rollups/);
+  assert.match(result.markup, /Benchmark Rollups/);
 });
 
 test("db admin panel renders analyze action and last analyze result", () => {

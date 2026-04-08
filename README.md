@@ -75,6 +75,7 @@ Environment variables:
 - `PORT`: HTTP port, default `3000`
 - `DB_PATH`: SQLite database path, default `./data/vast-monitor.db`
 - `DB_SNAPSHOT_RETENTION_DAYS`: optional retention window for raw `machine_snapshots`, `polls`, and derived `fleet_snapshots`; older machine snapshots, fleet snapshots, GPU-type utilization history, and GPU-type price history are first compacted into hourly rollups used for long-range history reads; `0` disables pruning
+- `DB_SNAPSHOT_RETENTION_DAYS` also compacts persisted external Vast benchmark snapshots into hourly rollups before deleting old raw benchmark rows, so historical benchmark comparison lines survive retention in reduced hourly resolution
 - `DB_ALERT_RETENTION_DAYS`: optional retention window for `alerts`; `0` disables pruning
 - `DB_EVENT_RETENTION_DAYS`: optional retention window for `events`; `0` disables pruning
 - `PLUGIN_MODULES`: optional comma-separated plugin module paths relative to the project root or absolute paths

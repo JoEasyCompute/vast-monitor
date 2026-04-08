@@ -345,6 +345,36 @@ const SCHEMA_MIGRATIONS = [
 
       return {};
     }
+  },
+  {
+    id: "005_platform_gpu_metric_hourly_rollups",
+    description: "Compact persisted platform GPU benchmark snapshots into hourly rollups",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS platform_gpu_metric_hourly_rollups (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          bucket_start TEXT NOT NULL,
+          gpu_type TEXT NOT NULL,
+          canonical_gpu_type TEXT NOT NULL,
+          sample_count INTEGER NOT NULL,
+          market_utilisation_pct REAL,
+          market_gpus_on_platform REAL,
+          market_gpus_available REAL,
+          market_gpus_rented REAL,
+          market_machines_available REAL,
+          market_median_price REAL,
+          market_minimum_price REAL,
+          market_p10_price REAL,
+          market_p90_price REAL,
+          UNIQUE(bucket_start, canonical_gpu_type)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_platform_gpu_metric_hourly_rollups_time
+          ON platform_gpu_metric_hourly_rollups(bucket_start, canonical_gpu_type);
+      `);
+
+      return {};
+    }
   }
 ];
 
@@ -649,6 +679,25 @@ export function createDatabase(dbPath, options = {}) {
       WHERE polled_at >= ?
       ORDER BY polled_at ASC, canonical_gpu_type ASC
     `),
+    selectPlatformGpuMetricHourlyRollupsSince: db.prepare(`
+      SELECT
+        bucket_start AS polled_at,
+        gpu_type,
+        canonical_gpu_type,
+        sample_count,
+        market_utilisation_pct,
+        market_gpus_on_platform,
+        market_gpus_available,
+        market_gpus_rented,
+        market_machines_available,
+        market_median_price,
+        market_minimum_price,
+        market_p10_price,
+        market_p90_price
+      FROM platform_gpu_metric_hourly_rollups
+      WHERE bucket_start >= ?
+      ORDER BY bucket_start ASC, canonical_gpu_type ASC
+    `),
     selectFleetSnapshotAtOrBefore: db.prepare(`
       SELECT poll_id, polled_at, total_machines, datacenter_machines, unlisted_machines,
              listed_gpus, unlisted_gpus, occupied_gpus, utilisation_pct, total_daily_earnings
@@ -713,6 +762,24 @@ export function createDatabase(dbPath, options = {}) {
         market_p90_price
       FROM platform_gpu_metric_snapshots
       WHERE polled_at < ?
+      ORDER BY polled_at ASC, canonical_gpu_type ASC
+    `),
+    selectAllPlatformGpuMetricSnapshotsForRollups: db.prepare(`
+      SELECT
+        polled_at,
+        source_fetched_at,
+        gpu_type,
+        canonical_gpu_type,
+        market_utilisation_pct,
+        market_gpus_on_platform,
+        market_gpus_available,
+        market_gpus_rented,
+        market_machines_available,
+        market_median_price,
+        market_minimum_price,
+        market_p10_price,
+        market_p90_price
+      FROM platform_gpu_metric_snapshots
       ORDER BY polled_at ASC, canonical_gpu_type ASC
     `),
     selectMachineSnapshotsBefore: db.prepare(`
@@ -824,6 +891,49 @@ export function createDatabase(dbPath, options = {}) {
         market_p10_price = excluded.market_p10_price,
         market_p90_price = excluded.market_p90_price
     `),
+    upsertPlatformGpuMetricHourlyRollup: db.prepare(`
+      INSERT INTO platform_gpu_metric_hourly_rollups (
+        bucket_start,
+        gpu_type,
+        canonical_gpu_type,
+        sample_count,
+        market_utilisation_pct,
+        market_gpus_on_platform,
+        market_gpus_available,
+        market_gpus_rented,
+        market_machines_available,
+        market_median_price,
+        market_minimum_price,
+        market_p10_price,
+        market_p90_price
+      ) VALUES (
+        @bucket_start,
+        @gpu_type,
+        @canonical_gpu_type,
+        @sample_count,
+        @market_utilisation_pct,
+        @market_gpus_on_platform,
+        @market_gpus_available,
+        @market_gpus_rented,
+        @market_machines_available,
+        @market_median_price,
+        @market_minimum_price,
+        @market_p10_price,
+        @market_p90_price
+      )
+      ON CONFLICT(bucket_start, canonical_gpu_type) DO UPDATE SET
+        gpu_type = excluded.gpu_type,
+        sample_count = excluded.sample_count,
+        market_utilisation_pct = excluded.market_utilisation_pct,
+        market_gpus_on_platform = excluded.market_gpus_on_platform,
+        market_gpus_available = excluded.market_gpus_available,
+        market_gpus_rented = excluded.market_gpus_rented,
+        market_machines_available = excluded.market_machines_available,
+        market_median_price = excluded.market_median_price,
+        market_minimum_price = excluded.market_minimum_price,
+        market_p10_price = excluded.market_p10_price,
+        market_p90_price = excluded.market_p90_price
+    `),
     deleteFleetSnapshotsBefore: db.prepare(`
       DELETE FROM fleet_snapshots
       WHERE polled_at < ?
@@ -847,6 +957,14 @@ export function createDatabase(dbPath, options = {}) {
     countPlatformGpuMetricSnapshotsBefore: db.prepare(`
       SELECT COUNT(*) AS count FROM platform_gpu_metric_snapshots
       WHERE polled_at < ?
+    `),
+    deletePlatformGpuMetricHourlyRollupsBefore: db.prepare(`
+      DELETE FROM platform_gpu_metric_hourly_rollups
+      WHERE bucket_start < ?
+    `),
+    countPlatformGpuMetricHourlyRollupsBefore: db.prepare(`
+      SELECT COUNT(*) AS count FROM platform_gpu_metric_hourly_rollups
+      WHERE bucket_start < ?
     `),
     deletePollsBefore: db.prepare(`
       DELETE FROM polls
@@ -902,6 +1020,9 @@ export function createDatabase(dbPath, options = {}) {
     countPlatformGpuMetricSnapshots: db.prepare(`
       SELECT COUNT(*) AS count FROM platform_gpu_metric_snapshots
     `),
+    countPlatformGpuMetricHourlyRollups: db.prepare(`
+      SELECT COUNT(*) AS count FROM platform_gpu_metric_hourly_rollups
+    `),
     countAlerts: db.prepare(`
       SELECT COUNT(*) AS count FROM alerts
     `),
@@ -922,6 +1043,9 @@ export function createDatabase(dbPath, options = {}) {
     `),
     deleteAllGpuTypePriceHourlyRollups: db.prepare(`
       DELETE FROM gpu_type_price_hourly_rollups
+    `),
+    deleteAllPlatformGpuMetricHourlyRollups: db.prepare(`
+      DELETE FROM platform_gpu_metric_hourly_rollups
     `)
   };
 
@@ -1425,7 +1549,10 @@ export function createDatabase(dbPath, options = {}) {
   }
 
   function getMarketGpuTypeUtilizationHistory(cutoff) {
-    const rows = statements.selectPlatformGpuMetricSnapshotsSince.all(cutoff);
+    const rows = [
+      ...statements.selectPlatformGpuMetricHourlyRollupsSince.all(cutoff),
+      ...statements.selectPlatformGpuMetricSnapshotsSince.all(cutoff)
+    ];
     if (!rows.length) {
       return [];
     }
@@ -1602,6 +1729,7 @@ export function createDatabase(dbPath, options = {}) {
         gpu_type_utilization_hourly_rollups: statements.countGpuTypeUtilizationHourlyRollups.get()?.count ?? 0,
         gpu_type_price_hourly_rollups: statements.countGpuTypePriceHourlyRollups.get()?.count ?? 0,
         platform_gpu_metric_snapshots: statements.countPlatformGpuMetricSnapshots.get()?.count ?? 0,
+        platform_gpu_metric_hourly_rollups: statements.countPlatformGpuMetricHourlyRollups.get()?.count ?? 0,
         alerts: statements.countAlerts.get()?.count ?? 0,
         events: statements.countEvents.get()?.count ?? 0
       },
@@ -1772,12 +1900,14 @@ export function createDatabase(dbPath, options = {}) {
       const tx = db.transaction(() => {
         const fleetSourcePolls = statements.selectAllFleetSnapshotSourcePolls.all();
         const allMachineSnapshotRows = statements.selectAllMachineSnapshotsForRollups.all();
+        const allPlatformGpuMetricSnapshotRows = statements.selectAllPlatformGpuMetricSnapshotsForRollups.all();
 
         const deletedFleetSnapshots = statements.deleteAllFleetSnapshots.run().changes;
         const deletedFleetRollups = statements.deleteAllFleetSnapshotHourlyRollups.run().changes;
         const deletedMachineRollups = statements.deleteAllMachineSnapshotHourlyRollups.run().changes;
         const deletedGpuUtilRollups = statements.deleteAllGpuTypeUtilizationHourlyRollups.run().changes;
         const deletedGpuPriceRollups = statements.deleteAllGpuTypePriceHourlyRollups.run().changes;
+        const deletedPlatformGpuMetricRollups = statements.deleteAllPlatformGpuMetricHourlyRollups.run().changes;
 
         let rebuiltFleetSnapshots = 0;
         for (const snapshot of fleetSourcePolls) {
@@ -1840,6 +1970,10 @@ export function createDatabase(dbPath, options = {}) {
         for (const row of gpuRollups.price_rows) {
           statements.upsertGpuTypePriceHourlyRollup.run(row);
         }
+        const platformRollups = rollupPlatformGpuMetricHistoryRows(allPlatformGpuMetricSnapshotRows);
+        for (const row of platformRollups.rows) {
+          statements.upsertPlatformGpuMetricHourlyRollup.run(row);
+        }
 
         const completedAt = new Date().toISOString();
         statements.upsertMeta.run({
@@ -1855,14 +1989,16 @@ export function createDatabase(dbPath, options = {}) {
             fleet_snapshot_hourly_rollups: deletedFleetRollups,
             machine_snapshot_hourly_rollups: deletedMachineRollups,
             gpu_type_utilization_hourly_rollups: deletedGpuUtilRollups,
-            gpu_type_price_hourly_rollups: deletedGpuPriceRollups
+            gpu_type_price_hourly_rollups: deletedGpuPriceRollups,
+            platform_gpu_metric_hourly_rollups: deletedPlatformGpuMetricRollups
           },
           rebuilt: {
             fleet_snapshots: rebuiltFleetSnapshots,
             fleet_snapshot_hourly_rollups: fleetRollups.size,
             machine_snapshot_hourly_rollups: machineRollups.size,
             gpu_type_utilization_hourly_rollups: gpuRollups.utilization_upserted,
-            gpu_type_price_hourly_rollups: gpuRollups.price_upserted
+            gpu_type_price_hourly_rollups: gpuRollups.price_upserted,
+            platform_gpu_metric_hourly_rollups: platformRollups.upserted
           }
         };
       });
@@ -2176,6 +2312,7 @@ function applyRetentionPolicies(statements, options) {
     machine_snapshot_hourly_rollups_upserted: 0,
     gpu_type_utilization_hourly_rollups_upserted: 0,
     gpu_type_price_hourly_rollups_upserted: 0,
+    platform_gpu_metric_hourly_rollups_upserted: 0,
     fleet_snapshots_deleted: 0,
     machine_snapshots_deleted: 0,
     platform_gpu_metric_snapshots_deleted: 0,
@@ -2191,6 +2328,7 @@ function applyRetentionPolicies(statements, options) {
     const gpuRollupSummary = rollupGpuTypeHistoryBefore(statements, snapshotCutoff);
     summary.gpu_type_utilization_hourly_rollups_upserted = gpuRollupSummary.utilization_upserted;
     summary.gpu_type_price_hourly_rollups_upserted = gpuRollupSummary.price_upserted;
+    summary.platform_gpu_metric_hourly_rollups_upserted = rollupPlatformGpuMetricHistoryBefore(statements, snapshotCutoff);
     summary.fleet_snapshots_deleted = statements.deleteFleetSnapshotsBefore.run(snapshotCutoff).changes;
     summary.machine_snapshots_deleted = statements.deleteMachineSnapshotsBefore.run(snapshotCutoff).changes;
     summary.platform_gpu_metric_snapshots_deleted = statements.deletePlatformGpuMetricSnapshotsBefore.run(snapshotCutoff).changes;
@@ -2220,6 +2358,10 @@ function buildRetentionPreview(statements, options) {
   const gpuRollupSummary = snapshotCutoff
     ? rollupGpuTypeHistoryRows(machineSnapshotRows)
     : { utilization_upserted: 0, price_upserted: 0 };
+  const platformBenchmarkRows = snapshotCutoff ? statements.selectPlatformGpuMetricSnapshotsBefore.all(snapshotCutoff) : [];
+  const platformBenchmarkRollupSummary = snapshotCutoff
+    ? rollupPlatformGpuMetricHistoryRows(platformBenchmarkRows)
+    : { upserted: 0 };
 
   return {
     cutoffs: {
@@ -2239,7 +2381,8 @@ function buildRetentionPreview(statements, options) {
       fleet_snapshot_hourly_rollups: snapshotCutoff ? countFleetSnapshotRollupBuckets(fleetSnapshotRows) : 0,
       machine_snapshot_hourly_rollups: snapshotCutoff ? countMachineSnapshotRollupBuckets(machineSnapshotRows) : 0,
       gpu_type_utilization_hourly_rollups: gpuRollupSummary.utilization_upserted,
-      gpu_type_price_hourly_rollups: gpuRollupSummary.price_upserted
+      gpu_type_price_hourly_rollups: gpuRollupSummary.price_upserted,
+      platform_gpu_metric_hourly_rollups: platformBenchmarkRollupSummary.upserted
     }
   };
 }
@@ -2302,6 +2445,11 @@ function rollupGpuTypeHistoryBefore(statements, cutoff) {
   return rollupGpuTypeHistoryRows(rows, statements);
 }
 
+function rollupPlatformGpuMetricHistoryBefore(statements, cutoff) {
+  const rows = statements.selectPlatformGpuMetricSnapshotsBefore.all(cutoff);
+  return rollupPlatformGpuMetricHistoryRows(rows, statements).upserted;
+}
+
 function rollupGpuTypeHistoryRows(rows, statements = null) {
   if (!rows.length) {
     return {
@@ -2360,6 +2508,64 @@ function rollupGpuTypeHistoryRows(rows, statements = null) {
     price_upserted: priceUpserted,
     utilization_rows: utilizationRows,
     price_rows: priceRows
+  };
+}
+
+function rollupPlatformGpuMetricHistoryRows(rows, statements = null) {
+  if (!rows.length) {
+    return {
+      upserted: 0,
+      rows: []
+    };
+  }
+
+  const grouped = new Map();
+
+  for (const row of rows) {
+    const bucketStart = toHourBucketStart(row.polled_at);
+    const canonicalGpuType = row.canonical_gpu_type || canonicalizeGpuType(row.gpu_type);
+    if (!bucketStart || !canonicalGpuType) {
+      continue;
+    }
+
+    const key = `${bucketStart}|${canonicalGpuType}`;
+    const current = grouped.get(key) || [];
+    current.push({
+      ...row,
+      canonical_gpu_type: canonicalGpuType
+    });
+    grouped.set(key, current);
+  }
+
+  const rollupRows = [...grouped.entries()].map(([key, group]) => {
+    const latest = group[group.length - 1];
+    const bucketStart = key.slice(0, key.indexOf("|"));
+    return {
+      bucket_start: bucketStart,
+      gpu_type: latest.gpu_type,
+      canonical_gpu_type: latest.canonical_gpu_type,
+      sample_count: group.length,
+      market_utilisation_pct: averageFinite(group.map((row) => row.market_utilisation_pct)),
+      market_gpus_on_platform: averageFinite(group.map((row) => row.market_gpus_on_platform)),
+      market_gpus_available: averageFinite(group.map((row) => row.market_gpus_available)),
+      market_gpus_rented: averageFinite(group.map((row) => row.market_gpus_rented)),
+      market_machines_available: averageFinite(group.map((row) => row.market_machines_available)),
+      market_median_price: averageFinite(group.map((row) => row.market_median_price)),
+      market_minimum_price: averageFinite(group.map((row) => row.market_minimum_price)),
+      market_p10_price: averageFinite(group.map((row) => row.market_p10_price)),
+      market_p90_price: averageFinite(group.map((row) => row.market_p90_price))
+    };
+  });
+
+  let upserted = 0;
+  for (const row of rollupRows) {
+    statements?.upsertPlatformGpuMetricHourlyRollup.run(row);
+    upserted += 1;
+  }
+
+  return {
+    upserted,
+    rows: rollupRows
   };
 }
 

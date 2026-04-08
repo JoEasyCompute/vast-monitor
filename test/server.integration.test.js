@@ -227,6 +227,7 @@ test("server integration returns expected API payloads and dependency failures",
     assert.equal(dbHealth.body.database.row_counts.gpu_type_utilization_hourly_rollups, 0);
     assert.equal(dbHealth.body.database.row_counts.gpu_type_price_hourly_rollups, 0);
     assert.equal(dbHealth.body.database.row_counts.platform_gpu_metric_snapshots, 0);
+    assert.equal(dbHealth.body.database.row_counts.platform_gpu_metric_hourly_rollups, 0);
     assert.equal(dbHealth.body.database.row_counts.maintenance_runs, 0);
     assert.equal(dbHealth.body.database.row_counts.alerts, 1);
     assert.equal(dbHealth.body.platform_benchmark.ok, true);
@@ -240,6 +241,7 @@ test("server integration returns expected API payloads and dependency failures",
     assert.equal(retentionPreview.body.ok, true);
     assert.equal(retentionPreview.body.preview.would_delete.polls, 0);
     assert.equal(retentionPreview.body.preview.would_upsert_rollups.machine_snapshot_hourly_rollups, 0);
+    assert.equal(retentionPreview.body.preview.would_upsert_rollups.platform_gpu_metric_hourly_rollups, 0);
     assert.equal(analyze.statusCode, 200);
     assert.equal(analyze.body.ok, true);
     assert.ok(Number.isFinite(analyze.body.analyze.duration_ms));

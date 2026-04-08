@@ -121,6 +121,9 @@ function formatDatabaseMaintenanceSummary(summary = {}) {
   if ((retention.gpu_type_price_hourly_rollups_upserted || 0) > 0) {
     parts.push(`GPU price rollups updated (${retention.gpu_type_price_hourly_rollups_upserted} bucket(s))`);
   }
+  if ((retention.platform_gpu_metric_hourly_rollups_upserted || 0) > 0) {
+    parts.push(`benchmark rollups updated (${retention.platform_gpu_metric_hourly_rollups_upserted} bucket(s))`);
+  }
   if (retentionDeleted > 0) {
     parts.push(`retention pruned ${retentionDeleted} row(s)`);
   }

@@ -57,7 +57,7 @@ export function buildDbAdminPanelMarkup({
     ["Machine Raw/Roll", `${rowCounts.machine_snapshots ?? 0} / ${rowCounts.machine_snapshot_hourly_rollups ?? 0}`],
     ["GPU Util Roll", rowCounts.gpu_type_utilization_hourly_rollups ?? 0],
     ["GPU Price Roll", rowCounts.gpu_type_price_hourly_rollups ?? 0],
-    ["Benchmark Snap", rowCounts.platform_gpu_metric_snapshots ?? 0],
+    ["Benchmark Raw/Roll", `${rowCounts.platform_gpu_metric_snapshots ?? 0} / ${rowCounts.platform_gpu_metric_hourly_rollups ?? 0}`],
     ["Alerts/Events", `${rowCounts.alerts ?? 0} / ${rowCounts.events ?? 0}`],
     ["Retention", buildRetentionLabel(database.retention)]
   ];
@@ -243,6 +243,8 @@ function buildRetentionPreviewMarkup(preview, error) {
     ["Machine Rollups", preview.would_upsert_rollups?.machine_snapshot_hourly_rollups ?? 0],
     ["GPU Util Rollups", preview.would_upsert_rollups?.gpu_type_utilization_hourly_rollups ?? 0],
     ["GPU Price Rollups", preview.would_upsert_rollups?.gpu_type_price_hourly_rollups ?? 0]
+    ,
+    ["Benchmark Rollups", preview.would_upsert_rollups?.platform_gpu_metric_hourly_rollups ?? 0]
   ];
 
   return `
@@ -440,6 +442,7 @@ function buildRebuildMarkup(result, error) {
         <div class="db-admin-path">Fleet rollups rebuilt: ${escapeHtml(String(result.rebuilt?.fleet_snapshot_hourly_rollups ?? 0))}</div>
         <div class="db-admin-path">Machine rollups rebuilt: ${escapeHtml(String(result.rebuilt?.machine_snapshot_hourly_rollups ?? 0))}</div>
         <div class="db-admin-path">GPU util/price rollups rebuilt: ${escapeHtml(`${result.rebuilt?.gpu_type_utilization_hourly_rollups ?? 0} / ${result.rebuilt?.gpu_type_price_hourly_rollups ?? 0}`)}</div>
+        <div class="db-admin-path">Benchmark rollups rebuilt: ${escapeHtml(`${result.rebuilt?.platform_gpu_metric_hourly_rollups ?? 0}`)}</div>
       </div>
     </div>
   `;

@@ -283,15 +283,20 @@ test("database startup records applied schema migrations on fresh databases", ()
       {
         id: "004_platform_gpu_metric_snapshots",
         description: "Persist external platform GPU benchmark snapshots"
+      },
+      {
+        id: "005_platform_gpu_metric_hourly_rollups",
+        description: "Compact persisted platform GPU benchmark snapshots into hourly rollups"
       }
     ]);
 
     const dbHealth = store.getDatabaseHealth();
-    assert.equal(dbHealth.row_counts.schema_migrations, 4);
+    assert.equal(dbHealth.row_counts.schema_migrations, 5);
     assert.equal(dbHealth.schema_migrations[0].id, "001_managed_schema_baseline");
     assert.equal(dbHealth.schema_migrations[1].id, "002_maintenance_runs");
     assert.equal(dbHealth.schema_migrations[2].id, "003_maintenance_locks");
     assert.equal(dbHealth.schema_migrations[3].id, "004_platform_gpu_metric_snapshots");
+    assert.equal(dbHealth.schema_migrations[4].id, "005_platform_gpu_metric_hourly_rollups");
   } finally {
     store.db.close();
   }
@@ -381,7 +386,8 @@ test("database startup upgrades legacy schema through managed migrations", () =>
       { id: "001_managed_schema_baseline" },
       { id: "002_maintenance_runs" },
       { id: "003_maintenance_locks" },
-      { id: "004_platform_gpu_metric_snapshots" }
+      { id: "004_platform_gpu_metric_snapshots" },
+      { id: "005_platform_gpu_metric_hourly_rollups" }
     ]);
   } finally {
     store.db.close();
@@ -611,6 +617,7 @@ test("startup retention prunes old snapshots, polls, alerts, and events when con
       assert.equal(maintenance.retention.machine_snapshot_hourly_rollups_upserted, 1);
       assert.equal(maintenance.retention.gpu_type_utilization_hourly_rollups_upserted, 1);
       assert.equal(maintenance.retention.gpu_type_price_hourly_rollups_upserted, 1);
+      assert.equal(maintenance.retention.platform_gpu_metric_hourly_rollups_upserted, 0);
       assert.equal(maintenance.retention.fleet_snapshots_deleted, 1);
       assert.equal(maintenance.retention.alerts_deleted, 1);
       assert.equal(maintenance.retention.events_deleted, 1);
