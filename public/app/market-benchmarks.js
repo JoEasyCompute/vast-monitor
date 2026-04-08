@@ -100,14 +100,33 @@ export function mergeHistoryWithMarketSeries(historyRows, marketPoints, sourceKe
   const rowsByTimestamp = new Map(
     (Array.isArray(historyRows) ? historyRows : []).map((row) => [row.polled_at, { ...row }])
   );
+  const sortedMarketPoints = (Array.isArray(marketPoints) ? marketPoints : [])
+    .filter((point) => point && point.polled_at)
+    .sort((left, right) => Date.parse(left.polled_at) - Date.parse(right.polled_at));
 
-  for (const point of Array.isArray(marketPoints) ? marketPoints : []) {
+  for (const point of sortedMarketPoints) {
     const row = rowsByTimestamp.get(point.polled_at) || { polled_at: point.polled_at };
     row[sourceKey] = point.utilisation_pct;
     rowsByTimestamp.set(point.polled_at, row);
   }
 
-  return [...rowsByTimestamp.values()].sort((left, right) => Date.parse(left.polled_at) - Date.parse(right.polled_at));
+  const mergedRows = [...rowsByTimestamp.values()].sort((left, right) => Date.parse(left.polled_at) - Date.parse(right.polled_at));
+  const firstMarketPoint = sortedMarketPoints[0] || null;
+  const firstMarketTime = Date.parse(firstMarketPoint?.polled_at);
+  const firstMarketValue = Number(firstMarketPoint?.utilisation_pct);
+
+  if (Number.isFinite(firstMarketTime) && Number.isFinite(firstMarketValue)) {
+    for (const row of mergedRows) {
+      const rowTime = Date.parse(row.polled_at);
+      if (!Number.isFinite(rowTime) || rowTime >= firstMarketTime) {
+        break;
+      }
+
+      row[sourceKey] = firstMarketValue;
+    }
+  }
+
+  return mergedRows;
 }
 
 export function addSyntheticBaselineSeries(historyRows, value, sourceKey) {

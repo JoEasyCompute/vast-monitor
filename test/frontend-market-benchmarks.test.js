@@ -38,7 +38,7 @@ test("market benchmark helpers merge market points into utilization history rows
   );
 
   assert.deepEqual(merged, [
-    { polled_at: "2026-04-08T10:00:00.000Z", utilisation_pct: 60 },
+    { polled_at: "2026-04-08T10:00:00.000Z", utilisation_pct: 60, __market__: 75 },
     { polled_at: "2026-04-08T11:00:00.000Z", utilisation_pct: 70, __market__: 75 },
     { polled_at: "2026-04-08T12:00:00.000Z", __market__: 78 }
   ]);
