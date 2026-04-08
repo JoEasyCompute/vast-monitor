@@ -38,6 +38,7 @@ test("db admin panel renders database counts and route metrics when health is av
           machine_snapshot_hourly_rollups: 12,
           gpu_type_utilization_hourly_rollups: 4,
           gpu_type_price_hourly_rollups: 4,
+          platform_gpu_metric_snapshots: 9,
           alerts: 2,
           events: 3
         },
@@ -105,6 +106,12 @@ test("db admin panel renders database counts and route metrics when health is av
           max_duration_ms: 9,
           last_status_code: 200
         }
+      },
+      platform_benchmark: {
+        ok: true,
+        stale: false,
+        fetched_at: "2026-04-01T12:15:00.000Z",
+        source: "https://gpu-treemap.replit.app/api/gpu-data"
       }
     }
   });
@@ -113,6 +120,8 @@ test("db admin panel renders database counts and route metrics when health is av
   assert.match(result.markup, /1\.0 MB/);
   assert.match(result.markup, /Fleet Raw\/Roll/);
   assert.match(result.markup, /50 \/ 12/);
+  assert.match(result.markup, /Benchmark Snap/);
+  assert.match(result.markup, />9</);
   assert.match(result.markup, /status/);
   assert.match(result.markup, /200/);
   assert.match(result.markup, /\/tmp\/vast-monitor\.db/);
@@ -120,6 +129,9 @@ test("db admin panel renders database counts and route metrics when health is av
   assert.match(result.markup, /Last Vacuum:/);
   assert.match(result.markup, /Last Derived Rebuild:/);
   assert.match(result.markup, /Maintenance Active: No/);
+  assert.match(result.markup, /Benchmark Status: Live/);
+  assert.match(result.markup, /Benchmark Source:/);
+  assert.match(result.markup, /gpu-treemap\.replit\.app\/api\/gpu-data/);
   assert.match(result.markup, /analyze/);
   assert.match(result.markup, /<summary>Result<\/summary>/);
   assert.match(result.markup, /duration_ms/);
@@ -143,6 +155,13 @@ test("db admin panel renders operator warnings for disabled retention, large DBs
           },
           recent_runs: []
         }
+      },
+      platform_benchmark: {
+        ok: false,
+        stale: false,
+        fetched_at: null,
+        source: "https://gpu-treemap.replit.app/api/gpu-data",
+        error: "upstream unavailable"
       }
     }
   });
@@ -150,6 +169,7 @@ test("db admin panel renders operator warnings for disabled retention, large DBs
   assert.match(result.markup, /Retention is disabled/i);
   assert.match(result.markup, /Database file is large/i);
   assert.match(result.markup, /Maintenance is currently running: vacuum/i);
+  assert.match(result.markup, /External Vast benchmark is currently unavailable/i);
 });
 
 test("db admin panel renders retention preview actions and preview details", () => {

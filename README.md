@@ -211,6 +211,7 @@ The dashboard includes:
 - Recent alerts
 - Compact poll monitor panel with latest poll timings and counts
 - Dedicated `DB Admin` dashboard panel that uses the optional admin token from Settings to show database size, row counts, retention state, derived-state version info, recent maintenance history, per-route timing metrics, and a retention dry-run preview
+- `DB Admin` also surfaces external benchmark snapshot counts plus current benchmark health/freshness so operators can see whether Vast comparison data is live, cached, or unavailable
 - `DB Admin` also supports safe operator actions such as `Analyze`, `Vacuum`, retention dry-run preview, and on-demand derived-state rebuilds, with explicit confirmation for destructive actions, diagnostics copy/download, and background execution for heavier maintenance
 - recent maintenance history in `DB Admin` now includes expandable result/error details for troubleshooting
 - `DB Admin` also shows inline warnings for disabled retention, large DB size, and active maintenance

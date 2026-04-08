@@ -36,12 +36,19 @@ export function buildDbAdminPanelMarkup({
   const routeMetrics = database.route_metrics || dbHealth.route_metrics || {};
   const metadata = database.metadata || {};
   const maintenance = database.maintenance || {};
+  const platformBenchmark = dbHealth.platform_benchmark || {};
   const statusBadges = [
     buildStatusBadge("Admin", "ok"),
     buildStatusBadge("Retention", (database.retention?.snapshot_days || database.retention?.alert_days || database.retention?.event_days) ? "ok" : "warn"),
-    buildStatusBadge(maintenance.in_progress ? `Busy: ${maintenance.in_progress.action}` : "Idle", maintenance.in_progress ? "warn" : "ok")
+    buildStatusBadge(maintenance.in_progress ? `Busy: ${maintenance.in_progress.action}` : "Idle", maintenance.in_progress ? "warn" : "ok"),
+    buildStatusBadge(
+      platformBenchmark.ok
+        ? (platformBenchmark.stale ? "Benchmark Cached" : "Benchmark Live")
+        : "Benchmark Unavailable",
+      platformBenchmark.ok && !platformBenchmark.stale ? "ok" : "warn"
+    )
   ].join("");
-  const warningMarkup = buildWarningMarkup({ database, maintenance });
+  const warningMarkup = buildWarningMarkup({ database, maintenance, platformBenchmark });
   const cards = [
     ["DB Size", formatDbSize(database.file_size_bytes)],
     ["Fleet Ver", database.derived_state?.fleet_snapshot_state_version || "-"],
@@ -50,6 +57,7 @@ export function buildDbAdminPanelMarkup({
     ["Machine Raw/Roll", `${rowCounts.machine_snapshots ?? 0} / ${rowCounts.machine_snapshot_hourly_rollups ?? 0}`],
     ["GPU Util Roll", rowCounts.gpu_type_utilization_hourly_rollups ?? 0],
     ["GPU Price Roll", rowCounts.gpu_type_price_hourly_rollups ?? 0],
+    ["Benchmark Snap", rowCounts.platform_gpu_metric_snapshots ?? 0],
     ["Alerts/Events", `${rowCounts.alerts ?? 0} / ${rowCounts.events ?? 0}`],
     ["Retention", buildRetentionLabel(database.retention)]
   ];
@@ -110,6 +118,10 @@ export function buildDbAdminPanelMarkup({
         <div class="db-admin-path">Last Vacuum: ${escapeHtml(formatMaintenanceTimestamp(metadata.vacuum_last_run_at?.value))}</div>
         <div class="db-admin-path">Last Derived Rebuild: ${escapeHtml(formatMaintenanceTimestamp(metadata.derived_rebuild_last_run_at?.value))}</div>
         <div class="db-admin-path">Maintenance Active: ${escapeHtml(maintenance.in_progress?.action || "No")}</div>
+        <div class="db-admin-path">Benchmark Status: ${escapeHtml(platformBenchmark.ok ? (platformBenchmark.stale ? "Cached" : "Live") : "Unavailable")}</div>
+        <div class="db-admin-path">Benchmark Source: ${escapeHtml(platformBenchmark.source || "-")}</div>
+        <div class="db-admin-path">Benchmark Fetched: ${escapeHtml(formatMaintenanceTimestamp(platformBenchmark.fetched_at))}</div>
+        ${platformBenchmark.error ? `<div class="db-admin-path">Benchmark Error: ${escapeHtml(platformBenchmark.error)}</div>` : ""}
       </div>
       <div class="table-wrap">
         <table class="db-admin-table">
@@ -158,7 +170,7 @@ function buildStatusBadge(label, kind) {
   return `<span class="db-admin-badge ${kind === "warn" ? "warn" : "ok"}">${escapeHtml(label)}</span>`;
 }
 
-function buildWarningMarkup({ database, maintenance }) {
+function buildWarningMarkup({ database, maintenance, platformBenchmark }) {
   const warnings = [];
   const retention = database.retention || {};
   const fileSizeBytes = Number(database.file_size_bytes);
@@ -173,6 +185,12 @@ function buildWarningMarkup({ database, maintenance }) {
 
   if (maintenance?.in_progress?.action) {
     warnings.push(`Maintenance is currently running: ${maintenance.in_progress.action}. Heavy actions may temporarily affect responsiveness.`);
+  }
+
+  if (!platformBenchmark?.ok) {
+    warnings.push("External Vast benchmark is currently unavailable. Benchmark cards and comparison lines may be missing or stale.");
+  } else if (platformBenchmark.stale) {
+    warnings.push("External Vast benchmark is currently served from cached data. Refreshes may lag behind the latest upstream market state.");
   }
 
   if (!warnings.length) {

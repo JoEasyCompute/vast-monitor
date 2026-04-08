@@ -210,6 +210,8 @@ test("server integration returns expected API payloads and dependency failures",
     assert.equal(health.body.status, "degraded");
     assert.equal(health.body.liveOperationsOk, false);
     assert.equal(health.body.liveDependencies.vastCli.ok, false);
+    assert.equal(health.body.platform_benchmark.ok, true);
+    assert.equal(health.body.platform_benchmark.stale, false);
     assert.equal(health.body.observability.lastFetchDurationMs, 1400);
     assert.equal(health.body.observability.lastAlertCount, 1);
     assert.equal(health.body.endpoint_timings.status.calls, 1);
@@ -224,8 +226,11 @@ test("server integration returns expected API payloads and dependency failures",
     assert.equal(dbHealth.body.database.row_counts.machine_snapshot_hourly_rollups, 0);
     assert.equal(dbHealth.body.database.row_counts.gpu_type_utilization_hourly_rollups, 0);
     assert.equal(dbHealth.body.database.row_counts.gpu_type_price_hourly_rollups, 0);
+    assert.equal(dbHealth.body.database.row_counts.platform_gpu_metric_snapshots, 0);
     assert.equal(dbHealth.body.database.row_counts.maintenance_runs, 0);
     assert.equal(dbHealth.body.database.row_counts.alerts, 1);
+    assert.equal(dbHealth.body.platform_benchmark.ok, true);
+    assert.equal(dbHealth.body.platform_benchmark.source, "https://gpu-treemap.replit.app/api/gpu-data");
     assert.equal(dbHealth.body.database.derived_state.fleet_snapshot_state_version, "1");
     assert.equal(dbHealth.body.database.retention.snapshot_days, 0);
     assert.ok(typeof dbHealth.body.database.file_size_bytes === "number");

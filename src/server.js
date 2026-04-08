@@ -27,20 +27,28 @@ export function createServer({ config, db, monitor, plugins = [], adminActionSch
     res.json(await buildFleetResponse(fleet, config, db, monitor, plugins, platformMetricsClient));
   }));
 
-  app.get("/api/health", routeMetrics.wrap("health", (_req, res) => {
-    const health = buildHealthResponse({ config, db, monitor, routeMetrics });
+  app.get("/api/health", routeMetrics.wrap("health", async (_req, res) => {
+    const health = await buildHealthResponse({ config, db, monitor, routeMetrics, platformMetricsClient });
     res.status(health.ok ? 200 : 503).json(health);
   }));
 
-  app.get("/api/admin/db-health", routeMetrics.wrap("admin_db_health", (req, res) => {
+  app.get("/api/admin/db-health", routeMetrics.wrap("admin_db_health", async (req, res) => {
     if (!requireAdminAccess(req, res, config)) {
       return;
     }
 
+    const platformBenchmark = await getPlatformMetricsSnapshot(platformMetricsClient);
     res.json({
       ok: true,
       database: typeof db?.getDatabaseHealth === "function" ? db.getDatabaseHealth() : null,
-      route_metrics: routeMetrics.snapshot()
+      route_metrics: routeMetrics.snapshot(),
+      platform_benchmark: {
+        ok: platformBenchmark.ok,
+        stale: platformBenchmark.stale,
+        fetched_at: platformBenchmark.fetchedAt,
+        source: platformBenchmark.source,
+        error: platformBenchmark.error
+      }
     });
   }));
 
@@ -663,7 +671,7 @@ async function getPlatformMetricsSnapshot(platformMetricsClient) {
   }
 }
 
-function buildHealthResponse({ config, db, monitor, routeMetrics }) {
+async function buildHealthResponse({ config, db, monitor, routeMetrics, platformMetricsClient }) {
   const latestPollAt = db.getCurrentFleetStatus().latestPollAt;
   const status = buildHealthStatus({
     latestPollAt,
@@ -672,6 +680,7 @@ function buildHealthResponse({ config, db, monitor, routeMetrics }) {
   const monitorHealth = typeof monitor?.getHealthSnapshot === "function" ? monitor.getHealthSnapshot() : {};
   const liveDependencies = getLiveDependencyHealth(config);
   const liveOperationsOk = Object.values(liveDependencies).every((dependency) => dependency.ok);
+  const platformBenchmark = await getPlatformMetricsSnapshot(platformMetricsClient);
 
   return {
     ok: !status.isStale,
@@ -682,6 +691,13 @@ function buildHealthResponse({ config, db, monitor, routeMetrics }) {
     pollAgeMs: status.pollAgeMs,
     liveOperationsOk,
     liveDependencies,
+    platform_benchmark: {
+      ok: platformBenchmark.ok,
+      stale: platformBenchmark.stale,
+      fetched_at: platformBenchmark.fetchedAt,
+      source: platformBenchmark.source,
+      error: platformBenchmark.error
+    },
     observability: normalizeMonitorObservability(monitorHealth),
     endpoint_timings: routeMetrics?.snapshot?.() || {},
     ...monitorHealth
