@@ -68,9 +68,12 @@ import {
   formatGpuMachineLabel
 } from "./app/machine-modal.js";
 import {
+  buildMarketPriceTooltipMarkup,
   findMatchingMarketUtilizationSeries,
   mergeHistoryWithMarketSeries,
-  renderBreakdownPriceCell
+  parseMarketPriceTooltipData,
+  renderBreakdownPriceCell,
+  serializeMarketPriceTooltipData
 } from "./app/market-benchmarks.js";
 import {
   buildMarketTooltipMarkup,
@@ -374,7 +377,7 @@ function buildMarketBenchmarkMeta(marketBenchmark) {
 }
 
 function renderBreakdown(rows) {
-  hideMarketTooltip();
+  hideBreakdownTooltip();
   breakdownBody.innerHTML = rows
     .map((row) => `
       <tr>
@@ -389,7 +392,7 @@ function renderBreakdown(rows) {
         <td class="breakdown-gpus-col">${row.listed_gpus}/${row.unlisted_gpus}</td>
         <td><span class="util-chip ${utilClass(row.utilisation_pct)}">${row.utilisation_pct}%</span></td>
         <td class="breakdown-num-col market-util-cell" data-market-tooltip="${escapeHtml(serializeMarketTooltipData(row))}">${formatMarketUtilizationCell(row)}</td>
-        <td class="breakdown-num-col">${renderBreakdownPriceCell(row)}</td>
+        <td class="breakdown-num-col market-price-cell" data-market-price-tooltip="${escapeHtml(serializeMarketPriceTooltipData(row))}">${renderBreakdownPriceCell(row)}</td>
         <td class="breakdown-num-col">$${row.earnings.toFixed(2)}</td>
       </tr>
     `)
@@ -409,11 +412,24 @@ function renderBreakdownMeta(latestPollAt) {
 function showMarketTooltip(serializedPayload, event) {
   const payload = parseMarketTooltipData(serializedPayload);
   if (!payload) {
-    hideMarketTooltip();
+    hideBreakdownTooltip();
     return;
   }
 
   marketTooltip.innerHTML = buildMarketTooltipMarkup(payload);
+  marketTooltip.classList.remove("hidden");
+  marketTooltip.setAttribute("aria-hidden", "false");
+  positionMarketTooltip(event);
+}
+
+function showMarketPriceTooltip(serializedPayload, event) {
+  const payload = parseMarketPriceTooltipData(serializedPayload);
+  if (!payload) {
+    hideBreakdownTooltip();
+    return;
+  }
+
+  marketTooltip.innerHTML = buildMarketPriceTooltipMarkup(payload);
   marketTooltip.classList.remove("hidden");
   marketTooltip.setAttribute("aria-hidden", "false");
   positionMarketTooltip(event);
@@ -427,7 +443,7 @@ function moveMarketTooltip(event) {
   positionMarketTooltip(event);
 }
 
-function hideMarketTooltip() {
+function hideBreakdownTooltip() {
   marketTooltip.classList.add("hidden");
   marketTooltip.setAttribute("aria-hidden", "true");
 }
@@ -1988,7 +2004,16 @@ bindDashboardControls({
     moveMarketTooltip(event);
   },
   onHideMarketTooltip: () => {
-    hideMarketTooltip();
+    hideBreakdownTooltip();
+  },
+  onShowMarketPriceTooltip: (serializedPayload, event) => {
+    showMarketPriceTooltip(serializedPayload, event);
+  },
+  onMoveMarketPriceTooltip: (_serializedPayload, event) => {
+    moveMarketTooltip(event);
+  },
+  onHideMarketPriceTooltip: () => {
+    hideBreakdownTooltip();
   },
   onRemoveGpuFilter: (gpuType) => {
     if (!gpuType) {

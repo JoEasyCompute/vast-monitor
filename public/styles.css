@@ -811,33 +811,18 @@ th.sort-desc::after {
   cursor: help;
 }
 
+.market-price-cell {
+  cursor: help;
+}
+
 .breakdown-price-cell {
   display: inline-flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
+  justify-content: flex-end;
+  width: 100%;
 }
 
 .breakdown-price-primary {
   color: var(--text);
-}
-
-.breakdown-price-compare {
-  font-size: 0.73rem;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
-.breakdown-price-compare-above {
-  color: #fca5a5;
-}
-
-.breakdown-price-compare-below {
-  color: #86efac;
-}
-
-.breakdown-price-compare-flat {
-  color: var(--muted);
 }
 
 .breakdown-gpu-filter {

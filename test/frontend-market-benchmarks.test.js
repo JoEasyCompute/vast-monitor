@@ -2,10 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildMarketPriceTooltipMarkup,
   buildBreakdownMarketPriceComparison,
   findMatchingMarketUtilizationSeries,
   mergeHistoryWithMarketSeries,
-  renderBreakdownPriceCell
+  parseMarketPriceTooltipData,
+  renderBreakdownPriceCell,
+  serializeMarketPriceTooltipData
 } from "../public/app/market-benchmarks.js";
 
 test("market benchmark helpers match persisted market utilization series by canonical GPU type", () => {
@@ -59,5 +62,24 @@ test("market benchmark helpers build breakdown price comparison markup", () => {
     title: "Fleet average listed price is above the current Vast median"
   });
   assert.match(markup, /\$0\.375/);
+  assert.doesNotMatch(markup, /vs Vast median/);
+});
+
+test("market benchmark helpers serialize and render price comparison tooltip payloads", () => {
+  const encoded = serializeMarketPriceTooltipData({
+    gpu_type: "RTX 4090",
+    avg_price: 0.375,
+    market_median_price: 0.35,
+    market_price_delta: 0.025,
+    market_price_delta_pct: 7.14,
+    market_price_position: "above_market"
+  });
+  const payload = parseMarketPriceTooltipData(encoded);
+  const markup = buildMarketPriceTooltipMarkup(payload);
+
+  assert.equal(payload.state, "matched");
+  assert.match(markup, /Our Avg Price/);
+  assert.match(markup, /Vast Median/);
+  assert.match(markup, /\$0\.375\/hr/);
   assert.match(markup, /\+\$0\.025 \(\+7\.14%\) vs Vast median/);
 });

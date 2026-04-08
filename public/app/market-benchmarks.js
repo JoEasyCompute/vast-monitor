@@ -38,14 +38,50 @@ export function renderBreakdownPriceCell(row) {
     return "-";
   }
 
-  const comparison = buildBreakdownMarketPriceComparison(row);
-  if (!comparison) {
-    return `$${Number(row.avg_price).toFixed(3)}`;
+  return `<span class="breakdown-price-primary">${escapeHtml(formatCurrency(row.avg_price))}</span>`;
+}
+
+export function serializeMarketPriceTooltipData(row) {
+  const payload = buildMarketPriceTooltipPayload(row);
+  return encodeURIComponent(JSON.stringify(payload));
+}
+
+export function parseMarketPriceTooltipData(value) {
+  if (!value) {
+    return null;
   }
 
-  return `<div class="breakdown-price-cell" title="${escapeHtml(comparison.title)}">
-    <div class="breakdown-price-primary">$${Number(row.avg_price).toFixed(3)}</div>
-    <div class="breakdown-price-compare breakdown-price-compare-${escapeHtml(comparison.className)}">${escapeHtml(comparison.text)}</div>
+  try {
+    const parsed = JSON.parse(decodeURIComponent(value));
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function buildMarketPriceTooltipMarkup(payload) {
+  if (!payload) {
+    return "";
+  }
+
+  if (payload.state === "matched") {
+    return `<div class="market-tooltip-card">
+      <div class="market-tooltip-title">${escapeHtml(payload.gpuType || "Avg Price")}</div>
+      <div class="market-tooltip-subtitle">Current fleet price vs Vast median</div>
+      <div class="market-tooltip-grid">
+        <div class="market-tooltip-label">Our Avg Price</div>
+        <div class="market-tooltip-value">${escapeHtml(formatPriceOrDash(payload.avgPrice))}</div>
+        <div class="market-tooltip-label">Vast Median</div>
+        <div class="market-tooltip-value">${escapeHtml(formatPriceOrDash(payload.marketMedianPrice))}</div>
+        <div class="market-tooltip-label">Difference</div>
+        <div class="market-tooltip-value">${escapeHtml(payload.comparison.text)}</div>
+      </div>
+    </div>`;
+  }
+
+  return `<div class="market-tooltip-card">
+    <div class="market-tooltip-title">${escapeHtml(payload.gpuType || "Avg Price")}</div>
+    <div class="market-tooltip-note">${escapeHtml(payload.message || "No current Vast price comparison available")}</div>
   </div>`;
 }
 
@@ -72,4 +108,44 @@ export function mergeHistoryWithMarketSeries(historyRows, marketPoints, sourceKe
   }
 
   return [...rowsByTimestamp.values()].sort((left, right) => Date.parse(left.polled_at) - Date.parse(right.polled_at));
+}
+
+function buildMarketPriceTooltipPayload(row) {
+  const gpuType = String(row?.gpu_type || "").trim();
+  const avgPrice = toFiniteNumberOrNull(row?.avg_price);
+  const marketMedianPrice = toFiniteNumberOrNull(row?.market_median_price);
+  const comparison = buildBreakdownMarketPriceComparison(row);
+
+  if (avgPrice != null && marketMedianPrice != null && comparison) {
+    return {
+      state: "matched",
+      gpuType,
+      avgPrice,
+      marketMedianPrice,
+      comparison
+    };
+  }
+
+  if (row?.market_match_status === "ambiguous") {
+    return {
+      state: "ambiguous",
+      gpuType,
+      message: `${gpuType} is generic internally, while the external benchmark is variant-specific`
+    };
+  }
+
+  return {
+    state: "unmatched",
+    gpuType,
+    message: `No current Vast median price comparison available for ${gpuType || "this GPU type"}`
+  };
+}
+
+function toFiniteNumberOrNull(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function formatPriceOrDash(value) {
+  return value == null ? "—" : `${formatCurrency(value)}/hr`;
 }

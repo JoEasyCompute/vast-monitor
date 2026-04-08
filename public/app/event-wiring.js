@@ -53,6 +53,9 @@ export function bindDashboardControls({
   onShowMarketTooltip,
   onMoveMarketTooltip,
   onHideMarketTooltip,
+  onShowMarketPriceTooltip,
+  onMoveMarketPriceTooltip,
+  onHideMarketPriceTooltip,
   onRemoveGpuFilter,
   onFiltersChanged,
   onFilterReset,
@@ -159,6 +162,52 @@ export function bindDashboardControls({
     }
 
     onHideMarketTooltip?.();
+  });
+
+  breakdownBody?.addEventListener("mouseover", (event) => {
+    const target = event.target instanceof Element
+      ? event.target
+      : event.target?.parentElement instanceof Element
+        ? event.target.parentElement
+        : null;
+    const marketCell = target?.closest?.("[data-market-price-tooltip]");
+    if (!marketCell) {
+      return;
+    }
+
+    onShowMarketPriceTooltip?.(marketCell.dataset.marketPriceTooltip || "", event);
+  });
+
+  breakdownBody?.addEventListener("mousemove", (event) => {
+    const target = event.target instanceof Element
+      ? event.target
+      : event.target?.parentElement instanceof Element
+        ? event.target.parentElement
+        : null;
+    const marketCell = target?.closest?.("[data-market-price-tooltip]");
+    if (!marketCell) {
+      return;
+    }
+
+    onMoveMarketPriceTooltip?.(marketCell.dataset.marketPriceTooltip || "", event);
+  });
+
+  breakdownBody?.addEventListener("mouseout", (event) => {
+    const target = event.target instanceof Element
+      ? event.target
+      : event.target?.parentElement instanceof Element
+        ? event.target.parentElement
+        : null;
+    const marketCell = target?.closest?.("[data-market-price-tooltip]");
+    const relatedTarget = event.relatedTarget instanceof Element ? event.relatedTarget : null;
+    if (!marketCell) {
+      return;
+    }
+    if (relatedTarget && marketCell.contains?.(relatedTarget)) {
+      return;
+    }
+
+    onHideMarketPriceTooltip?.();
   });
 
   activeGpuFilterList?.addEventListener("click", (event) => {

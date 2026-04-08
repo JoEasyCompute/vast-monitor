@@ -58,8 +58,10 @@ test("bindDashboardControls routes GPU breakdown, selector, and chip interaction
     const breakdownBody = new FakeElement("tbody");
     const gpuButton = new FakeElement("button", { gpuFilter: "RTX 4090" });
     const marketCell = new FakeElement("td", { marketTooltip: "payload-123" });
+    const priceCell = new FakeElement("td", { marketPriceTooltip: "price-456" });
     breakdownBody.appendChild(gpuButton);
     breakdownBody.appendChild(marketCell);
+    breakdownBody.appendChild(priceCell);
     const activeGpuFilterList = new FakeElement("div");
     const activeGpuFilterButton = new FakeElement("button", { removeGpuFilter: "H100" });
     activeGpuFilterList.appendChild(activeGpuFilterButton);
@@ -111,6 +113,9 @@ test("bindDashboardControls routes GPU breakdown, selector, and chip interaction
       onShowMarketTooltip: (payload, event) => calls.push(`show:${payload}:${event.clientX}:${event.clientY}`),
       onMoveMarketTooltip: (payload, event) => calls.push(`move:${payload}:${event.clientX}:${event.clientY}`),
       onHideMarketTooltip: () => calls.push("hide"),
+      onShowMarketPriceTooltip: (payload, event) => calls.push(`show-price:${payload}:${event.clientX}:${event.clientY}`),
+      onMoveMarketPriceTooltip: (payload, event) => calls.push(`move-price:${payload}:${event.clientX}:${event.clientY}`),
+      onHideMarketPriceTooltip: () => calls.push("hide-price"),
       onRemoveGpuFilter: (gpuType) => calls.push(`remove:${gpuType}`),
       onFiltersChanged: () => {},
       onFilterReset: () => {},
@@ -123,6 +128,9 @@ test("bindDashboardControls routes GPU breakdown, selector, and chip interaction
     breakdownBody.dispatch("mouseover", { target: marketCell, clientX: 100, clientY: 140 });
     breakdownBody.dispatch("mousemove", { target: marketCell, clientX: 110, clientY: 150 });
     breakdownBody.dispatch("mouseout", { target: marketCell, clientX: 110, clientY: 150 });
+    breakdownBody.dispatch("mouseover", { target: priceCell, clientX: 120, clientY: 160 });
+    breakdownBody.dispatch("mousemove", { target: priceCell, clientX: 130, clientY: 170 });
+    breakdownBody.dispatch("mouseout", { target: priceCell, clientX: 130, clientY: 170 });
     activeGpuFilterList.dispatch("click", { target: activeGpuFilterButton });
 
     assert.deepEqual(calls, [
@@ -131,6 +139,9 @@ test("bindDashboardControls routes GPU breakdown, selector, and chip interaction
       "show:payload-123:100:140",
       "move:payload-123:110:150",
       "hide",
+      "show-price:price-456:120:160",
+      "move-price:price-456:130:170",
+      "hide-price",
       "remove:H100"
     ]);
   } finally {
@@ -302,6 +313,9 @@ function matchesSelector(element, selector) {
   }
   if (selector === "[data-market-tooltip]") {
     return typeof element.dataset.marketTooltip === "string";
+  }
+  if (selector === "[data-market-price-tooltip]") {
+    return typeof element.dataset.marketPriceTooltip === "string";
   }
   if (selector === "[data-copy-machine-id]") {
     return typeof element.dataset.copyMachineId === "string";
