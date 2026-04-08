@@ -62,6 +62,70 @@ test("server integration returns expected API payloads and dependency failures",
     config,
     db,
     monitor,
+    platformMetricsClient: {
+      async getSnapshot() {
+        return {
+          ok: true,
+          stale: false,
+          fetchedAt: "2026-04-08T10:47:00.000Z",
+          source: "https://gpu-treemap.replit.app/api/gpu-data",
+          rows: [
+            {
+              gpu_type: "h100 pcie",
+              canonical_gpu_type: "h100pcie",
+              market_utilisation_pct: 72,
+              market_gpus_on_platform: 10,
+              market_gpus_available: 2,
+              market_gpus_rented: 8,
+              market_machines_available: 5,
+              market_median_price: 1.3,
+              market_minimum_price: 1.1,
+              market_p10_price: 1.2,
+              market_p90_price: 1.5
+            },
+            {
+              gpu_type: "h100 sxm",
+              canonical_gpu_type: "h100sxm",
+              market_utilisation_pct: 81,
+              market_gpus_on_platform: 12,
+              market_gpus_available: 3,
+              market_gpus_rented: 9,
+              market_machines_available: 6,
+              market_median_price: 1.7,
+              market_minimum_price: 1.5,
+              market_p10_price: 1.55,
+              market_p90_price: 1.95
+            },
+            {
+              gpu_type: "a100 pcie",
+              canonical_gpu_type: "a100pcie",
+              market_utilisation_pct: 65,
+              market_gpus_on_platform: 8,
+              market_gpus_available: 3,
+              market_gpus_rented: 5,
+              market_machines_available: 4,
+              market_median_price: 0.9,
+              market_minimum_price: 0.8,
+              market_p10_price: 0.82,
+              market_p90_price: 1.05
+            },
+            {
+              gpu_type: "a100 sxm4",
+              canonical_gpu_type: "a100sxm4",
+              market_utilisation_pct: 88,
+              market_gpus_on_platform: 6,
+              market_gpus_available: 1,
+              market_gpus_rented: 5,
+              market_machines_available: 2,
+              market_median_price: 1.2,
+              market_minimum_price: 1.1,
+              market_p10_price: 1.12,
+              market_p90_price: 1.35
+            }
+          ]
+        };
+      }
+    },
     plugins: [definePlugin({
       name: "Assignment Plugin",
       async decorateStatusMachine({ machine, db: pluginDb }) {
@@ -128,6 +192,12 @@ test("server integration returns expected API payloads and dependency failures",
     assert.equal(status.body.summary.totalMachines, 2);
     assert.equal(status.body.summary.listedGpus, 6);
     assert.equal(status.body.gpuTypeBreakdown.length, 2);
+    assert.equal(status.body.marketBenchmark.ok, true);
+    assert.equal(status.body.marketBenchmark.stale, false);
+    assert.equal(status.body.summary.marketUtilisationPct, null);
+    assert.equal(status.body.summary.marketCoveragePct, 0);
+    assert.equal(status.body.gpuTypeBreakdown.find((row) => row.gpu_type === "A100")?.market_match_status, "ambiguous");
+    assert.equal(status.body.gpuTypeBreakdown.find((row) => row.gpu_type === "H100")?.market_match_status, "ambiguous");
     assert.equal(status.body.observability.lastPollDurationMs, 3200);
     assert.equal(status.body.machines.find((machine) => machine.machine_id === 1)?.owner_name, "Alice");
     assert.equal(status.body.machines.find((machine) => machine.machine_id === 1)?.team_name, "Inference");
@@ -206,6 +276,102 @@ test("server integration returns expected API payloads and dependency failures",
     assert.equal(machineMonthlySummary.statusCode, 502);
     assert.equal(machineMonthlySummary.body.error, "failed to fetch machine monthly earnings summary");
     assert.equal(machineMonthlySummary.body.dependency.ok, false);
+  } finally {
+    db.db.close();
+  }
+});
+
+test("status includes current market utilization benchmarks for exact GPU matches", async () => {
+  const dbPath = makeTempDbPath("vast-monitor-server-market-match-");
+  const db = createDatabase(dbPath);
+
+  db.recordPoll({
+    timestamp: new Date().toISOString(),
+    machines: [
+      makeMachine({ machine_id: 1, hostname: "alpha", gpu_type: "RTX 4090", num_gpus: 3, occupied_gpus: 2, listed_gpu_cost: 0.35, earn_day: 25 }),
+      makeMachine({ machine_id: 2, hostname: "beta", gpu_type: "RTX 5090", num_gpus: 1, occupied_gpus: 1, listed_gpu_cost: 0.42, earn_day: 11 })
+    ],
+    offlineMachines: [],
+    events: [],
+    alerts: []
+  });
+
+  const app = createServer({
+    config: {
+      projectRoot: path.resolve("."),
+      pollIntervalMs: 5 * 60 * 1000,
+      vastCliPath: "/definitely/missing/vast",
+      vastApiKeyPath: "/definitely/missing/api_key",
+      adminApiToken: ""
+    },
+    db,
+    monitor: {
+      getHealthSnapshot() {
+        return {
+          isPolling: false,
+          lastPollSucceededAt: db.getCurrentFleetStatus().latestPollAt
+        };
+      }
+    },
+    platformMetricsClient: {
+      async getSnapshot() {
+        return {
+          ok: true,
+          stale: false,
+          fetchedAt: "2026-04-08T10:47:00.000Z",
+          source: "https://gpu-treemap.replit.app/api/gpu-data",
+          rows: [
+            {
+              gpu_type: "rtx 4090",
+              canonical_gpu_type: "rtx4090",
+              market_utilisation_pct: 87.38,
+              market_gpus_on_platform: 3558,
+              market_gpus_available: 449,
+              market_gpus_rented: 3109,
+              market_machines_available: 879,
+              market_median_price: 0.35,
+              market_minimum_price: 0.201,
+              market_p10_price: 0.269,
+              market_p90_price: 0.434
+            },
+            {
+              gpu_type: "rtx 5090",
+              canonical_gpu_type: "rtx5090",
+              market_utilisation_pct: 80.13,
+              market_gpus_on_platform: 4253,
+              market_gpus_available: 845,
+              market_gpus_rented: 3408,
+              market_machines_available: 1068,
+              market_median_price: 0.42,
+              market_minimum_price: 0.242,
+              market_p10_price: 0.334,
+              market_p90_price: 0.653
+            }
+          ]
+        };
+      }
+    }
+  });
+
+  try {
+    const status = await invokeRoute(app, "/api/status");
+
+    assert.equal(status.statusCode, 200);
+    assert.equal(status.body.summary.marketMatchedListedGpus, 4);
+    assert.equal(status.body.summary.marketTotalListedGpus, 4);
+    assert.equal(status.body.summary.marketCoveragePct, 100);
+    assert.equal(status.body.summary.marketUtilisationPct, 85.57);
+    assert.equal(status.body.marketBenchmark.ok, true);
+
+    const rtx4090 = status.body.gpuTypeBreakdown.find((row) => row.gpu_type === "RTX 4090");
+    const rtx5090 = status.body.gpuTypeBreakdown.find((row) => row.gpu_type === "RTX 5090");
+    assert.equal(rtx4090.market_match_status, "matched");
+    assert.equal(rtx4090.market_utilisation_pct, 87.38);
+    assert.equal(rtx4090.market_machines_available, 879);
+    assert.equal(rtx4090.market_minimum_price, 0.201);
+    assert.equal(rtx5090.market_match_status, "matched");
+    assert.equal(rtx5090.market_gpus_rented, 3408);
+    assert.equal(rtx5090.market_p90_price, 0.653);
   } finally {
     db.db.close();
   }

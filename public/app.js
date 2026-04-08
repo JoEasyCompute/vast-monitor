@@ -27,6 +27,7 @@ import {
   drawRenterChart,
   normalizeGpuTypePriceHistory,
   normalizeGpuTypeUtilizationHistory,
+  resolveUtilizationBenchmarkLine,
   syncUtilizationSelector
 } from "./app/charts.js";
 import {
@@ -66,6 +67,11 @@ import {
   buildModalTimelineMarkup,
   formatGpuMachineLabel
 } from "./app/machine-modal.js";
+import {
+  buildMarketTooltipMarkup,
+  parseMarketTooltipData,
+  serializeMarketTooltipData
+} from "./app/market-tooltip.js";
 
 const dashboard = document.getElementById("dashboard") || createOptionalElement();
 const carouselGroups = [
@@ -75,6 +81,7 @@ const carouselGroups = [
 const summaryGrid = document.getElementById("summary-grid");
 const summaryCompareGrid = document.getElementById("summary-compare-grid");
 const breakdownBody = document.getElementById("breakdown-body");
+const marketTooltip = document.getElementById("market-tooltip") || createOptionalElement();
 const machinesBody = document.getElementById("machines-body");
 const machinesEmptyState = document.getElementById("machines-empty-state");
 const machinesFilterMeta = document.getElementById("machines-filter-meta");
@@ -160,6 +167,8 @@ let currentMachineHistoryHours = 168;
 let currentReports = [];
 let currentReportIndex = 0;
 let currentGpuTypeBreakdown = [];
+let currentSummary = null;
+let currentMarketBenchmark = null;
 let latestFleetHistoryPayload = null;
 let latestGpuTypePricePayload = null;
 let latestHourlyEarningsPayload = null;
@@ -338,7 +347,29 @@ function getComparisonDirection(delta) {
   return delta > 0 ? "up" : "down";
 }
 
+function formatMarketUtilizationCell(row) {
+  const marketUtilization = row?.market_utilisation_pct == null ? NaN : Number(row.market_utilisation_pct);
+  if (!Number.isFinite(marketUtilization)) {
+    return "—";
+  }
+
+  return `${marketUtilization}%`;
+}
+
+function buildMarketBenchmarkMeta(marketBenchmark) {
+  if (!marketBenchmark) {
+    return "";
+  }
+
+  if (marketBenchmark.ok && marketBenchmark.fetchedAt) {
+    return `${marketBenchmark.stale ? "Vast benchmark cached" : "Vast benchmark"} as of ${new Date(marketBenchmark.fetchedAt).toLocaleTimeString()}`;
+  }
+
+  return "Vast benchmark unavailable";
+}
+
 function renderBreakdown(rows) {
+  hideMarketTooltip();
   breakdownBody.innerHTML = rows
     .map((row) => `
       <tr>
@@ -352,6 +383,7 @@ function renderBreakdown(rows) {
         <td class="breakdown-num-col">${row.machines}</td>
         <td class="breakdown-gpus-col">${row.listed_gpus}/${row.unlisted_gpus}</td>
         <td><span class="util-chip ${utilClass(row.utilisation_pct)}">${row.utilisation_pct}%</span></td>
+        <td class="breakdown-num-col market-util-cell" data-market-tooltip="${escapeHtml(serializeMarketTooltipData(row))}">${formatMarketUtilizationCell(row)}</td>
         <td class="breakdown-num-col">${row.avg_price == null ? "-" : `$${row.avg_price.toFixed(3)}`}</td>
         <td class="breakdown-num-col">$${row.earnings.toFixed(2)}</td>
       </tr>
@@ -364,7 +396,54 @@ function renderBreakdown(rows) {
 }
 
 function renderBreakdownMeta(latestPollAt) {
-  breakdownMeta.textContent = buildSectionMeta("Grouped from latest poll", latestPollAt);
+  breakdownMeta.textContent = [buildSectionMeta("Grouped from latest poll", latestPollAt), buildMarketBenchmarkMeta(currentMarketBenchmark)]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function showMarketTooltip(serializedPayload, event) {
+  const payload = parseMarketTooltipData(serializedPayload);
+  if (!payload) {
+    hideMarketTooltip();
+    return;
+  }
+
+  marketTooltip.innerHTML = buildMarketTooltipMarkup(payload);
+  marketTooltip.classList.remove("hidden");
+  marketTooltip.setAttribute("aria-hidden", "false");
+  positionMarketTooltip(event);
+}
+
+function moveMarketTooltip(event) {
+  if (marketTooltip.classList?.contains?.("hidden")) {
+    return;
+  }
+
+  positionMarketTooltip(event);
+}
+
+function hideMarketTooltip() {
+  marketTooltip.classList.add("hidden");
+  marketTooltip.setAttribute("aria-hidden", "true");
+}
+
+function positionMarketTooltip(event) {
+  const clientX = Number(event?.clientX);
+  const clientY = Number(event?.clientY);
+  if (!Number.isFinite(clientX) || !Number.isFinite(clientY) || !marketTooltip?.style) {
+    return;
+  }
+
+  const margin = 14;
+  const viewportWidth = window.innerWidth || 1280;
+  const viewportHeight = window.innerHeight || 720;
+  const tooltipWidth = marketTooltip.offsetWidth || 280;
+  const tooltipHeight = marketTooltip.offsetHeight || 260;
+  const left = Math.max(margin, Math.min(viewportWidth - tooltipWidth - margin, clientX + 18));
+  const top = Math.max(margin, Math.min(viewportHeight - tooltipHeight - margin, clientY + 18));
+
+  marketTooltip.style.left = `${left}px`;
+  marketTooltip.style.top = `${top}px`;
 }
 
 function renderMachines(rows) {
@@ -817,13 +896,23 @@ function renderFleetTrends(payload) {
   const selectedSeries = utilizationHistory.series.find((item) => item.key === selectedUtilizationGpuType)
     || utilizationHistory.series[0]
     || { key: "utilisation_pct", label: "Fleet", color: "#f43f5e" };
+  const benchmarkLine = resolveUtilizationBenchmarkLine({
+    selectedSeries,
+    summary: currentSummary,
+    breakdownRows: currentGpuTypeBreakdown,
+    marketBenchmark: currentMarketBenchmark
+  });
 
   drawMultiSeriesChart(trendUtilChart, utilizationHistory.history, [selectedSeries], {
     min: 0,
     max: 100,
-    formatValue: (value) => `${Math.round(value)}%`
+    formatValue: (value) => `${Math.round(value)}%`,
+    benchmarkLine
   });
-  fleetTrendsMeta.textContent = buildSectionMeta(`SQLite snapshots, ${selectedTrendHours}h window`, payload?.history?.at?.(-1)?.polled_at || null);
+  fleetTrendsMeta.textContent = [
+    buildSectionMeta(`SQLite snapshots, ${selectedTrendHours}h window`, payload?.history?.at?.(-1)?.polled_at || null),
+    buildMarketBenchmarkMeta(currentMarketBenchmark)
+  ].filter(Boolean).join(" · ");
 
   if (isCarouselMode()) {
     syncCarouselGroupHeights();
@@ -1047,9 +1136,13 @@ function createOptionalElement() {
     checked: false,
     innerHTML: "",
     textContent: "",
+    style: {},
+    offsetWidth: 280,
+    offsetHeight: 260,
     classList: {
       add() {},
       remove() {},
+      contains() { return false; },
       toggle() { return false; }
     },
     addEventListener() {},
@@ -1429,6 +1522,8 @@ const dashboardController = createDashboardController({
     ensureClientExtensionsLoaded(status.extensions);
     currentMachinesData = Array.isArray(status.machines) ? status.machines : [];
     currentGpuTypeBreakdown = Array.isArray(status.gpuTypeBreakdown) ? status.gpuTypeBreakdown : [];
+    currentSummary = status.summary || null;
+    currentMarketBenchmark = status.marketBenchmark || null;
     latestPollMonitorAt = status.latestPollAt || null;
     updateFilterGpuSelectOptions();
     renderSummary(status.summary);
@@ -1443,6 +1538,10 @@ const dashboardController = createDashboardController({
     lastUpdated.textContent = status.latestPollAt
       ? `Last updated ${new Date(status.latestPollAt).toLocaleString()}`
       : "No poll data yet";
+
+    if (latestFleetHistoryPayload) {
+      renderFleetTrends(latestFleetHistoryPayload);
+    }
   },
   applyDbHealthPayload: (payload) => {
     latestDbHealthPayload = payload;
@@ -1843,6 +1942,15 @@ bindDashboardControls({
     persistStateToUrl();
     renderBreakdown(currentGpuTypeBreakdown);
     renderMachinesSorted();
+  },
+  onShowMarketTooltip: (serializedPayload, event) => {
+    showMarketTooltip(serializedPayload, event);
+  },
+  onMoveMarketTooltip: (_serializedPayload, event) => {
+    moveMarketTooltip(event);
+  },
+  onHideMarketTooltip: () => {
+    hideMarketTooltip();
   },
   onRemoveGpuFilter: (gpuType) => {
     if (!gpuType) {

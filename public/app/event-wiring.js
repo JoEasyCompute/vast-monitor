@@ -50,6 +50,9 @@ export function bindDashboardControls({
   onTrendGpuChange,
   onGpuFilterSelect,
   onBreakdownGpuClick,
+  onShowMarketTooltip,
+  onMoveMarketTooltip,
+  onHideMarketTooltip,
   onRemoveGpuFilter,
   onFiltersChanged,
   onFilterReset,
@@ -110,6 +113,52 @@ export function bindDashboardControls({
 
     event.preventDefault();
     onBreakdownGpuClick(gpuButton.dataset.gpuFilter || "");
+  });
+
+  breakdownBody?.addEventListener("mouseover", (event) => {
+    const target = event.target instanceof Element
+      ? event.target
+      : event.target?.parentElement instanceof Element
+        ? event.target.parentElement
+        : null;
+    const marketCell = target?.closest?.("[data-market-tooltip]");
+    if (!marketCell) {
+      return;
+    }
+
+    onShowMarketTooltip?.(marketCell.dataset.marketTooltip || "", event);
+  });
+
+  breakdownBody?.addEventListener("mousemove", (event) => {
+    const target = event.target instanceof Element
+      ? event.target
+      : event.target?.parentElement instanceof Element
+        ? event.target.parentElement
+        : null;
+    const marketCell = target?.closest?.("[data-market-tooltip]");
+    if (!marketCell) {
+      return;
+    }
+
+    onMoveMarketTooltip?.(marketCell.dataset.marketTooltip || "", event);
+  });
+
+  breakdownBody?.addEventListener("mouseout", (event) => {
+    const target = event.target instanceof Element
+      ? event.target
+      : event.target?.parentElement instanceof Element
+        ? event.target.parentElement
+        : null;
+    const marketCell = target?.closest?.("[data-market-tooltip]");
+    const relatedTarget = event.relatedTarget instanceof Element ? event.relatedTarget : null;
+    if (!marketCell) {
+      return;
+    }
+    if (relatedTarget && marketCell.contains?.(relatedTarget)) {
+      return;
+    }
+
+    onHideMarketTooltip?.();
   });
 
   activeGpuFilterList?.addEventListener("click", (event) => {

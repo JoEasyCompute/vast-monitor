@@ -52,6 +52,7 @@
                     <th class="breakdown-num-col">Machines</th>
                     <th class="breakdown-gpus-col">GPUs<br />L/U</th>
                     <th>Utilisation</th>
+                    <th class="breakdown-num-col">Vast Util</th>
                     <th class="breakdown-num-col">Avg Price</th>
                     <th class="breakdown-num-col">Earnings</th>
                   </tr>
@@ -109,7 +110,7 @@
                 <div class="trend-card-header">
                   <div>
                     <strong>Listed Utilisation</strong>
-                    <span class="muted">Fleet total or selected GPU type</span>
+                    <span class="muted">Fleet total or selected GPU type, with current Vast benchmark when available</span>
                   </div>
                   <select id="trend-util-gpu-select" class="filter-select trend-select" aria-label="Select utilisation GPU type">
                     <option value="__fleet__">Total fleet</option>
@@ -385,6 +386,7 @@
       </div>
     </div>
 
+    <div id="market-tooltip" class="market-tooltip hidden" aria-hidden="true"></div>
     <div id="dashboard-toast" class="dashboard-toast hidden" aria-live="polite"></div>
 
     <script type="module" src="/app.js"></script>

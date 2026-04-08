@@ -19,6 +19,8 @@ It polls your hosted machines from Vast, enriches them with datacenter metadata,
 - Adds local browser settings for dashboard mode, table density, and frontend-only alert thresholds
 - Persists machine table filters, dedicated GPU-type filters, and the active/archive machine tab with a hybrid URL + local browser storage approach
 - Lets you click GPU names in `GPU Type Breakdown` to toggle exact GPU-type filters in the machine table
+- Adds current Vast-wide GPU utilisation benchmarks from `gpu-treemap.replit.app` to matched GPU rows in `GPU Type Breakdown`
+- Shows a custom hover card on `Vast Util` with platform-wide GPU counts and pricing percentiles for matched GPU rows
 - Exposes JSON endpoints for status, health, history, alerts, fleet trends, and hourly earnings
 
 ## Requirements
@@ -184,8 +186,10 @@ The dashboard includes:
 - Dashboard shows a visible notice when one or more API-backed sections fail to refresh, instead of collapsing the whole page into a generic failure state
 - Stale-data warning banner when polls are too old
 - GPU type breakdown with clickable GPU names that toggle exact GPU-type filters in the machine table
+- GPU type breakdown now also shows current Vast-wide utilisation benchmarks when the fleet GPU label safely matches the external benchmark source
+- Hovering `Vast Util` opens a custom tooltip card with current platform stats such as total GPUs, available/rented GPUs, machines available, and median/minimum/10th/90th percentile prices
 - Fleet trends for `24h`, `7d`, and `30d`
-- Fleet utilisation chart with a GPU selector; default view is total fleet utilisation
+- Fleet utilisation chart with a GPU selector; default view is total fleet utilisation, and a dashed benchmark line can show the current Vast-wide comparison when available
 - GPU-type pricing trends using listed-only weighted averages
 - `Hourly Earnings Overview` with previous/next day navigation, rolling total, and average hourly earnings
 - Per-section source/freshness labels for summary, breakdown, hourly earnings, fleet trends, alerts, and poll monitor
@@ -232,6 +236,7 @@ Local browser settings currently control:
 - high temperature highlight threshold
 - stale poll age threshold for the dashboard badge/warning
 - selected GPU type for the fleet utilisation chart
+- current Vast-wide utilisation benchmarks are intentionally strict-match only; generic internal labels such as `H100` or `A100` are left unmatched when the external source only exposes variant-specific entries like `h100 pcie` or `a100 sxm4`
 - machine table filters, dedicated GPU-type filters, and the selected `Main View` / `Archived` tab when those values are not explicitly set in the URL
 
 ## Datacenter Tagging

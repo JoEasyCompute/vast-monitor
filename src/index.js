@@ -4,6 +4,7 @@ import { AlertManager } from "./alerts/alert-manager.js";
 import { ConsoleAlertChannel } from "./alerts/console-alert-channel.js";
 import { FleetMonitor } from "./monitor.js";
 import { loadPlugins } from "./plugins/index.js";
+import { createPlatformMetricsClient } from "./platform-metrics.js";
 import { createServer } from "./server.js";
 
 export async function startApp(options = {}) {
@@ -38,7 +39,14 @@ export async function startApp(options = {}) {
     hostnameCollisionCooldownMinutes: runtimeConfig.alertHostnameCollisionCooldownMinutes
   });
   const monitor = options.monitor || new FleetMonitor({ config: runtimeConfig, db, alertManager, plugins });
-  const app = options.app || createServer({ config: runtimeConfig, db, monitor, plugins });
+  const platformMetricsClient = options.platformMetricsClient || createPlatformMetricsClient();
+  const app = options.app || createServer({
+    config: runtimeConfig,
+    db,
+    monitor,
+    plugins,
+    platformMetricsClient
+  });
 
   console.log(`[startup] Starting HTTP server on port ${runtimeConfig.port}`);
   const server = app.listen(runtimeConfig.port, () => {
@@ -69,7 +77,7 @@ export async function startApp(options = {}) {
     });
   }
 
-  return { config: runtimeConfig, db, plugins, alertManager, monitor, app, server };
+  return { config: runtimeConfig, db, plugins, alertManager, monitor, platformMetricsClient, app, server };
 }
 
 function formatDatabaseMaintenanceSummary(summary = {}) {

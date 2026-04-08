@@ -3,10 +3,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { getLiveDependencyHealth } from "./config.js";
 import { buildFleetAggregate } from "./fleet-metrics.js";
+import {
+  buildPlatformGpuMetricIndex,
+  computeFleetWeightedPlatformUtilization,
+  matchPlatformGpuMetric
+} from "./platform-metrics.js";
 import { getClientExtensionManifest, resolvePluginPublicDir } from "./plugins/index.js";
 import { fetchMachineEarnings, fetchMachineReports } from "./vast-client.js";
 
-export function createServer({ config, db, monitor, plugins = [], adminActionScheduler } = {}) {
+export function createServer({ config, db, monitor, plugins = [], adminActionScheduler, platformMetricsClient } = {}) {
   const app = express();
   const routeMetrics = createRouteMetricsStore();
   const queueAdminAction = createAdminActionQueue({
@@ -18,7 +23,7 @@ export function createServer({ config, db, monitor, plugins = [], adminActionSch
 
   app.get("/api/status", routeMetrics.wrap("status", async (_req, res) => {
     const fleet = db.getCurrentFleetStatus();
-    res.json(await buildFleetResponse(fleet, config, db, monitor, plugins));
+    res.json(await buildFleetResponse(fleet, config, db, monitor, plugins, platformMetricsClient));
   }));
 
   app.get("/api/health", routeMetrics.wrap("health", (_req, res) => {
@@ -457,7 +462,7 @@ function buildComparisonMetric(current, previous, decimals = 2) {
   };
 }
 
-async function buildFleetResponse(fleet, config, db, monitor, plugins = []) {
+async function buildFleetResponse(fleet, config, db, monitor, plugins = [], platformMetricsClient) {
   // Deduplicate machines by hostname to avoid double counting old offline machine IDs
   const byHostname = new Map();
   for (const m of fleet.machines) {
@@ -521,6 +526,8 @@ async function buildFleetResponse(fleet, config, db, monitor, plugins = []) {
   const occupiedGpus = fleetAggregate.summary.occupied_gpus;
   const totalDailyEarnings = fleetAggregate.summary.total_daily_earnings;
   const utilisationPct = fleetAggregate.summary.utilisation_pct;
+  const marketBenchmark = await getPlatformMetricsSnapshot(platformMetricsClient);
+  const marketMetricIndex = buildPlatformGpuMetricIndex(marketBenchmark.rows);
 
   const gpuTypes = new Map();
   for (const machine of fleetMachines) {
@@ -552,15 +559,31 @@ async function buildFleetResponse(fleet, config, db, monitor, plugins = []) {
     gpuTypes.set(key, current);
   }
 
-  const breakdown = [...gpuTypes.values()].map((item) => ({
-    gpu_type: item.gpu_type,
-    machines: item.machines,
-    listed_gpus: item.listed_gpus,
-    unlisted_gpus: item.unlisted_gpus,
-    utilisation_pct: item.listed_gpus > 0 ? Number(((item.occupied_gpus / item.listed_gpus) * 100).toFixed(2)) : 0,
-    avg_price: item.priced_gpus > 0 ? Number((item.total_price_weighted / item.priced_gpus).toFixed(3)) : null,
-    earnings: Number(item.earnings.toFixed(2))
-  }));
+  const breakdown = [...gpuTypes.values()].map((item) => {
+    const marketMatch = matchPlatformGpuMetric(item.gpu_type, marketMetricIndex);
+    const matchedMetric = marketMatch.matched_metric;
+
+    return {
+      gpu_type: item.gpu_type,
+      machines: item.machines,
+      listed_gpus: item.listed_gpus,
+      unlisted_gpus: item.unlisted_gpus,
+      utilisation_pct: item.listed_gpus > 0 ? Number(((item.occupied_gpus / item.listed_gpus) * 100).toFixed(2)) : 0,
+      avg_price: item.priced_gpus > 0 ? Number((item.total_price_weighted / item.priced_gpus).toFixed(3)) : null,
+      earnings: Number(item.earnings.toFixed(2)),
+      market_utilisation_pct: matchedMetric?.market_utilisation_pct ?? null,
+      market_gpus_on_platform: matchedMetric?.market_gpus_on_platform ?? null,
+      market_gpus_available: matchedMetric?.market_gpus_available ?? null,
+      market_gpus_rented: matchedMetric?.market_gpus_rented ?? null,
+      market_machines_available: matchedMetric?.market_machines_available ?? null,
+      market_median_price: matchedMetric?.market_median_price ?? null,
+      market_minimum_price: matchedMetric?.market_minimum_price ?? null,
+      market_p10_price: matchedMetric?.market_p10_price ?? null,
+      market_p90_price: matchedMetric?.market_p90_price ?? null,
+      market_match_status: marketMatch.market_match_status
+    };
+  });
+  const marketSummary = computeFleetWeightedPlatformUtilization(breakdown);
 
   return {
     latestPollAt: fleet.latestPollAt,
@@ -580,12 +603,57 @@ async function buildFleetResponse(fleet, config, db, monitor, plugins = []) {
       occupiedGpus,
       utilisationPct,
       totalDailyEarnings,
+      marketUtilisationPct: marketSummary.marketUtilisationPct,
+      marketMatchedListedGpus: marketSummary.marketMatchedListedGpus,
+      marketTotalListedGpus: marketSummary.marketTotalListedGpus,
+      marketCoveragePct: marketSummary.marketCoveragePct,
       comparison24h: fleet.comparison24h ?? null
+    },
+    marketBenchmark: {
+      ok: marketBenchmark.ok,
+      stale: marketBenchmark.stale,
+      fetchedAt: marketBenchmark.fetchedAt,
+      source: marketBenchmark.source,
+      error: marketBenchmark.error
     },
     extensions: getClientExtensionManifest(plugins),
     gpuTypeBreakdown: breakdown,
     machines
   };
+}
+
+async function getPlatformMetricsSnapshot(platformMetricsClient) {
+  if (!platformMetricsClient || typeof platformMetricsClient.getSnapshot !== "function") {
+    return {
+      ok: false,
+      stale: false,
+      source: null,
+      fetchedAt: null,
+      rows: [],
+      error: null
+    };
+  }
+
+  try {
+    const snapshot = await platformMetricsClient.getSnapshot();
+    return {
+      ok: snapshot?.ok === true,
+      stale: snapshot?.stale === true,
+      source: snapshot?.source || null,
+      fetchedAt: snapshot?.fetchedAt || null,
+      rows: Array.isArray(snapshot?.rows) ? snapshot.rows : [],
+      error: snapshot?.error || null
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      stale: false,
+      source: null,
+      fetchedAt: null,
+      rows: [],
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
 }
 
 function buildHealthResponse({ config, db, monitor, routeMetrics }) {

@@ -79,6 +79,46 @@ export function syncUtilizationSelector(selectEl, utilizationHistory, selectedKe
   return nextSelectedKey;
 }
 
+export function resolveUtilizationBenchmarkLine({
+  selectedSeries,
+  summary,
+  breakdownRows,
+  marketBenchmark
+}) {
+  if (!selectedSeries) {
+    return null;
+  }
+
+  const label = marketBenchmark?.stale ? "Vast cached" : "Vast now";
+  if (selectedSeries.key === "__fleet__") {
+    const value = Number(summary?.marketUtilisationPct);
+    if (!Number.isFinite(value)) {
+      return null;
+    }
+
+    return {
+      value,
+      label,
+      color: "#94a3b8",
+      dashed: true
+    };
+  }
+
+  const matchingRow = (Array.isArray(breakdownRows) ? breakdownRows : [])
+    .find((row) => row?.gpu_type === selectedSeries.label);
+  const value = matchingRow?.market_utilisation_pct == null ? NaN : Number(matchingRow.market_utilisation_pct);
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  return {
+    value,
+    label,
+    color: "#94a3b8",
+    dashed: true
+  };
+}
+
 export function drawMultiSeriesChart(svg, history, series, options = {}) {
   const width = 720;
   const height = 180;
@@ -137,6 +177,22 @@ export function drawMultiSeriesChart(svg, history, series, options = {}) {
     svgContent += `<path d="${path}" class="trend-line" style="stroke:${item.color}" />`;
   }
 
+  const benchmarkLine = options.benchmarkLine;
+  if (Number.isFinite(benchmarkLine?.value)) {
+    const y = scaleY(Number(benchmarkLine.value));
+    svgContent += `<g class="trend-benchmark">
+      <line
+        x1="${padding.left}"
+        y1="${y}"
+        x2="${width - padding.right}"
+        y2="${y}"
+        class="trend-line trend-line-benchmark"
+        style="stroke:${benchmarkLine.color || "#94a3b8"};stroke-dasharray:${benchmarkLine.dashed ? "6 4" : "none"}"
+      />
+      <text x="${width - padding.right}" y="${Math.max(padding.top + 12, y - 6)}" text-anchor="end">${escapeHtml(benchmarkLine.label || "Benchmark")}</text>
+    </g>`;
+  }
+
   const startLabel = new Date(minTime).toLocaleDateString();
   const endLabel = new Date(maxTime).toLocaleDateString();
   svgContent += `<g class="trend-axis">
@@ -144,11 +200,18 @@ export function drawMultiSeriesChart(svg, history, series, options = {}) {
     <text x="${width - padding.right}" y="${height - 4}" text-anchor="end">${escapeHtml(endLabel)}</text>
   </g>`;
 
+  const legendItems = [
+    ...series.map((item) => ({ label: item.label, color: item.color, dashed: false })),
+    ...(Number.isFinite(benchmarkLine?.value)
+      ? [{ label: benchmarkLine.label || "Benchmark", color: benchmarkLine.color || "#94a3b8", dashed: benchmarkLine.dashed === true }]
+      : [])
+  ];
+
   svgContent += `<g class="trend-legend">`;
-  series.forEach((item, index) => {
+  legendItems.forEach((item, index) => {
     const x = padding.left + (index * 150);
     svgContent += `<g transform="translate(${x}, 10)">
-      <rect x="0" y="-8" width="14" height="3" rx="2" fill="${item.color}" />
+      <rect x="0" y="-8" width="14" height="3" rx="2" fill="${item.color}" ${item.dashed ? `stroke="${item.color}" stroke-dasharray="4 2"` : ""} />
       <text x="20" y="-4">${escapeHtml(item.label)}</text>
     </g>`;
   });
