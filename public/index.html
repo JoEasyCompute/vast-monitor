@@ -6,38 +6,22 @@
     <title>vast-monitor</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <div class="app-shell">
-      <header class="command-bar">
-        <div class="command-bar-copy">
-          <p class="eyebrow">Secure Operations Console</p>
-          <div class="command-bar-title-row">
-            <h1>vast-monitor</h1>
-            <span class="command-bar-context">Fleet Telemetry Surface</span>
-          </div>
-          <p class="hero-copy">Live fleet health, utilisation, alerts, uptime, and operator controls presented with a security-first telemetry layout for hosted GPU infrastructure.</p>
-          <div class="command-bar-rail" aria-hidden="true">
-            <span class="rail-chip">Live Telemetry</span>
-            <span class="rail-chip">Signal Integrity</span>
-            <span class="rail-chip">Capacity Watch</span>
-            <span class="rail-chip">Operator Controls</span>
-          </div>
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Vast.ai fleet monitor</p>
+          <h1>vast-monitor</h1>
+          <p class="hero-copy">Live fleet health, utilisation, alerts, and uptime across your hosted GPUs.</p>
         </div>
-        <div class="command-bar-side">
-          <div class="command-bar-status">
-            <div class="command-bar-status-copy">
-              <span class="command-bar-status-kicker">Current status</span>
-              <span id="last-updated">Loading...</span>
-            </div>
-            <span id="health-badge" class="health-badge">Loading</span>
-          </div>
-          <div class="command-bar-actions">
-            <button id="refresh-button" class="settings-button" type="button">Refresh</button>
-            <button id="settings-button" class="settings-button" type="button">Settings</button>
-          </div>
+        <div class="hero-meta">
+          <button id="refresh-button" class="settings-button" type="button">Refresh</button>
+          <button id="settings-button" class="settings-button" type="button">Settings</button>
+          <span id="health-badge" class="health-badge">Loading</span>
+          <span id="last-updated">Loading...</span>
         </div>
       </header>
 
@@ -46,24 +30,18 @@
         <section id="stale-warning" class="warning-banner hidden"></section>
 
         <div id="carousel-group-primary" class="dashboard-carousel-group" data-carousel-group="0">
-          <section class="panel wide panel-summary">
-            <div class="panel-title-row panel-title-row-align-start">
-              <div class="panel-heading">
-                <p class="panel-kicker">Overview</p>
-                <h2>Fleet Summary</h2>
-              </div>
+          <section class="panel">
+            <div class="panel-title-row">
+              <h2>Fleet Summary</h2>
               <span id="summary-meta" class="section-meta"></span>
             </div>
             <div class="summary-grid" id="summary-grid"></div>
             <div class="summary-compare-grid" id="summary-compare-grid"></div>
           </section>
 
-          <section class="panel panel-breakdown">
-            <div class="panel-title-row panel-title-row-align-start">
-              <div class="panel-heading">
-                <p class="panel-kicker">Performance Mix</p>
-                <h2>GPU Type Breakdown</h2>
-              </div>
+          <section class="panel">
+            <div class="panel-title-row">
+              <h2>GPU Type Breakdown</h2>
               <span id="breakdown-meta" class="section-meta"></span>
             </div>
             <div class="table-wrap">
@@ -84,12 +62,9 @@
             </div>
           </section>
 
-          <section class="panel panel-earnings">
-            <div class="panel-title-row panel-title-row-align-start">
-              <div class="panel-heading">
-                <p class="panel-kicker">Finance</p>
-                <h2>Hourly Earnings Overview</h2>
-              </div>
+          <section class="panel wide">
+            <div class="panel-title-row">
+              <h2>Hourly Earnings Overview</h2>
               <div class="earnings-nav">
                 <span id="earnings-meta" class="section-meta"></span>
                 <button id="earnings-prev" class="nav-button" type="button" aria-label="Previous day">&#8592;</button>
@@ -106,12 +81,9 @@
         </div>
 
         <div id="carousel-group-secondary" class="dashboard-carousel-group" data-carousel-group="1">
-          <section class="panel wide panel-trends">
-            <div class="panel-title-row panel-title-row-align-start">
-              <div class="panel-heading">
-                <p class="panel-kicker">Trends</p>
-                <h2>Fleet Trends</h2>
-              </div>
+          <section class="panel wide">
+            <div class="panel-title-row">
+              <h2>Fleet Trends</h2>
               <div class="trend-range" id="trend-range">
                 <span id="fleet-trends-meta" class="section-meta"></span>
                 <button class="range-button active" type="button" data-hours="24">24h</button>
@@ -157,10 +129,9 @@
           </section>
         </div>
 
-        <section class="panel wide panel-machines">
+        <section class="panel wide">
           <div class="panel-title-row">
-            <div class="panel-heading">
-              <p class="panel-kicker">Operations</p>
+            <div>
               <h2>Machines</h2>
               <p id="machines-filter-meta" class="section-meta machine-filter-meta"></p>
             </div>
@@ -243,34 +214,25 @@
           <p id="machines-empty-state" class="machines-empty-state hidden"></p>
         </section>
 
-        <section class="panel panel-alerts">
-          <div class="panel-title-row panel-title-row-align-start">
-            <div class="panel-heading">
-              <p class="panel-kicker">Signals</p>
-              <h2>Recent Alerts</h2>
-            </div>
+        <section class="panel">
+          <div class="panel-title-row">
+            <h2>Recent Alerts</h2>
             <span id="alerts-meta" class="section-meta"></span>
           </div>
           <div id="alerts-list" class="alerts-list"></div>
         </section>
 
-        <section class="panel panel-poll-monitor">
-          <div class="panel-title-row panel-title-row-align-start">
-            <div class="panel-heading">
-              <p class="panel-kicker">Polling</p>
-              <h2>Poll Monitor</h2>
-            </div>
+        <section class="panel">
+          <div class="panel-title-row">
+            <h2>Poll Monitor</h2>
             <span id="poll-monitor-meta" class="section-meta"></span>
           </div>
           <div id="poll-monitor-grid" class="summary-grid summary-grid-compact"></div>
         </section>
 
-        <section class="panel wide panel-admin">
-          <div class="panel-title-row panel-title-row-align-start">
-            <div class="panel-heading">
-              <p class="panel-kicker">Maintenance</p>
-              <h2>DB Admin</h2>
-            </div>
+        <section class="panel wide">
+          <div class="panel-title-row">
+            <h2>DB Admin</h2>
             <span id="db-admin-meta" class="section-meta"></span>
           </div>
           <div id="db-admin-panel"></div>
