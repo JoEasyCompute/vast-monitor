@@ -9,8 +9,13 @@ import {
   fetchDatacenterMetadataBatch,
   normalizeEarningsDay,
   normalizeMachine,
+  resetDatacenterMetadataStateForTests,
   resolveErrorMessage
 } from "../src/vast-client.js";
+
+test.afterEach(() => {
+  resetDatacenterMetadataStateForTests();
+});
 
 test("normalizeMachine derives occupancy, status, maintenance, and idle state", () => {
   const normalized = normalizeMachine({
@@ -192,6 +197,69 @@ test("fetchDatacenterMetadataBatch times out hung Vast API requests", async () =
     );
   } finally {
     AbortSignal.timeout = originalAbortSignalTimeout;
+    global.fetch = originalFetch;
+  }
+});
+
+test("fetchDatacenterMetadata uses cached metadata during Vast bundle rate limits", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "vast-monitor-batch-rate-limit-"));
+  const apiKeyPath = path.join(tempDir, "vast_api_key");
+  fs.writeFileSync(apiKeyPath, "secret-token\n");
+
+  const originalFetch = global.fetch;
+  const seenBodies = [];
+  let requestCount = 0;
+
+  global.fetch = async (_url, options) => {
+    requestCount += 1;
+    const body = JSON.parse(options.body);
+    seenBodies.push(body);
+
+    if (requestCount === 1) {
+      return {
+        ok: true,
+        async json() {
+          return {
+            offers: [
+              { machine_id: 101, host_id: 5001, hosting_type: 1 }
+            ]
+          };
+        }
+      };
+    }
+
+    return {
+      ok: false,
+      status: 429,
+      headers: {
+        get(name) {
+          return String(name).toLowerCase() === "retry-after" ? "60" : null;
+        }
+      }
+    };
+  };
+
+  try {
+    const firstMetadata = await fetchDatacenterMetadata({
+      vastApiUrl: "https://example.invalid/api/v0",
+      vastApiKeyPath: apiKeyPath
+    }, [101]);
+
+    const secondMetadata = await fetchDatacenterMetadata({
+      vastApiUrl: "https://example.invalid/api/v0",
+      vastApiKeyPath: apiKeyPath
+    }, [101]);
+
+    const thirdMetadata = await fetchDatacenterMetadata({
+      vastApiUrl: "https://example.invalid/api/v0",
+      vastApiKeyPath: apiKeyPath
+    }, [101]);
+
+    assert.deepEqual(firstMetadata["101"], { host_id: 5001, hosting_type: 1 });
+    assert.deepEqual(secondMetadata["101"], { host_id: 5001, hosting_type: 1 });
+    assert.deepEqual(thirdMetadata["101"], { host_id: 5001, hosting_type: 1 });
+    assert.equal(seenBodies.length, 2);
+  } finally {
     global.fetch = originalFetch;
   }
 });

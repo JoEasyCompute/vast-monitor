@@ -5,6 +5,9 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const VAST_CLI_TIMEOUT_MS = 2 * 60 * 1000;
 const VAST_API_TIMEOUT_MS = 30 * 1000;
+const DATACENTER_METADATA_RATE_LIMIT_FALLBACK_MS = 5 * 60 * 1000;
+const datacenterMetadataCache = new Map();
+let datacenterMetadataRateLimitUntilMs = 0;
 
 export async function fetchMachines(config) {
   const { vastCliPath } = config;
@@ -204,12 +207,27 @@ export async function fetchDatacenterMetadata(config, machineIds) {
   if (!apiKey) {
     return {};
   }
-  const metadataByMachineId = {};
+  const nowMs = Date.now();
+  const metadataByMachineId = getCachedDatacenterMetadata(ids);
   const batchSize = 100;
+
+  if (nowMs < datacenterMetadataRateLimitUntilMs) {
+    return metadataByMachineId;
+  }
 
   for (let index = 0; index < ids.length; index += batchSize) {
     const batchIds = ids.slice(index, index + batchSize);
-    const offers = await fetchDatacenterMetadataBatch(config, apiKey, batchIds);
+    let offers;
+    try {
+      offers = await fetchDatacenterMetadataBatch(config, apiKey, batchIds);
+    } catch (error) {
+      if (error?.code === "VAST_RATE_LIMITED") {
+        datacenterMetadataRateLimitUntilMs = Date.now() + (error.retryAfterMs || DATACENTER_METADATA_RATE_LIMIT_FALLBACK_MS);
+        console.warn(`Vast datacenter metadata rate-limited; using cached metadata for ${Math.round((datacenterMetadataRateLimitUntilMs - Date.now()) / 1000)}s`);
+        return metadataByMachineId;
+      }
+      throw error;
+    }
 
     for (const offer of offers) {
       const machineId = Number(offer.machine_id);
@@ -225,12 +243,23 @@ export async function fetchDatacenterMetadata(config, machineIds) {
       const existing = metadataByMachineId[key];
       if (!existing || shouldPreferDatacenterCandidate(existing, candidate)) {
         metadataByMachineId[key] = candidate;
+        datacenterMetadataCache.set(key, candidate);
       }
     }
 
     const unresolvedIds = batchIds.filter((machineId) => !metadataByMachineId[String(machineId)]);
     for (const machineId of unresolvedIds) {
-      const singleOffers = await fetchDatacenterMetadataBatch(config, apiKey, [machineId]);
+      let singleOffers;
+      try {
+        singleOffers = await fetchDatacenterMetadataBatch(config, apiKey, [machineId]);
+      } catch (error) {
+        if (error?.code === "VAST_RATE_LIMITED") {
+          datacenterMetadataRateLimitUntilMs = Date.now() + (error.retryAfterMs || DATACENTER_METADATA_RATE_LIMIT_FALLBACK_MS);
+          console.warn(`Vast datacenter metadata rate-limited; using cached metadata for ${Math.round((datacenterMetadataRateLimitUntilMs - Date.now()) / 1000)}s`);
+          return metadataByMachineId;
+        }
+        throw error;
+      }
       for (const offer of singleOffers) {
         const resolvedMachineId = Number(offer.machine_id);
         if (!Number.isFinite(resolvedMachineId)) {
@@ -245,11 +274,13 @@ export async function fetchDatacenterMetadata(config, machineIds) {
         const existing = metadataByMachineId[key];
         if (!existing || shouldPreferDatacenterCandidate(existing, candidate)) {
           metadataByMachineId[key] = candidate;
+          datacenterMetadataCache.set(key, candidate);
         }
       }
     }
   }
 
+  datacenterMetadataRateLimitUntilMs = 0;
   return metadataByMachineId;
 }
 
@@ -281,6 +312,14 @@ export async function fetchDatacenterMetadataBatch(config, apiKey, machineIds) {
     throw error;
   }
 
+  if (response.status === 429) {
+    const retryAfterMs = parseRetryAfterMs(response.headers?.get?.("retry-after"));
+    const error = new Error(`Failed to fetch Vast bundle metadata (${response.status})`);
+    error.code = "VAST_RATE_LIMITED";
+    error.retryAfterMs = retryAfterMs || DATACENTER_METADATA_RATE_LIMIT_FALLBACK_MS;
+    throw error;
+  }
+
   if (!response.ok) {
     throw new Error(`Failed to fetch Vast bundle metadata (${response.status})`);
   }
@@ -299,6 +338,41 @@ function shouldPreferDatacenterCandidate(existing, candidate) {
   }
 
   return false;
+}
+
+function getCachedDatacenterMetadata(machineIds) {
+  const metadata = {};
+  for (const machineId of machineIds) {
+    const cached = datacenterMetadataCache.get(String(machineId));
+    if (cached) {
+      metadata[String(machineId)] = cached;
+    }
+  }
+  return metadata;
+}
+
+function parseRetryAfterMs(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return null;
+  }
+
+  const seconds = Number(text);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.round(seconds * 1000);
+  }
+
+  const retryAtMs = Date.parse(text);
+  if (!Number.isFinite(retryAtMs)) {
+    return null;
+  }
+
+  return Math.max(0, retryAtMs - Date.now());
+}
+
+export function resetDatacenterMetadataStateForTests() {
+  datacenterMetadataCache.clear();
+  datacenterMetadataRateLimitUntilMs = 0;
 }
 
 function readApiKey(apiKeyPath) {
