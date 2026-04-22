@@ -197,8 +197,7 @@ test("machine modal summary markup includes renter total", () => {
   ]);
 
   assert.match(markup, /Renter Total \/ Rentals/);
-  assert.match(markup, /Verification/);
-  assert.match(markup, /Verified/);
+  assert.doesNotMatch(markup, /Verification/);
   assert.match(markup, /<span>5<\/span>/);
   assert.match(markup, /<span>4<\/span>/);
 });

@@ -52,7 +52,6 @@ export function buildModalHeaderMarkup(machineId, machine = null) {
 export function buildModalSummaryMarkup(machine, machineHistory = []) {
   const operationalItems = [
     ["Status", renderModalStatus(machine)],
-    ["Verification", renderModalVerification(machine)],
     ["Renter Total / Rentals", renderModalRenterSummary(machine, machineHistory)],
     ["Reliability", machine.reliability == null ? "-" : renderModalReliability(machine)],
     ["Temp", escapeHtml(machine.gpu_max_cur_temp == null ? "-" : `${machine.gpu_max_cur_temp}C`)],
@@ -312,19 +311,6 @@ function renderModalStatus(machine) {
     <span class="status-pill ${machine.status}">${escapeHtml(machine.status || "-")}</span>
     ${renderModalDeltaText(machine.status_change_direction, machine.previous_status, machine.status, "status")}
   </span>`;
-}
-
-function renderModalVerification(machine) {
-  const verificationState = resolveMachineVerificationState(machine);
-  if (verificationState === "verified") {
-    return '<span class="summary-badge healthy">Verified</span>';
-  }
-
-  if (verificationState === "unverified") {
-    return '<span class="summary-badge info">Unverified</span>';
-  }
-
-  return '<span class="summary-badge">Unknown</span>';
 }
 
 function renderModalRentals(machine) {
