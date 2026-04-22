@@ -6,6 +6,7 @@ import {
   computeFleetWeightedPlatformUtilization,
   computeMarketPriceComparison,
   createPlatformMetricsClient,
+  DEFAULT_PLATFORM_METRICS_RATE_LIMIT_FALLBACK_MS,
   matchPlatformGpuMetric,
   normalizePlatformGpuMetricSegments,
   normalizePlatformGpuMetrics
@@ -295,4 +296,137 @@ test("platform metrics client returns stale cached snapshot when refresh fails a
   assert.equal(stale.rows.length, 1);
   assert.match(stale.error, /upstream unavailable/);
   assert.equal(calls, 2);
+});
+
+test("platform metrics client deduplicates concurrent refreshes behind one in-flight request", async () => {
+  let calls = 0;
+  let releaseFetch;
+  const fetchPromise = new Promise((resolve) => {
+    releaseFetch = resolve;
+  });
+  const client = createPlatformMetricsClient({
+    ttlMs: 1000,
+    segmentUrl: null,
+    fetchImpl: async () => {
+      calls += 1;
+      await fetchPromise;
+      return {
+        ok: true,
+        async json() {
+          return [{
+            name: "rtx 4090",
+            utilizationRate: 87.3,
+            medianPrice: 0.35,
+            gpusOnPlatform: 3558,
+            gpusAvailable: 449,
+            gpusRented: 3109
+          }];
+        }
+      };
+    }
+  });
+
+  const first = client.getSnapshot();
+  const second = client.getSnapshot();
+  releaseFetch();
+
+  const [firstResult, secondResult] = await Promise.all([first, second]);
+  assert.equal(calls, 1);
+  assert.deepEqual(firstResult.rows, secondResult.rows);
+});
+
+test("platform metrics client obeys 429 retry-after cooldown and serves stale cache during backoff", async () => {
+  let nowMs = Date.parse("2026-04-08T10:50:00.000Z");
+  let shouldRateLimit = false;
+  let calls = 0;
+  const client = createPlatformMetricsClient({
+    ttlMs: 1000,
+    segmentUrl: null,
+    now: () => nowMs,
+    fetchImpl: async () => {
+      calls += 1;
+      if (shouldRateLimit) {
+        return {
+          ok: false,
+          status: 429,
+          headers: {
+            get(name) {
+              return String(name).toLowerCase() === "retry-after" ? "120" : null;
+            }
+          }
+        };
+      }
+
+      return {
+        ok: true,
+        async json() {
+          return [{
+            name: "rtx 4090",
+            utilizationRate: 87.3,
+            medianPrice: 0.35,
+            gpusOnPlatform: 3558,
+            gpusAvailable: 449,
+            gpusRented: 3109
+          }];
+        }
+      };
+    }
+  });
+
+  const fresh = await client.getSnapshot();
+  assert.equal(fresh.ok, true);
+  assert.equal(fresh.stale, false);
+
+  shouldRateLimit = true;
+  nowMs += 2000;
+  const stale = await client.getSnapshot();
+  assert.equal(stale.ok, true);
+  assert.equal(stale.stale, true);
+  assert.match(stale.error, /rate-limited/i);
+  assert.equal(calls, 2);
+
+  const cooldown = await client.getSnapshot();
+  assert.equal(cooldown.ok, true);
+  assert.equal(cooldown.stale, true);
+  assert.match(cooldown.error, /rate-limited/i);
+  assert.equal(calls, 2);
+
+  nowMs += 121000;
+  const retry = await client.getSnapshot();
+  assert.equal(retry.ok, true);
+  assert.equal(retry.stale, true);
+  assert.equal(calls, 3);
+});
+
+test("platform metrics client uses fallback cooldown when 429 omits retry-after", async () => {
+  let nowMs = Date.parse("2026-04-08T10:50:00.000Z");
+  let calls = 0;
+  const client = createPlatformMetricsClient({
+    ttlMs: 1000,
+    segmentUrl: null,
+    now: () => nowMs,
+    fetchImpl: async () => {
+      calls += 1;
+      return {
+        ok: false,
+        status: 429,
+        headers: {
+          get() {
+            return null;
+          }
+        }
+      };
+    }
+  });
+
+  const first = await client.getSnapshot();
+  assert.equal(first.ok, false);
+  assert.match(first.error, /rate-limited/i);
+  assert.equal(calls, 1);
+
+  nowMs += DEFAULT_PLATFORM_METRICS_RATE_LIMIT_FALLBACK_MS - 1000;
+  const cooldown = await client.getSnapshot();
+  assert.equal(cooldown.ok, false);
+  assert.match(cooldown.error, /rate-limited/i);
+  assert.equal(calls, 1);
 });

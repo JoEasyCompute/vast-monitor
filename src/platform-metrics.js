@@ -2,6 +2,7 @@ const DEFAULT_PLATFORM_METRICS_URL = "https://500.farm/vastai-exporter/gpu-stats
 const DEFAULT_PLATFORM_METRICS_SEGMENT_URL = "https://500.farm/vastai-exporter/gpu-stats/v2";
 const DEFAULT_PLATFORM_METRICS_TIMEOUT_MS = 15 * 1000;
 const DEFAULT_PLATFORM_METRICS_TTL_MS = 15 * 60 * 1000;
+const DEFAULT_PLATFORM_METRICS_RATE_LIMIT_FALLBACK_MS = 5 * 60 * 1000;
 
 export function createPlatformMetricsClient({
   fetchImpl = fetch,
@@ -9,9 +10,13 @@ export function createPlatformMetricsClient({
   segmentUrl = DEFAULT_PLATFORM_METRICS_SEGMENT_URL,
   timeoutMs = DEFAULT_PLATFORM_METRICS_TIMEOUT_MS,
   ttlMs = DEFAULT_PLATFORM_METRICS_TTL_MS,
+  rateLimitFallbackMs = DEFAULT_PLATFORM_METRICS_RATE_LIMIT_FALLBACK_MS,
   now = () => Date.now()
 } = {}) {
   let cache = null;
+  let inFlightRefresh = null;
+  let rateLimitUntilMs = 0;
+  let rateLimitError = null;
 
   return {
     async getSnapshot() {
@@ -29,31 +34,11 @@ export function createPlatformMetricsClient({
         };
       }
 
-      try {
-        const snapshot = await fetchPlatformGpuMetrics({
-          fetchImpl,
-          url,
-          segmentUrl,
-          timeoutMs
-        });
+      if (inFlightRefresh) {
+        return inFlightRefresh;
+      }
 
-        cache = {
-          rows: snapshot.rows,
-          segments: snapshot.segments,
-          fetchedAt: new Date(nowMs).toISOString(),
-          expiresAtMs: nowMs + ttlMs
-        };
-
-        return {
-          ok: true,
-          stale: false,
-          source: url,
-          fetchedAt: cache.fetchedAt,
-          rows: cache.rows,
-          segments: cache.segments,
-          error: null
-        };
-      } catch (error) {
+      if (rateLimitUntilMs > nowMs) {
         if (cache?.rows) {
           return {
             ok: true,
@@ -62,7 +47,7 @@ export function createPlatformMetricsClient({
             fetchedAt: cache.fetchedAt,
             rows: cache.rows,
             segments: cache.segments,
-            error: error instanceof Error ? error.message : String(error)
+            error: rateLimitError || `Benchmark refresh rate-limited until ${new Date(rateLimitUntilMs).toISOString()}`
           };
         }
 
@@ -73,9 +58,74 @@ export function createPlatformMetricsClient({
           fetchedAt: null,
           rows: [],
           segments: [],
-          error: error instanceof Error ? error.message : String(error)
+          error: rateLimitError || `Benchmark refresh rate-limited until ${new Date(rateLimitUntilMs).toISOString()}`
         };
       }
+
+      inFlightRefresh = (async () => {
+        try {
+          const snapshot = await fetchPlatformGpuMetrics({
+            fetchImpl,
+            url,
+            segmentUrl,
+            timeoutMs
+          });
+
+          cache = {
+            rows: snapshot.rows,
+            segments: snapshot.segments,
+            fetchedAt: new Date(nowMs).toISOString(),
+            expiresAtMs: nowMs + ttlMs
+          };
+          rateLimitUntilMs = 0;
+          rateLimitError = null;
+
+          return {
+            ok: true,
+            stale: false,
+            source: url,
+            fetchedAt: cache.fetchedAt,
+            rows: cache.rows,
+            segments: cache.segments,
+            error: null
+          };
+        } catch (error) {
+          if (error?.code === "PLATFORM_METRICS_RATE_LIMITED") {
+            const retryAfterMs = Number(error.retryAfterMs);
+            const cooldownMs = Number.isFinite(retryAfterMs) && retryAfterMs > 0
+              ? retryAfterMs
+              : rateLimitFallbackMs;
+            rateLimitUntilMs = nowMs + cooldownMs;
+            rateLimitError = error instanceof Error ? error.message : String(error);
+          }
+
+          if (cache?.rows) {
+            return {
+              ok: true,
+              stale: true,
+              source: url,
+              fetchedAt: cache.fetchedAt,
+              rows: cache.rows,
+              segments: cache.segments,
+              error: error instanceof Error ? error.message : String(error)
+            };
+          }
+
+          return {
+            ok: false,
+            stale: false,
+            source: url,
+            fetchedAt: null,
+            rows: [],
+            segments: [],
+            error: error instanceof Error ? error.message : String(error)
+          };
+        } finally {
+          inFlightRefresh = null;
+        }
+      })();
+
+      return inFlightRefresh;
     }
   };
 }
@@ -133,6 +183,12 @@ async function fetchPlatformGpuMetricsPayload({
   }
 
   if (!response.ok) {
+    if (response.status === 429) {
+      const error = new Error(`Platform GPU metrics rate-limited (429)`);
+      error.code = "PLATFORM_METRICS_RATE_LIMITED";
+      error.retryAfterMs = parseRetryAfterMs(response.headers?.get?.("retry-after"));
+      throw error;
+    }
     throw new Error(`Failed to fetch platform GPU metrics (${response.status})`);
   }
 
@@ -543,6 +599,25 @@ function finiteNumberOrNull(value, decimals = 2) {
   return Number(numeric.toFixed(decimals));
 }
 
+function parseRetryAfterMs(value) {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = String(value).trim();
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.round(seconds * 1000);
+  }
+
+  const whenMs = Date.parse(trimmed);
+  if (!Number.isFinite(whenMs)) {
+    return null;
+  }
+
+  return Math.max(0, whenMs - Date.now());
+}
+
 const PLATFORM_GPU_SAFE_ALIAS_MAP = new Map([
   ["rtx6000ada", "rtx6000ada"],
   ["rtxa4000", "rtxa4000"],
@@ -626,6 +701,7 @@ const PLATFORM_GPU_SEGMENT_DEFINITIONS = [
 ];
 
 export {
+  DEFAULT_PLATFORM_METRICS_RATE_LIMIT_FALLBACK_MS,
   DEFAULT_PLATFORM_METRICS_SEGMENT_URL,
   DEFAULT_PLATFORM_METRICS_TIMEOUT_MS,
   DEFAULT_PLATFORM_METRICS_TTL_MS,
