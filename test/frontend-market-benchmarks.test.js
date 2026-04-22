@@ -62,21 +62,18 @@ test("market benchmark helpers can synthesize a baseline series from the first r
 
 test("market benchmark helpers build breakdown price comparison markup", () => {
   const comparison = buildBreakdownMarketPriceComparison({
-    market_price_delta: 0.025,
-    market_price_delta_pct: 7.14,
-    market_price_position: "above_market"
+    avg_price: 0.375,
+    market_median_price: 0.35
   });
   const markup = renderBreakdownPriceCell({
     avg_price: 0.375,
-    market_price_delta: 0.025,
-    market_price_delta_pct: 7.14,
-    market_price_position: "above_market"
+    market_median_price: 0.35
   });
 
   assert.deepEqual(comparison, {
     className: "above",
-    text: "+$0.025 (+7.14%) vs Vast median",
-    title: "Fleet average listed price is above the current Vast median"
+    text: "+$0.025 (+7.14%) vs vast median",
+    title: "Fleet average listed price is above the current vast median"
   });
   assert.match(markup, /\$0\.375/);
   assert.doesNotMatch(markup, /vs Vast median/);
@@ -87,16 +84,42 @@ test("market benchmark helpers serialize and render price comparison tooltip pay
     gpu_type: "RTX 4090",
     avg_price: 0.375,
     market_median_price: 0.35,
-    market_price_delta: 0.025,
-    market_price_delta_pct: 7.14,
-    market_price_position: "above_market"
+    market_segments: [
+      {
+        gpu_type: "RTX 4090",
+        segment_label: "All market",
+        segment_order: 0,
+        market_median_price: 0.35,
+        market_p10_price: 0.269,
+        market_p90_price: 0.434
+      },
+      {
+        gpu_type: "RTX 4090",
+        segment_label: "Datacenter",
+        segment_order: 1,
+        market_median_price: 0.36,
+        market_p10_price: 0.31,
+        market_p90_price: 0.42
+      },
+      {
+        gpu_type: "RTX 4090",
+        segment_label: "Verified",
+        segment_order: 3,
+        market_median_price: 0.38,
+        market_p10_price: 0.32,
+        market_p90_price: 0.44
+      }
+    ]
   });
   const payload = parseMarketPriceTooltipData(encoded);
   const markup = buildMarketPriceTooltipMarkup(payload);
 
   assert.equal(payload.state, "matched");
   assert.match(markup, /Our Avg Price/);
-  assert.match(markup, /Vast Median/);
+  assert.match(markup, /Data Center Price/);
   assert.match(markup, /\$0\.375\/hr/);
-  assert.match(markup, /\+\$0\.025 \(\+7\.14%\) vs Vast median/);
+  assert.match(markup, /\+\$0\.015 \(\+4\.17%\) vs data center price/);
+  assert.match(markup, /Segmented market/);
+  assert.match(markup, /Verified/);
+  assert.match(markup, /\$0\.380\/hr/);
 });

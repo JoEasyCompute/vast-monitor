@@ -8,9 +8,23 @@ export function canonicalizeGpuType(value) {
 }
 
 export function buildBreakdownMarketPriceComparison(row) {
-  const delta = row?.market_price_delta == null ? NaN : Number(row.market_price_delta);
-  const pctDelta = row?.market_price_delta_pct == null ? null : Number(row.market_price_delta_pct);
-  const position = String(row?.market_price_position || "unknown");
+  const baselinePrice = resolveComparisonBaselinePrice(row);
+  const baselineLabel = resolveComparisonBaselineLabel(row);
+  const currentPrice = row?.avg_price == null ? NaN : Number(row.avg_price);
+
+  if (!Number.isFinite(currentPrice) || !Number.isFinite(baselinePrice)) {
+    return null;
+  }
+
+  const delta = Number((currentPrice - baselinePrice).toFixed(3));
+  const pctDelta = baselinePrice === 0
+    ? null
+    : Number((((currentPrice - baselinePrice) / baselinePrice) * 100).toFixed(2));
+  const position = Math.abs(delta) <= 0.0005
+    ? "at_market"
+    : delta > 0
+      ? "above_market"
+      : "below_market";
 
   if (!Number.isFinite(delta) || position === "unknown") {
     return null;
@@ -19,8 +33,8 @@ export function buildBreakdownMarketPriceComparison(row) {
   if (position === "at_market") {
     return {
       className: "flat",
-      text: "At Vast median",
-      title: "Fleet average listed price is effectively at the current Vast median"
+      text: `At ${baselineLabel.toLowerCase()}`,
+      title: `Fleet average listed price is effectively at the current ${baselineLabel.toLowerCase()}`
     };
   }
 
@@ -28,8 +42,8 @@ export function buildBreakdownMarketPriceComparison(row) {
   const pctText = Number.isFinite(pctDelta) ? ` (${pctDelta > 0 ? "+" : ""}${pctDelta}%)` : "";
   return {
     className: position === "above_market" ? "above" : "below",
-    text: `${delta > 0 ? "+" : ""}${formatCurrency(delta)}${pctText} vs Vast median`,
-    title: `Fleet average listed price is ${directionText} the current Vast median`
+    text: `${delta > 0 ? "+" : ""}${formatCurrency(delta)}${pctText} vs ${baselineLabel.toLowerCase()}`,
+    title: `Fleet average listed price is ${directionText} the current ${baselineLabel.toLowerCase()}`
   };
 }
 
@@ -65,17 +79,20 @@ export function buildMarketPriceTooltipMarkup(payload) {
   }
 
   if (payload.state === "matched") {
+    const segmentMarkup = buildMarketPriceSegmentMarkup(payload.marketSegments);
+
     return `<div class="market-tooltip-card">
       <div class="market-tooltip-title">${escapeHtml(payload.gpuType || "Avg Price")}</div>
-      <div class="market-tooltip-subtitle">Current fleet price vs Vast median</div>
+      <div class="market-tooltip-subtitle">Current fleet price vs ${escapeHtml(payload.baselineLabel.toLowerCase())}</div>
       <div class="market-tooltip-grid">
         <div class="market-tooltip-label">Our Avg Price</div>
         <div class="market-tooltip-value">${escapeHtml(formatPriceOrDash(payload.avgPrice))}</div>
-        <div class="market-tooltip-label">Vast Median</div>
+        <div class="market-tooltip-label">${escapeHtml(payload.baselineLabel)}</div>
         <div class="market-tooltip-value">${escapeHtml(formatPriceOrDash(payload.marketMedianPrice))}</div>
         <div class="market-tooltip-label">Difference</div>
         <div class="market-tooltip-value">${escapeHtml(payload.comparison.text)}</div>
       </div>
+      ${segmentMarkup}
     </div>`;
   }
 
@@ -144,8 +161,9 @@ export function addSyntheticBaselineSeries(historyRows, value, sourceKey) {
 function buildMarketPriceTooltipPayload(row) {
   const gpuType = String(row?.gpu_type || "").trim();
   const avgPrice = toFiniteNumberOrNull(row?.avg_price);
-  const marketMedianPrice = toFiniteNumberOrNull(row?.market_median_price);
   const comparison = buildBreakdownMarketPriceComparison(row);
+  const marketMedianPrice = toFiniteNumberOrNull(resolveComparisonBaselinePrice(row));
+  const baselineLabel = resolveComparisonBaselineLabel(row);
 
   if (avgPrice != null && marketMedianPrice != null && comparison) {
     return {
@@ -153,7 +171,9 @@ function buildMarketPriceTooltipPayload(row) {
       gpuType,
       avgPrice,
       marketMedianPrice,
-      comparison
+      baselineLabel,
+      comparison,
+      marketSegments: normalizeMarketSegments(row?.market_segments)
     };
   }
 
@@ -179,4 +199,102 @@ function toFiniteNumberOrNull(value) {
 
 function formatPriceOrDash(value) {
   return value == null ? "—" : `${formatCurrency(value)}/hr`;
+}
+
+export function normalizeMarketSegments(segments) {
+  return (Array.isArray(segments) ? segments : [])
+    .map((segment) => {
+      const gpuType = String(segment?.gpu_type || "").trim();
+      const segmentLabel = formatMarketSegmentLabel(segment);
+      if (!gpuType || !segmentLabel) {
+        return null;
+      }
+
+      return {
+        gpuType,
+        segmentLabel,
+        segmentKey: String(segment?.segment_key || "").trim() || segmentLabel,
+        segmentOrder: Number.isFinite(Number(segment?.segment_order)) ? Number(segment.segment_order) : 999,
+        marketUtilisationPct: toFiniteNumberOrNull(segment?.market_utilisation_pct),
+        marketGpusOnPlatform: toFiniteNumberOrNull(segment?.market_gpus_on_platform),
+        marketGpusAvailable: toFiniteNumberOrNull(segment?.market_gpus_available),
+        marketGpusRented: toFiniteNumberOrNull(segment?.market_gpus_rented),
+        marketMedianPrice: toFiniteNumberOrNull(segment?.market_median_price),
+        marketP10Price: toFiniteNumberOrNull(segment?.market_p10_price),
+        marketP90Price: toFiniteNumberOrNull(segment?.market_p90_price)
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.segmentOrder - right.segmentOrder || left.segmentLabel.localeCompare(right.segmentLabel));
+}
+
+export function formatMarketSegmentLabel(segment) {
+  const explicitLabel = String(segment?.segment_label || "").trim();
+  if (explicitLabel) {
+    return explicitLabel;
+  }
+
+  if (segment?.datacenter_scope === "dc") {
+    return "Datacenter";
+  }
+  if (segment?.datacenter_scope === "non-dc") {
+    return "Non-DC";
+  }
+  if (segment?.verification_scope === "verified") {
+    return "Verified";
+  }
+  if (segment?.verification_scope === "unverified") {
+    return "Unverified";
+  }
+  if (segment?.gpu_count_range && segment.gpu_count_range !== "all") {
+    return `${segment.gpu_count_range} GPUs`;
+  }
+
+  return "All market";
+}
+
+function buildMarketPriceSegmentMarkup(segments) {
+  if (!Array.isArray(segments) || !segments.length) {
+    return "";
+  }
+
+  return `<div class="market-tooltip-segment-section">
+    <div class="market-tooltip-subtitle">Segmented market</div>
+    <div class="market-tooltip-table-wrap">
+      <table class="market-tooltip-table">
+        <thead>
+          <tr>
+            <th>Segment</th>
+            <th>Median</th>
+            <th>P10</th>
+            <th>P90</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${segments.map((segment) => `
+            <tr>
+              <td>${escapeHtml(segment.segmentLabel)}</td>
+              <td>${escapeHtml(formatPriceOrDash(segment.marketMedianPrice))}</td>
+              <td>${escapeHtml(formatPriceOrDash(segment.marketP10Price))}</td>
+              <td>${escapeHtml(formatPriceOrDash(segment.marketP90Price))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function resolveComparisonBaselinePrice(row) {
+  const segment = findMarketSegment(normalizeMarketSegments(row?.market_segments), "Datacenter");
+  return segment?.marketMedianPrice ?? toFiniteNumberOrNull(row?.market_median_price);
+}
+
+function resolveComparisonBaselineLabel(row) {
+  const segment = findMarketSegment(normalizeMarketSegments(row?.market_segments), "Datacenter");
+  return segment?.marketMedianPrice != null ? "Data Center Price" : "Vast Median";
+}
+
+function findMarketSegment(segments, label) {
+  return (Array.isArray(segments) ? segments : []).find((segment) => segment.segmentLabel === label) || null;
 }

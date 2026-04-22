@@ -7,6 +7,7 @@ import {
   computeMarketPriceComparison,
   createPlatformMetricsClient,
   matchPlatformGpuMetric,
+  normalizePlatformGpuMetricSegments,
   normalizePlatformGpuMetrics
 } from "../src/platform-metrics.js";
 
@@ -50,6 +51,143 @@ test("platform metrics normalize rows and match exact canonical GPU names", () =
   assert.equal(matched6000Ada.market_match_status, "matched");
   assert.equal(matched6000Ada.matched_metric.market_median_price, 1.25);
   assert.equal(matched6000Ada.matched_metric.market_p90_price, 1.4);
+});
+
+test("platform metrics normalize 500.farm exporter summary rows", () => {
+  const rows = normalizePlatformGpuMetrics({
+    models: [
+      {
+        name: "RTX 4090",
+        stats: {
+          rented: {
+            all: [{ count: 3029 }]
+          },
+          available: {
+            all: [{ count: 1387 }]
+          },
+          all: {
+            all: [{
+              count: 4416,
+              price_median: 0.34,
+              price_10th_percentile: 0.26,
+              price_90th_percentile: 0.42
+            }]
+          }
+        }
+      }
+    ]
+  });
+
+  assert.deepEqual(rows, [{
+    gpu_type: "RTX 4090",
+    canonical_gpu_type: "rtx4090",
+    category: null,
+    market_utilisation_pct: 68.59,
+    market_gpus_on_platform: 4416,
+    market_gpus_available: 1387,
+    market_gpus_rented: 3029,
+    market_machines_available: null,
+    market_median_price: 0.34,
+    market_minimum_price: null,
+    market_p10_price: 0.26,
+    market_p90_price: 0.42
+  }]);
+});
+
+test("platform metrics collapse 500.farm v2 category rows into a GPU summary", () => {
+  const rows = normalizePlatformGpuMetrics({
+    models: [
+      {
+        name: "RTX 6000Ada",
+        categories: [
+          {
+            stats: {
+              rented: [{ count: 12 }],
+              available: [{ count: 1 }],
+              all: [{
+                count: 13,
+                price_median: 0.53,
+                price_10th_percentile: 0.475,
+                price_90th_percentile: 0.63
+              }]
+            }
+          },
+          {
+            stats: {
+              rented: [{ count: 35 }],
+              available: [{ count: 5 }],
+              all: [{
+                count: 40,
+                price_median: 0.53,
+                price_10th_percentile: 0.46,
+                price_90th_percentile: 0.6
+              }]
+            }
+          }
+        ]
+      }
+    ]
+  });
+
+  assert.deepEqual(rows, [{
+    gpu_type: "RTX 6000Ada",
+    canonical_gpu_type: "rtx6000ada",
+    category: null,
+    market_utilisation_pct: 88.68,
+    market_gpus_on_platform: 53,
+    market_gpus_available: 6,
+    market_gpus_rented: 47,
+    market_machines_available: null,
+    market_median_price: 0.53,
+    market_minimum_price: null,
+    market_p10_price: 0.464,
+    market_p90_price: 0.607
+  }]);
+});
+
+test("platform metrics derive curated segment benchmarks from 500.farm v2 categories", () => {
+  const segments = normalizePlatformGpuMetricSegments({
+    models: [
+      {
+        name: "RTX 4090",
+        categories: [
+          {
+            datacenter: false,
+            verified: false,
+            gpu_count_range: "1-3",
+            stats: {
+              rented: [{ count: 70 }],
+              available: [{ count: 80 }],
+              all: [{ count: 150, price_median: 0.22, price_10th_percentile: 0.16, price_90th_percentile: 0.37 }]
+            }
+          },
+          {
+            datacenter: true,
+            verified: true,
+            gpu_count_range: "8+",
+            stats: {
+              rented: [{ count: 253 }],
+              available: [{ count: 20 }],
+              all: [{ count: 273, price_median: 0.36, price_10th_percentile: 0.36, price_90th_percentile: 0.42 }]
+            }
+          }
+        ]
+      }
+    ]
+  });
+
+  assert.deepEqual(segments.map((segment) => segment.segment_label), [
+    "All market",
+    "Datacenter",
+    "Non-DC",
+    "Verified",
+    "Unverified",
+    "1-3 GPUs",
+    "8+ GPUs"
+  ]);
+  assert.equal(segments.find((segment) => segment.segment_label === "Datacenter")?.market_utilisation_pct, 92.67);
+  assert.equal(segments.find((segment) => segment.segment_label === "Verified")?.market_median_price, 0.36);
+  assert.equal(segments.find((segment) => segment.segment_label === "1-3 GPUs")?.market_gpus_on_platform, 150);
 });
 
 test("platform metrics leave generic H100 and A100 labels ambiguous instead of guessing a variant", () => {
@@ -115,6 +253,7 @@ test("platform metrics client returns stale cached snapshot when refresh fails a
   let calls = 0;
   const client = createPlatformMetricsClient({
     ttlMs: 1000,
+    segmentUrl: null,
     now: () => nowMs,
     fetchImpl: async () => {
       calls += 1;

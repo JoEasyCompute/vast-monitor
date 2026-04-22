@@ -68,7 +68,7 @@ test("server integration returns expected API payloads and dependency failures",
           ok: true,
           stale: false,
           fetchedAt: "2026-04-08T10:47:00.000Z",
-          source: "https://gpu-treemap.replit.app/api/gpu-data",
+          source: "https://500.farm/vastai-exporter/gpu-stats",
           rows: [
             {
               gpu_type: "h100 pcie",
@@ -231,7 +231,7 @@ test("server integration returns expected API payloads and dependency failures",
     assert.equal(dbHealth.body.database.row_counts.maintenance_runs, 0);
     assert.equal(dbHealth.body.database.row_counts.alerts, 1);
     assert.equal(dbHealth.body.platform_benchmark.ok, true);
-    assert.equal(dbHealth.body.platform_benchmark.source, "https://gpu-treemap.replit.app/api/gpu-data");
+    assert.equal(dbHealth.body.platform_benchmark.source, "https://500.farm/vastai-exporter/gpu-stats");
     assert.equal(dbHealth.body.database.derived_state.fleet_snapshot_state_version, "1");
     assert.equal(dbHealth.body.database.retention.snapshot_days, 0);
     assert.ok(typeof dbHealth.body.database.file_size_bytes === "number");
@@ -296,7 +296,7 @@ test("status includes current market utilization benchmarks for exact GPU matche
     timestamp: new Date().toISOString(),
     machines: [
       makeMachine({ machine_id: 1, hostname: "alpha", gpu_type: "RTX 4090", num_gpus: 3, occupied_gpus: 2, listed_gpu_cost: 0.35, earn_day: 25 }),
-      makeMachine({ machine_id: 2, hostname: "beta", gpu_type: "RTX 5090", num_gpus: 1, occupied_gpus: 1, listed_gpu_cost: 0.42, earn_day: 11 })
+      makeMachine({ machine_id: 2, hostname: "beta", gpu_type: "RTX 5090", num_gpus: 1, occupied_gpus: 1, listed_gpu_cost: 0.42, earn_day: 11, verified: false, verification: "unverified" })
     ],
     offlineMachines: [],
     events: [],
@@ -326,7 +326,7 @@ test("status includes current market utilization benchmarks for exact GPU matche
           ok: true,
           stale: false,
           fetchedAt: "2026-04-08T10:47:00.000Z",
-          source: "https://gpu-treemap.replit.app/api/gpu-data",
+          source: "https://500.farm/vastai-exporter/gpu-stats",
           rows: [
             {
               gpu_type: "rtx 4090",
@@ -354,6 +354,42 @@ test("status includes current market utilization benchmarks for exact GPU matche
               market_p10_price: 0.334,
               market_p90_price: 0.653
             }
+          ],
+          segments: [
+            {
+              gpu_type: "rtx 4090",
+              canonical_gpu_type: "rtx4090",
+              segment_key: "all",
+              segment_label: "All market",
+              segment_order: 0,
+              datacenter_scope: "all",
+              verification_scope: "all",
+              gpu_count_range: "all",
+              market_utilisation_pct: 87.38,
+              market_gpus_on_platform: 3558,
+              market_gpus_available: 449,
+              market_gpus_rented: 3109,
+              market_median_price: 0.35,
+              market_p10_price: 0.269,
+              market_p90_price: 0.434
+            },
+            {
+              gpu_type: "rtx 4090",
+              canonical_gpu_type: "rtx4090",
+              segment_key: "dc:any|verified:any|size:all",
+              segment_label: "Datacenter",
+              segment_order: 1,
+              datacenter_scope: "dc",
+              verification_scope: "all",
+              gpu_count_range: "all",
+              market_utilisation_pct: 91.9,
+              market_gpus_on_platform: 828,
+              market_gpus_available: 67,
+              market_gpus_rented: 761,
+              market_median_price: 0.39,
+              market_p10_price: 0.36,
+              market_p90_price: 0.42
+            }
           ]
         };
       }
@@ -378,11 +414,14 @@ test("status includes current market utilization benchmarks for exact GPU matche
     assert.equal(rtx4090.market_minimum_price, 0.201);
     assert.equal(rtx4090.market_price_position, "at_market");
     assert.equal(rtx4090.market_price_delta, 0);
+    assert.equal(rtx4090.market_segments.length, 2);
+    assert.equal(rtx4090.market_segments[1].segment_label, "Datacenter");
     assert.equal(rtx5090.market_match_status, "matched");
     assert.equal(rtx5090.market_gpus_rented, 3408);
     assert.equal(rtx5090.market_p90_price, 0.653);
     assert.equal(rtx5090.market_price_position, "at_market");
     assert.equal(rtx5090.market_price_delta_pct, 0);
+    assert.equal(status.body.machines.find((machine) => machine.machine_id === 2)?.verified, false);
   } finally {
     db.db.close();
   }

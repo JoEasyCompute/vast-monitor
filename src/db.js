@@ -61,6 +61,8 @@ const SCHEMA_MIGRATIONS = [
           hosting_type INTEGER,
           is_datacenter INTEGER NOT NULL DEFAULT 0,
           datacenter_id INTEGER,
+          verified INTEGER,
+          verification TEXT,
           temp_alert_active INTEGER NOT NULL DEFAULT 0,
           idle_alert_active INTEGER NOT NULL DEFAULT 0,
           public_ipaddr TEXT,
@@ -142,6 +144,8 @@ const SCHEMA_MIGRATIONS = [
           hosting_type INTEGER,
           is_datacenter INTEGER NOT NULL DEFAULT 0,
           datacenter_id INTEGER,
+          verified INTEGER,
+          verification TEXT,
           status TEXT NOT NULL,
           FOREIGN KEY (poll_id) REFERENCES polls(id)
         );
@@ -255,6 +259,8 @@ const SCHEMA_MIGRATIONS = [
         ["hosting_type", "INTEGER"],
         ["is_datacenter", "INTEGER NOT NULL DEFAULT 0"],
         ["datacenter_id", "INTEGER"],
+        ["verified", "INTEGER"],
+        ["verification", "TEXT"],
         ["temp_alert_active", "INTEGER NOT NULL DEFAULT 0"],
         ["idle_alert_active", "INTEGER NOT NULL DEFAULT 0"]
       ]);
@@ -268,7 +274,9 @@ const SCHEMA_MIGRATIONS = [
         ["last_online_at", "TEXT"],
         ["hosting_type", "INTEGER"],
         ["is_datacenter", "INTEGER NOT NULL DEFAULT 0"],
-        ["datacenter_id", "INTEGER"]
+        ["datacenter_id", "INTEGER"],
+        ["verified", "INTEGER"],
+        ["verification", "TEXT"]
       ]);
 
       return {
@@ -377,6 +385,23 @@ const SCHEMA_MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_platform_gpu_metric_hourly_rollups_time
           ON platform_gpu_metric_hourly_rollups(bucket_start, canonical_gpu_type);
       `);
+
+      return {};
+    }
+  },
+  {
+    id: "006_machine_verification_metadata",
+    description: "Persist machine verification metadata",
+    up(db) {
+      ensureColumns(db, "machine_state", [
+        ["verified", "INTEGER"],
+        ["verification", "TEXT"]
+      ]);
+
+      ensureColumns(db, "machine_snapshots", [
+        ["verified", "INTEGER"],
+        ["verification", "TEXT"]
+      ]);
 
       return {};
     }
@@ -494,13 +519,13 @@ export function createDatabase(dbPath, options = {}) {
         machine_id, hostname, gpu_type, num_gpus, status, occupancy, occupied_gpus,
         current_rentals_running, listed, listed_gpu_cost, reliability, gpu_max_cur_temp, earn_day,
         num_reports, num_recent_reports, prev_day_reports, reports_changed, error_message, machine_maintenance,
-        last_seen_at, last_online_at, idle_since, host_id, hosting_type, is_datacenter, datacenter_id,
+        last_seen_at, last_online_at, idle_since, host_id, hosting_type, is_datacenter, datacenter_id, verified, verification,
         temp_alert_active, idle_alert_active, updated_at, public_ipaddr
       ) VALUES (
         @machine_id, @hostname, @gpu_type, @num_gpus, @status, @occupancy, @occupied_gpus,
         @current_rentals_running, @listed, @listed_gpu_cost, @reliability, @gpu_max_cur_temp, @earn_day,
         @num_reports, @num_recent_reports, @prev_day_reports, @reports_changed, @error_message, @machine_maintenance,
-        @last_seen_at, @last_online_at, @idle_since, @host_id, @hosting_type, @is_datacenter, @datacenter_id,
+        @last_seen_at, @last_online_at, @idle_since, @host_id, @hosting_type, @is_datacenter, @datacenter_id, @verified, @verification,
         @temp_alert_active, @idle_alert_active, @updated_at, @public_ipaddr
       )
       ON CONFLICT(machine_id) DO UPDATE SET
@@ -529,6 +554,8 @@ export function createDatabase(dbPath, options = {}) {
         hosting_type = excluded.hosting_type,
         is_datacenter = excluded.is_datacenter,
         datacenter_id = excluded.datacenter_id,
+        verified = excluded.verified,
+        verification = excluded.verification,
         temp_alert_active = excluded.temp_alert_active,
         idle_alert_active = excluded.idle_alert_active,
         updated_at = excluded.updated_at,
@@ -539,12 +566,12 @@ export function createDatabase(dbPath, options = {}) {
         poll_id, polled_at, machine_id, hostname, gpu_type, num_gpus, occupancy,
         occupied_gpus, current_rentals_running, listed, listed_gpu_cost, reliability,
         gpu_max_cur_temp, earn_day, num_reports, num_recent_reports, error_message, machine_maintenance, last_seen_at, last_online_at, host_id, hosting_type,
-        is_datacenter, datacenter_id, status
+        is_datacenter, datacenter_id, verified, verification, status
       ) VALUES (
         @poll_id, @polled_at, @machine_id, @hostname, @gpu_type, @num_gpus, @occupancy,
         @occupied_gpus, @current_rentals_running, @listed, @listed_gpu_cost, @reliability,
         @gpu_max_cur_temp, @earn_day, @num_reports, @num_recent_reports, @error_message, @machine_maintenance, @last_seen_at, @last_online_at, @host_id, @hosting_type,
-        @is_datacenter, @datacenter_id, @status
+        @is_datacenter, @datacenter_id, @verified, @verification, @status
       )
     `),
     insertEvent: db.prepare(`
@@ -1062,6 +1089,14 @@ export function createDatabase(dbPath, options = {}) {
   };
   let currentMaintenanceRun = null;
 
+  function normalizeMachinePersistenceRow(machine) {
+    return {
+      ...machine,
+      verified: machine?.verified === true ? 1 : machine?.verified === false ? 0 : machine?.verified ?? null,
+      verification: String(machine?.verification || "").trim() || null
+    };
+  }
+
   const txRecordPoll = db.transaction(({ timestamp, machines, offlineMachines, events, alerts, platformMetricsSnapshot = null }) => {
     const pollId = statements.insertPoll.run(timestamp).lastInsertRowid;
     const fleetSnapshot = buildFleetSnapshot([...machines, ...offlineMachines]);
@@ -1073,29 +1108,31 @@ export function createDatabase(dbPath, options = {}) {
     });
 
     for (const machine of machines) {
-      statements.upsertRegistry.run({ ...machine, timestamp });
+      const persistedMachine = normalizeMachinePersistenceRow(machine);
+      statements.upsertRegistry.run({ ...persistedMachine, timestamp });
       statements.upsertState.run({
-        ...machine,
+        ...persistedMachine,
         last_seen_at: timestamp,
-        last_online_at: machine.last_online_at,
+        last_online_at: persistedMachine.last_online_at,
         updated_at: timestamp
       });
       statements.insertSnapshot.run({
-        ...machine,
+        ...persistedMachine,
         poll_id: pollId,
         polled_at: timestamp,
         last_seen_at: timestamp,
-        last_online_at: machine.last_online_at
+        last_online_at: persistedMachine.last_online_at
       });
     }
 
     for (const machine of offlineMachines) {
-      statements.upsertRegistry.run({ ...machine, timestamp });
+      const persistedMachine = normalizeMachinePersistenceRow(machine);
+      statements.upsertRegistry.run({ ...persistedMachine, timestamp });
       statements.upsertState.run({
-        ...machine,
+        ...persistedMachine,
         updated_at: timestamp
       });
-      statements.insertSnapshot.run({ ...machine, poll_id: pollId, polled_at: timestamp });
+      statements.insertSnapshot.run({ ...persistedMachine, poll_id: pollId, polled_at: timestamp });
     }
 
     if (platformMetricsSnapshot?.ok && Array.isArray(platformMetricsSnapshot.rows)) {

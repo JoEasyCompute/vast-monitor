@@ -33,6 +33,8 @@ export function makeMachine(overrides = {}) {
     hosting_type: 1,
     is_datacenter: 1,
     datacenter_id: 500,
+    verified: null,
+    verification: null,
     last_seen_at: null,
     last_online_at: null,
     idle_since: null,

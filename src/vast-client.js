@@ -9,6 +9,22 @@ const DATACENTER_METADATA_RATE_LIMIT_FALLBACK_MS = 5 * 60 * 1000;
 const datacenterMetadataCache = new Map();
 let datacenterMetadataRateLimitUntilMs = 0;
 
+function inferVerifiedValue(value, verification) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  const normalizedVerification = String(verification || "").trim().toLowerCase();
+  if (normalizedVerification === "verified") {
+    return true;
+  }
+  if (normalizedVerification === "unverified") {
+    return false;
+  }
+
+  return null;
+}
+
 export async function fetchMachines(config) {
   const { vastCliPath } = config;
   const { stdout, stderr } = await execFileAsync(vastCliPath, ["show", "machines", "--raw"], {
@@ -35,13 +51,20 @@ export async function fetchMachines(config) {
     const hostingType = metadata?.hosting_type ?? null;
     const hostId = metadata?.host_id ?? null;
     const isDatacenter = hostingType === 1;
+    const verification = String(metadata?.verification || "").trim() || null;
+    const verifiedValue = inferVerifiedValue(metadata?.verified, verification);
+    const verified = typeof verifiedValue === "boolean"
+      ? (verifiedValue ? 1 : 0)
+      : null;
 
     return {
       ...machine,
       host_id: hostId,
       hosting_type: hostingType,
       is_datacenter: isDatacenter ? 1 : 0,
-      datacenter_id: isDatacenter ? hostId : null
+      datacenter_id: isDatacenter ? hostId : null,
+      verified,
+      verification
     };
   });
 }
@@ -191,6 +214,8 @@ export function normalizeMachine(machine, now = new Date().toISOString()) {
     hosting_type: null,
     is_datacenter: 0,
     datacenter_id: null,
+    verified: null,
+    verification: null,
     temp_alert_active: 0,
     idle_alert_active: 0,
     idle_since: Number(machine.current_rentals_running || 0) > 0 ? null : now
@@ -235,9 +260,13 @@ export async function fetchDatacenterMetadata(config, machineIds) {
         continue;
       }
 
+      const verification = String(offer.verification || "").trim() || null;
+      const verified = inferVerifiedValue(offer.verified, verification);
       const candidate = {
         host_id: intOrNull(offer.host_id),
-        hosting_type: intOrNull(offer.hosting_type)
+        hosting_type: intOrNull(offer.hosting_type),
+        ...(typeof verified === "boolean" ? { verified } : {}),
+        ...(verification ? { verification } : {})
       };
       const key = String(machineId);
       const existing = metadataByMachineId[key];
@@ -266,9 +295,13 @@ export async function fetchDatacenterMetadata(config, machineIds) {
           continue;
         }
 
+        const verification = String(offer.verification || "").trim() || null;
+        const verified = inferVerifiedValue(offer.verified, verification);
         const candidate = {
           host_id: intOrNull(offer.host_id),
-          hosting_type: intOrNull(offer.hosting_type)
+          hosting_type: intOrNull(offer.hosting_type),
+          ...(typeof verified === "boolean" ? { verified } : {}),
+          ...(verification ? { verification } : {})
         };
         const key = String(resolvedMachineId);
         const existing = metadataByMachineId[key];

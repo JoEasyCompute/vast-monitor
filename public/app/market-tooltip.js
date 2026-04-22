@@ -1,4 +1,5 @@
 import { escapeHtml, formatCurrency } from "./formatters.js";
+import { normalizeMarketSegments } from "./market-benchmarks.js";
 
 export function serializeMarketTooltipData(row) {
   const payload = buildMarketTooltipPayload(row);
@@ -24,6 +25,7 @@ export function buildMarketTooltipMarkup(payload) {
   }
 
   if (payload.state === "matched") {
+    const segmentMarkup = buildMarketUtilizationSegmentMarkup(payload.marketSegments);
     const stats = [
       ["Vast Utilisation", formatPercentOrDash(payload.marketUtilisationPct)],
       ["Total GPUs", formatIntegerOrDash(payload.marketGpusOnPlatform)],
@@ -45,6 +47,7 @@ export function buildMarketTooltipMarkup(payload) {
           <div class="market-tooltip-value">${escapeHtml(value)}</div>
         `).join("")}
       </div>
+      ${segmentMarkup}
     </div>`;
   }
 
@@ -69,7 +72,8 @@ function buildMarketTooltipPayload(row) {
       marketMedianPrice: toFiniteNumberOrNull(row?.market_median_price),
       marketMinimumPrice: toFiniteNumberOrNull(row?.market_minimum_price),
       marketP10Price: toFiniteNumberOrNull(row?.market_p10_price),
-      marketP90Price: toFiniteNumberOrNull(row?.market_p90_price)
+      marketP90Price: toFiniteNumberOrNull(row?.market_p90_price),
+      marketSegments: normalizeMarketSegments(row?.market_segments)
     };
   }
 
@@ -107,4 +111,34 @@ function formatPriceOrDash(value) {
 
 function formatPercentOrDash(value) {
   return value == null ? "—" : `${value}%`;
+}
+
+function buildMarketUtilizationSegmentMarkup(segments) {
+  if (!Array.isArray(segments) || !segments.length) {
+    return "";
+  }
+
+  return `<div class="market-tooltip-segment-section">
+    <div class="market-tooltip-subtitle">Segmented market</div>
+    <div class="market-tooltip-table-wrap">
+      <table class="market-tooltip-table">
+        <thead>
+          <tr>
+            <th>Segment</th>
+            <th>Util</th>
+            <th>Count</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${segments.map((segment) => `
+            <tr>
+              <td>${escapeHtml(segment.segmentLabel)}</td>
+              <td>${escapeHtml(formatPercentOrDash(segment.marketUtilisationPct))}</td>
+              <td>${escapeHtml(formatIntegerOrDash(segment.marketGpusOnPlatform))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
 }

@@ -140,17 +140,17 @@ test("idle helpers preserve idle start until rentals resume", () => {
 test("resolveDatacenterFields preserves prior datacenter metadata when enrichment is missing", () => {
   assert.deepEqual(
     resolveDatacenterFields(
-      { host_id: 500, hosting_type: 1, is_datacenter: 1, datacenter_id: 500 },
+      { host_id: 500, hosting_type: 1, is_datacenter: 1, datacenter_id: 500, verified: 1, verification: "verified" },
       { host_id: null, hosting_type: null }
     ),
-    { host_id: 500, hosting_type: 1, is_datacenter: 1, datacenter_id: 500 }
+    { host_id: 500, hosting_type: 1, is_datacenter: 1, datacenter_id: 500, verified: 1, verification: "verified" }
   );
 
   assert.deepEqual(
     resolveDatacenterFields(
-      { host_id: 500, hosting_type: 1, is_datacenter: 1, datacenter_id: 500 },
-      { host_id: 700, hosting_type: 0 }
+      { host_id: 500, hosting_type: 1, is_datacenter: 1, datacenter_id: 500, verified: 1, verification: "verified" },
+      { host_id: 700, hosting_type: 0, verified: 0, verification: "unverified" }
     ),
-    { host_id: 700, hosting_type: 0, is_datacenter: 0, datacenter_id: null }
+    { host_id: 700, hosting_type: 0, is_datacenter: 0, datacenter_id: null, verified: 0, verification: "unverified" }
   );
 });

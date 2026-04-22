@@ -112,7 +112,7 @@ test("db admin panel renders database counts and route metrics when health is av
         ok: true,
         stale: false,
         fetched_at: "2026-04-01T12:15:00.000Z",
-        source: "https://gpu-treemap.replit.app/api/gpu-data"
+        source: "https://500.farm/vastai-exporter/gpu-stats"
       }
     }
   });
@@ -132,7 +132,7 @@ test("db admin panel renders database counts and route metrics when health is av
   assert.match(result.markup, /Maintenance Active: No/);
   assert.match(result.markup, /Benchmark Status: Live/);
   assert.match(result.markup, /Benchmark Source:/);
-  assert.match(result.markup, /gpu-treemap\.replit\.app\/api\/gpu-data/);
+  assert.match(result.markup, /500\.farm\/vastai-exporter\/gpu-stats/);
   assert.match(result.markup, /analyze/);
   assert.match(result.markup, /<summary>Result<\/summary>/);
   assert.match(result.markup, /duration_ms/);
@@ -161,7 +161,7 @@ test("db admin panel renders operator warnings for disabled retention, large DBs
         ok: false,
         stale: false,
         fetched_at: null,
-        source: "https://gpu-treemap.replit.app/api/gpu-data",
+        source: "https://500.farm/vastai-exporter/gpu-stats",
         error: "upstream unavailable"
       }
     }

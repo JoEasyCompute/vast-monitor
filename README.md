@@ -19,7 +19,7 @@ It polls your hosted machines from Vast, enriches them with datacenter metadata,
 - Adds local browser settings for dashboard mode, table density, and frontend-only alert thresholds
 - Persists machine table filters, dedicated GPU-type filters, and the active/archive machine tab with a hybrid URL + local browser storage approach
 - Lets you click GPU names in `GPU Type Breakdown` to toggle exact GPU-type filters in the machine table
-- Adds current Vast-wide GPU utilisation benchmarks from `gpu-treemap.replit.app` to matched GPU rows in `GPU Type Breakdown`
+- Adds current Vast-wide GPU utilisation benchmarks from `500.farm/vastai-exporter/gpu-stats` to matched GPU rows in `GPU Type Breakdown`
 - Shows a custom hover card on `Vast Util` with platform-wide GPU counts and pricing percentiles for matched GPU rows
 - Persists matched Vast-wide benchmark snapshots so the utilisation chart can compare your fleet history against historical market benchmarks
 - Highlights average listed GPU prices against the current Vast median in `GPU Type Breakdown`

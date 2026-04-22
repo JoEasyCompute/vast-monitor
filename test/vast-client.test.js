@@ -45,6 +45,8 @@ test("normalizeMachine derives occupancy, status, maintenance, and idle state", 
   assert.equal(normalized.host_id, null);
   assert.equal(normalized.hosting_type, null);
   assert.equal(normalized.datacenter_id, null);
+  assert.equal(normalized.verified, null);
+  assert.equal(normalized.verification, null);
   assert.equal(normalized.idle_since, "2026-03-14T12:00:00.000Z");
   assert.equal(normalized.machine_maintenance, "[\"network\"]");
 });
@@ -95,7 +97,9 @@ test("fetchDatacenterMetadata batches machine ids instead of calling once per ma
           offers: batch.map((machineId) => ({
             machine_id: machineId,
             host_id: machineId + 1000,
-            hosting_type: 1
+            hosting_type: 1,
+            verified: true,
+            verification: "verified"
           }))
         };
       }
@@ -112,7 +116,7 @@ test("fetchDatacenterMetadata batches machine ids instead of calling once per ma
     assert.equal(seenBatches[0].length, 100);
     assert.equal(seenBatches[1].length, 100);
     assert.equal(seenBatches[2].length, 5);
-    assert.deepEqual(metadata["205"], { host_id: 1205, hosting_type: 1 });
+    assert.deepEqual(metadata["205"], { host_id: 1205, hosting_type: 1, verified: true, verification: "verified" });
   } finally {
     global.fetch = originalFetch;
   }
@@ -137,7 +141,7 @@ test("fetchDatacenterMetadata retries unresolved machine ids individually when b
         async json() {
           return {
             offers: [
-              { machine_id: 101, host_id: 5001, hosting_type: 1 }
+              { machine_id: 101, host_id: 5001, hosting_type: 1, verified: true, verification: "verified" }
             ]
           };
         }
@@ -149,7 +153,7 @@ test("fetchDatacenterMetadata retries unresolved machine ids individually when b
       async json() {
         return {
           offers: [
-            { machine_id: ids[0], host_id: ids[0] + 5000, hosting_type: 1 }
+            { machine_id: ids[0], host_id: ids[0] + 5000, hosting_type: 1, verification: "unverified" }
           ]
         };
       }
@@ -162,8 +166,8 @@ test("fetchDatacenterMetadata retries unresolved machine ids individually when b
       vastApiKeyPath: apiKeyPath
     }, [101, 102]);
 
-    assert.deepEqual(metadata["101"], { host_id: 5001, hosting_type: 1 });
-    assert.deepEqual(metadata["102"], { host_id: 5102, hosting_type: 1 });
+    assert.deepEqual(metadata["101"], { host_id: 5001, hosting_type: 1, verified: true, verification: "verified" });
+    assert.deepEqual(metadata["102"], { host_id: 5102, hosting_type: 1, verified: false, verification: "unverified" });
     assert.equal(seenBodies.length, 2);
     assert.deepEqual(seenBodies[1].machine_id.in, [102]);
   } finally {
@@ -221,7 +225,7 @@ test("fetchDatacenterMetadata uses cached metadata during Vast bundle rate limit
         async json() {
           return {
             offers: [
-              { machine_id: 101, host_id: 5001, hosting_type: 1 }
+              { machine_id: 101, host_id: 5001, hosting_type: 1, verified: true, verification: "verified" }
             ]
           };
         }
@@ -255,9 +259,9 @@ test("fetchDatacenterMetadata uses cached metadata during Vast bundle rate limit
       vastApiKeyPath: apiKeyPath
     }, [101]);
 
-    assert.deepEqual(firstMetadata["101"], { host_id: 5001, hosting_type: 1 });
-    assert.deepEqual(secondMetadata["101"], { host_id: 5001, hosting_type: 1 });
-    assert.deepEqual(thirdMetadata["101"], { host_id: 5001, hosting_type: 1 });
+    assert.deepEqual(firstMetadata["101"], { host_id: 5001, hosting_type: 1, verified: true, verification: "verified" });
+    assert.deepEqual(secondMetadata["101"], { host_id: 5001, hosting_type: 1, verified: true, verification: "verified" });
+    assert.deepEqual(thirdMetadata["101"], { host_id: 5001, hosting_type: 1, verified: true, verification: "verified" });
     assert.equal(seenBodies.length, 2);
   } finally {
     global.fetch = originalFetch;

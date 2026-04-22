@@ -151,6 +151,14 @@ export function getMachineViewCounts(machines, nowMs = Date.now()) {
   return { activeCount, archivedCount };
 }
 
+function isMachineUnverified(row) {
+  if (row?.verified === false) {
+    return true;
+  }
+
+  return String(row?.verification || "").trim().toLowerCase() === "unverified";
+}
+
 export function buildMachineRowsMarkup(rows, uiSettings) {
   return rows
     .map((row, index) => {
@@ -158,7 +166,8 @@ export function buildMachineRowsMarkup(rows, uiSettings) {
       const isLowReliability = reliabilityScore != null && reliabilityScore < uiSettings.lowReliabilityPct;
       const isHot = row.gpu_max_cur_temp != null && row.gpu_max_cur_temp >= uiSettings.highTemperatureC;
       const hasError = Boolean(row.error_message);
-      const rowClass = [hasError ? "machine-error" : "", isLowReliability ? "low-reliability" : "", isHot ? "high-temperature" : ""]
+      const isUnverified = isMachineUnverified(row);
+      const rowClass = [hasError ? "machine-error" : "", isLowReliability ? "low-reliability" : "", isHot ? "high-temperature" : "", isUnverified ? "machine-unverified" : ""]
         .filter(Boolean)
         .join(" ");
 

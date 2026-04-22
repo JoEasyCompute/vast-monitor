@@ -521,6 +521,8 @@ async function buildFleetResponse(fleet, config, db, monitor, plugins = [], plat
     hosting_type: machine.hosting_type,
     is_datacenter: Boolean(machine.is_datacenter),
     datacenter_id: machine.datacenter_id,
+    verified: machine.verified == null ? null : Boolean(machine.verified),
+    verification: machine.verification || null,
     uptime: machine.uptime
   }));
 
@@ -537,7 +539,7 @@ async function buildFleetResponse(fleet, config, db, monitor, plugins = [], plat
   const totalDailyEarnings = fleetAggregate.summary.total_daily_earnings;
   const utilisationPct = fleetAggregate.summary.utilisation_pct;
   const marketBenchmark = await getPlatformMetricsSnapshot(platformMetricsClient);
-  const marketMetricIndex = buildPlatformGpuMetricIndex(marketBenchmark.rows);
+  const marketMetricIndex = buildPlatformGpuMetricIndex(marketBenchmark.rows, marketBenchmark.segments);
 
   const gpuTypes = new Map();
   for (const machine of fleetMachines) {
@@ -617,6 +619,7 @@ async function getPlatformMetricsSnapshot(platformMetricsClient) {
       source: null,
       fetchedAt: null,
       rows: [],
+      segments: [],
       error: null
     };
   }
@@ -629,6 +632,7 @@ async function getPlatformMetricsSnapshot(platformMetricsClient) {
       source: snapshot?.source || null,
       fetchedAt: snapshot?.fetchedAt || null,
       rows: Array.isArray(snapshot?.rows) ? snapshot.rows : [],
+      segments: Array.isArray(snapshot?.segments) ? snapshot.segments : [],
       error: snapshot?.error || null
     };
   } catch (error) {
@@ -638,6 +642,7 @@ async function getPlatformMetricsSnapshot(platformMetricsClient) {
       source: null,
       fetchedAt: null,
       rows: [],
+      segments: [],
       error: error instanceof Error ? error.message : String(error)
     };
   }

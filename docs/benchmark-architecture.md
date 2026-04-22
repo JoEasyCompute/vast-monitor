@@ -6,7 +6,7 @@ This document explains where the Vast market-benchmark feature lives in the code
 
 The benchmark feature compares this fleet's GPU utilization and pricing against current and historical market-wide snapshots sourced from:
 
-- `https://gpu-treemap.replit.app/api/gpu-data`
+- `https://500.farm/vastai-exporter/gpu-stats`
 
 The implementation is intentionally strict about GPU matching:
 

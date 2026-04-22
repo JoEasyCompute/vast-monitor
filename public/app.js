@@ -63,9 +63,9 @@ import {
   buildModalAnnotationsMarkup,
   buildCalendarMonthEarningsSummaries,
   buildModalEarningsBreakdownMarkup,
+  buildModalHeaderMarkup,
   buildModalSummaryMarkup,
-  buildModalTimelineMarkup,
-  formatGpuMachineLabel
+  buildModalTimelineMarkup
 } from "./app/machine-modal.js";
 import {
   addSyntheticBaselineSeries,
@@ -738,13 +738,7 @@ function renderModalSummary(machine, machineHistory = []) {
 }
 
 function renderModalHeader(machineId, machine = null) {
-  const machineIdTag = `<button class="modal-header-id" type="button" title="Tap to copy machine ID" data-copy-machine-id="${escapeHtml(String(machineId))}">Machine #${escapeHtml(String(machineId))}</button>`;
-  const dcTag = machine?.is_datacenter ? ' <span class="dc-pill">DC</span>' : "";
-  const gpuTag = machine ? ` <span class="modal-header-gpu">${escapeHtml(formatGpuMachineLabel(machine))}</span>` : "";
-  const ipTag = machine?.public_ipaddr
-    ? ` <button class="modal-header-ip" type="button" title="Tap to copy IP address" data-copy-ip-address="${escapeHtml(machine.public_ipaddr)}">${escapeHtml(machine.public_ipaddr)}</button>`
-    : "";
-  modalTitle.innerHTML = `${machineIdTag}${dcTag}${gpuTag}${ipTag}`;
+  modalTitle.innerHTML = buildModalHeaderMarkup(machineId, machine);
 }
 
 function updateModalEarningsSummary(machine, earningsData, machineHistory = [], monthlySummary = null) {

@@ -16,9 +16,43 @@ export function formatGpuMachineLabel(machine) {
   return Number.isFinite(gpuCount) ? `${gpuCount}x${gpuType}` : gpuType;
 }
 
+export function resolveMachineVerificationState(machine) {
+  if (machine?.verified === true) {
+    return "verified";
+  }
+  if (machine?.verified === false) {
+    return "unverified";
+  }
+
+  const verification = String(machine?.verification || "").trim().toLowerCase();
+  if (verification === "verified" || verification === "unverified") {
+    return verification;
+  }
+
+  return "unknown";
+}
+
+export function buildModalHeaderMarkup(machineId, machine = null) {
+  const machineIdTag = `<button class="modal-header-id" type="button" title="Tap to copy machine ID" data-copy-machine-id="${escapeHtml(String(machineId))}">Machine #${escapeHtml(String(machineId))}</button>`;
+  const dcTag = machine?.is_datacenter ? ' <span class="dc-pill">DC</span>' : "";
+  const verificationState = resolveMachineVerificationState(machine);
+  const verifiedTag = verificationState === "verified"
+    ? ' <span class="modal-header-verified verified">Verified</span>'
+    : verificationState === "unverified"
+      ? ' <span class="modal-header-verified unverified">Unverified</span>'
+      : "";
+  const gpuTag = machine ? ` <span class="modal-header-gpu">${escapeHtml(formatGpuMachineLabel(machine))}</span>` : "";
+  const ipTag = machine?.public_ipaddr
+    ? ` <button class="modal-header-ip" type="button" title="Tap to copy IP address" data-copy-ip-address="${escapeHtml(machine.public_ipaddr)}">${escapeHtml(machine.public_ipaddr)}</button>`
+    : "";
+
+  return `${machineIdTag}${dcTag}${verifiedTag}${gpuTag}${ipTag}`;
+}
+
 export function buildModalSummaryMarkup(machine, machineHistory = []) {
   const operationalItems = [
     ["Status", renderModalStatus(machine)],
+    ["Verification", renderModalVerification(machine)],
     ["Renter Total / Rentals", renderModalRenterSummary(machine, machineHistory)],
     ["Reliability", machine.reliability == null ? "-" : renderModalReliability(machine)],
     ["Temp", escapeHtml(machine.gpu_max_cur_temp == null ? "-" : `${machine.gpu_max_cur_temp}C`)],
@@ -278,6 +312,19 @@ function renderModalStatus(machine) {
     <span class="status-pill ${machine.status}">${escapeHtml(machine.status || "-")}</span>
     ${renderModalDeltaText(machine.status_change_direction, machine.previous_status, machine.status, "status")}
   </span>`;
+}
+
+function renderModalVerification(machine) {
+  const verificationState = resolveMachineVerificationState(machine);
+  if (verificationState === "verified") {
+    return '<span class="summary-badge healthy">Verified</span>';
+  }
+
+  if (verificationState === "unverified") {
+    return '<span class="summary-badge info">Unverified</span>';
+  }
+
+  return '<span class="summary-badge">Unknown</span>';
 }
 
 function renderModalRentals(machine) {

@@ -2,6 +2,7 @@ node_modules/
 .env
 data/
 .codex-project-memory.md
+.codex/
 .DS_Store
 .firecrawl/
 .omc/

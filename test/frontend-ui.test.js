@@ -11,6 +11,7 @@ import {
   isArchivedMachine
 } from "../public/app/machine-table.js";
 import {
+  buildModalHeaderMarkup,
   buildModalSummaryMarkup,
   computeRenterTotal
 } from "../public/app/machine-modal.js";
@@ -79,6 +80,28 @@ test("machine-table sorting supports uptime and generated rows do not use inline
   assert.match(markup, /data-machine-id="22"/);
   assert.match(markup, /data-report-trigger="1"/);
   assert.doesNotMatch(markup, /onclick=/);
+});
+
+test("machine-table marks unverified machines with a dedicated row class", () => {
+  const markup = buildMachineRowsMarkup([
+    makeMachineRow({ machine_id: 11, verified: false })
+  ], {
+    lowReliabilityPct: 90,
+    highTemperatureC: 85
+  });
+
+  assert.match(markup, /machine-unverified/);
+});
+
+test("machine-table treats verification text as a fallback for unverified rows", () => {
+  const markup = buildMachineRowsMarkup([
+    makeMachineRow({ machine_id: 11, verified: null, verification: "unverified" })
+  ], {
+    lowReliabilityPct: 90,
+    highTemperatureC: 85
+  });
+
+  assert.match(markup, /machine-unverified/);
 });
 
 test("machine-table hostname search and markup include owner/team when present", () => {
@@ -164,7 +187,9 @@ test("machine modal renter total uses initial renters plus positive increases on
 test("machine modal summary markup includes renter total", () => {
   const markup = buildModalSummaryMarkup(makeMachineRow({
     current_rentals_running: 4,
-    reliability: 0.99
+    reliability: 0.99,
+    verified: null,
+    verification: "verified"
   }), [
     { polled_at: "2026-03-23T10:00:00.000Z", current_rentals_running: 4 },
     { polled_at: "2026-03-23T11:00:00.000Z", current_rentals_running: 3 },
@@ -172,8 +197,30 @@ test("machine modal summary markup includes renter total", () => {
   ]);
 
   assert.match(markup, /Renter Total \/ Rentals/);
+  assert.match(markup, /Verification/);
+  assert.match(markup, /Verified/);
   assert.match(markup, /<span>5<\/span>/);
   assert.match(markup, /<span>4<\/span>/);
+});
+
+test("machine modal header markup includes dc and verification badges before gpu label", () => {
+  const markup = buildModalHeaderMarkup(56756, makeMachineRow({
+    machine_id: 56756,
+    num_gpus: 4,
+    gpu_type: "RTX 4090",
+    is_datacenter: true,
+    verified: null,
+    verification: "verified",
+    public_ipaddr: "10.0.0.65"
+  }));
+
+  assert.match(markup, /Machine #56756/);
+  assert.match(markup, /<span class="dc-pill">DC<\/span>/);
+  assert.match(markup, /<span class="modal-header-verified verified">Verified<\/span>/);
+  assert.match(markup, /<span class="modal-header-gpu">4xRTX 4090<\/span>/);
+  assert.match(markup, /10\.0\.0\.65/);
+  assert.ok(markup.indexOf("dc-pill") < markup.indexOf("modal-header-verified"));
+  assert.ok(markup.indexOf("modal-header-verified") < markup.indexOf("modal-header-gpu"));
 });
 
 test("ui-state loaders sanitize persisted values", () => {
@@ -354,6 +401,8 @@ function makeMachineRow(overrides = {}) {
     num_gpus: 4,
     listed: true,
     is_datacenter: false,
+    verified: null,
+    verification: null,
     status: "online",
     occupancy: "D D O O",
     listed_gpu_cost: 1.25,

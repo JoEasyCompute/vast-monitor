@@ -913,6 +913,41 @@ th.sort-desc::after {
   white-space: nowrap;
 }
 
+.market-tooltip-segment-section {
+  display: grid;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.market-tooltip-table-wrap {
+  overflow-x: auto;
+}
+
+.market-tooltip-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.76rem;
+}
+
+.market-tooltip-table th,
+.market-tooltip-table td {
+  padding: 4px 0;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.market-tooltip-table th:first-child,
+.market-tooltip-table td:first-child {
+  text-align: left;
+}
+
+.market-tooltip-table thead th {
+  color: var(--muted);
+  font-weight: 600;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+}
+
 th.dc-col,
 td.dc-cell {
   width: 1%;
@@ -998,6 +1033,18 @@ tr.machine-error td {
 
 tr.machine-error:hover {
   background: rgba(249, 115, 22, 0.38);
+}
+
+tr.machine-unverified {
+  background: rgba(59, 130, 246, 0.12);
+}
+
+tr.machine-unverified td {
+  border-bottom-color: rgba(59, 130, 246, 0.28);
+}
+
+tr.machine-unverified:hover {
+  background: rgba(59, 130, 246, 0.2);
 }
 
 tr.high-temperature {
@@ -1682,6 +1729,31 @@ tr.high-temperature td {
   font-weight: 500;
 }
 
+.modal-header-verified {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(30, 41, 59, 0.72);
+  color: var(--text);
+}
+
+.modal-header-verified.verified {
+  border-color: rgba(34, 197, 94, 0.28);
+  background: rgba(34, 197, 94, 0.16);
+  color: #86efac;
+}
+
+.modal-header-verified.unverified {
+  border-color: rgba(96, 165, 250, 0.32);
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
+}
+
 .modal-close {
   background: transparent;
   border: none;
@@ -1778,6 +1850,12 @@ tr.high-temperature td {
   border-color: rgba(245, 158, 11, 0.3);
   background: rgba(245, 158, 11, 0.16);
   color: #fde68a;
+}
+
+.summary-badge.info {
+  border-color: rgba(96, 165, 250, 0.32);
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
 }
 
 .summary-badge.degraded {

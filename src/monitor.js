@@ -176,6 +176,8 @@ export class FleetMonitor {
           hosting_type: previous?.hosting_type ?? null,
           is_datacenter: previous?.is_datacenter ?? 0,
           datacenter_id: previous?.datacenter_id ?? null,
+          verified: previous?.verified ?? null,
+          verification: previous?.verification ?? null,
           last_seen_at: previous?.last_seen_at ?? null,
           last_online_at: previous?.last_online_at ?? null,
           idle_since: previous?.idle_since || timestamp,
@@ -377,16 +379,28 @@ export function resolveIdleSince(previous, current, timestamp) {
 }
 
 export function resolveDatacenterFields(previous, current) {
-  if (Number.isFinite(current.hosting_type) || Number.isFinite(current.host_id)) {
+  const hasCurrentMetadata = Number.isFinite(current.hosting_type)
+    || Number.isFinite(current.host_id)
+    || current.verified === 0
+    || current.verified === 1
+    || typeof current.verification === "string";
+
+  if (hasCurrentMetadata) {
     const hostingType = Number.isFinite(current.hosting_type) ? current.hosting_type : null;
     const hostId = Number.isFinite(current.host_id) ? current.host_id : null;
     const isDatacenter = hostingType === 1;
+    const verified = current.verified === 0 || current.verified === 1
+      ? current.verified
+      : null;
+    const verification = String(current.verification || "").trim() || null;
 
     return {
       host_id: hostId,
       hosting_type: hostingType,
       is_datacenter: isDatacenter ? 1 : 0,
-      datacenter_id: isDatacenter ? hostId : null
+      datacenter_id: isDatacenter ? hostId : null,
+      verified,
+      verification
     };
   }
 
@@ -395,7 +409,9 @@ export function resolveDatacenterFields(previous, current) {
       host_id: null,
       hosting_type: null,
       is_datacenter: 0,
-      datacenter_id: null
+      datacenter_id: null,
+      verified: null,
+      verification: null
     };
   }
 
@@ -403,7 +419,9 @@ export function resolveDatacenterFields(previous, current) {
     host_id: Number.isFinite(previous.host_id) ? previous.host_id : null,
     hosting_type: Number.isFinite(previous.hosting_type) ? previous.hosting_type : null,
     is_datacenter: previous.is_datacenter ? 1 : 0,
-    datacenter_id: previous.is_datacenter ? previous.datacenter_id ?? previous.host_id ?? null : null
+    datacenter_id: previous.is_datacenter ? previous.datacenter_id ?? previous.host_id ?? null : null,
+    verified: previous.verified === 0 || previous.verified === 1 ? previous.verified : null,
+    verification: String(previous.verification || "").trim() || null
   };
 }
 
