@@ -405,6 +405,26 @@ const SCHEMA_MIGRATIONS = [
 
       return {};
     }
+  },
+  {
+    id: "007_daily_earnings_overrides",
+    description: "Persist operator-adjusted daily earnings overrides",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS daily_earnings_overrides (
+          earnings_date TEXT PRIMARY KEY,
+          total_daily_earnings REAL NOT NULL,
+          source TEXT NOT NULL,
+          note TEXT,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_daily_earnings_overrides_updated_at
+          ON daily_earnings_overrides(updated_at DESC);
+      `);
+
+      return {};
+    }
   }
 ];
 
@@ -435,6 +455,45 @@ export function createDatabase(dbPath, options = {}) {
       SELECT key, value, updated_at
       FROM db_meta
       ORDER BY key ASC
+    `),
+    selectDailyEarningsOverrideByDate: db.prepare(`
+      SELECT earnings_date, total_daily_earnings, source, note, updated_at
+      FROM daily_earnings_overrides
+      WHERE earnings_date = ?
+    `),
+    selectAllDailyEarningsOverrides: db.prepare(`
+      SELECT earnings_date, total_daily_earnings, source, note, updated_at
+      FROM daily_earnings_overrides
+      ORDER BY earnings_date ASC
+    `),
+    upsertDailyEarningsOverride: db.prepare(`
+      INSERT INTO daily_earnings_overrides (
+        earnings_date, total_daily_earnings, source, note, updated_at
+      ) VALUES (
+        @earnings_date, @total_daily_earnings, @source, @note, @updated_at
+      )
+      ON CONFLICT(earnings_date) DO UPDATE SET
+        total_daily_earnings = excluded.total_daily_earnings,
+        source = excluded.source,
+        note = excluded.note,
+        updated_at = excluded.updated_at
+    `),
+    deleteDailyEarningsOverride: db.prepare(`
+      DELETE FROM daily_earnings_overrides
+      WHERE earnings_date = ?
+    `),
+    countDailyEarningsOverrides: db.prepare(`
+      SELECT COUNT(*) AS count FROM daily_earnings_overrides
+    `),
+    updateFleetSnapshotsDailyEarningsByDate: db.prepare(`
+      UPDATE fleet_snapshots
+      SET total_daily_earnings = @total_daily_earnings
+      WHERE polled_at >= @day_start AND polled_at < @next_day
+    `),
+    updateFleetSnapshotHourlyRollupsDailyEarningsByDate: db.prepare(`
+      UPDATE fleet_snapshot_hourly_rollups
+      SET total_daily_earnings = @total_daily_earnings
+      WHERE bucket_start >= @day_start AND bucket_start < @next_day
     `),
     insertMaintenanceLock: db.prepare(`
       INSERT INTO maintenance_locks (name, owner_id, action, acquired_at, expires_at)
@@ -1339,11 +1398,36 @@ export function createDatabase(dbPath, options = {}) {
   function getHourlyEarnings(dateStr) {
     // dateStr = "YYYY-MM-DD", interpreted as UTC
     const dayStart = `${dateStr}T00:00:00.000Z`;
-    const dayEnd = `${dateStr}T23:59:59.999Z`;
     const nextDay = new Date(new Date(dayStart).getTime() + 24 * 60 * 60 * 1000).toISOString();
+    const override = statements.selectDailyEarningsOverrideByDate.get(dateStr);
 
     const rows = statements.selectSnapshotsForDate.all(dayStart, nextDay);
-    if (rows.length === 0) return { date: dateStr, hours: [], total: 0 };
+    if (rows.length === 0) {
+      if (override) {
+        const total = Number(override.total_daily_earnings);
+        const hours = new Array(24).fill(0).map((_, hour) => ({
+          hour,
+          earnings: hour === 0 ? Number(total.toFixed(4)) : 0
+        }));
+
+        return {
+          date: dateStr,
+          hours,
+          total: Number(total.toFixed(4)),
+          source: "override",
+          generated_at: override.updated_at,
+          override: {
+            earnings_date: override.earnings_date,
+            total_daily_earnings: Number(total.toFixed(4)),
+            source: override.source,
+            note: override.note || null,
+            updated_at: override.updated_at
+          }
+        };
+      }
+
+      return { date: dateStr, hours: [], total: 0, source: "estimated", generated_at: null };
+    }
 
     // Group by poll timestamp to get fleet-wide snapshot per poll
     const polls = new Map();
@@ -1352,7 +1436,14 @@ export function createDatabase(dbPath, options = {}) {
       polls.get(row.polled_at).push(row);
     }
 
-    // For each consecutive poll pair, compute earnings = sum(occupied_gpus * listed_gpu_cost) * interval_hours
+    const fleetRows = statements.selectFleetSnapshotsSince
+      .all(dayStart)
+      .filter((row) => row.polled_at < nextDay);
+    const anchorTotal = fleetRows.length > 0
+      ? Number(fleetRows[fleetRows.length - 1].total_daily_earnings)
+      : null;
+
+    // For each consecutive poll pair, compute an hourly earnings estimate from the stored snapshot state.
     const pollTimes = [...polls.keys()].sort();
     const hourBuckets = new Array(24).fill(0);
 
@@ -1377,14 +1468,45 @@ export function createDatabase(dbPath, options = {}) {
       hourBuckets[hour] += earnings;
     }
 
+    const estimatedTotal = hourBuckets.reduce((sum, value) => sum + value, 0);
+    const hasAnchorTotal = Number.isFinite(anchorTotal);
+    const finalTotal = override ? Number(override.total_daily_earnings) : anchorTotal;
+
+    if (Number.isFinite(finalTotal)) {
+      if (estimatedTotal > 0) {
+        const scale = finalTotal / estimatedTotal;
+        for (let index = 0; index < hourBuckets.length; index += 1) {
+          hourBuckets[index] *= scale;
+        }
+      } else if (pollTimes.length > 0) {
+        const fallbackHour = new Date(pollTimes[0]).getUTCHours();
+        hourBuckets[fallbackHour] = finalTotal;
+      }
+    }
+
     const hours = hourBuckets.map((amount, h) => ({
       hour: h,
       earnings: Number(amount.toFixed(4))
     }));
 
-    const total = Number(hourBuckets.reduce((s, v) => s + v, 0).toFixed(4));
+    const total = Number.isFinite(finalTotal)
+      ? Number(finalTotal.toFixed(4))
+      : Number(hourBuckets.reduce((s, v) => s + v, 0).toFixed(4));
 
-    return { date: dateStr, hours, total };
+    return {
+      date: dateStr,
+      hours,
+      total,
+      source: override ? "override" : hasAnchorTotal ? "fleet_snapshot" : "estimated",
+      generated_at: override?.updated_at || (hasAnchorTotal ? fleetRows[fleetRows.length - 1]?.polled_at ?? null : pollTimes[pollTimes.length - 1] ?? null),
+      override: override ? {
+        earnings_date: override.earnings_date,
+        total_daily_earnings: Number(Number(override.total_daily_earnings).toFixed(4)),
+        source: override.source,
+        note: override.note || null,
+        updated_at: override.updated_at
+      } : null
+    };
   }
 
   function getFleetHistory(hours) {
@@ -1653,6 +1775,7 @@ export function createDatabase(dbPath, options = {}) {
       row_counts: {
         schema_migrations: statements.countSchemaMigrations.get()?.count ?? 0,
         maintenance_runs: statements.countMaintenanceRuns.get()?.count ?? 0,
+        daily_earnings_overrides: statements.countDailyEarningsOverrides.get()?.count ?? 0,
         polls: statements.countPolls.get()?.count ?? 0,
         fleet_snapshots: statements.countFleetSnapshots.get()?.count ?? 0,
         fleet_snapshot_hourly_rollups: statements.countFleetSnapshotHourlyRollups.get()?.count ?? 0,
@@ -1827,6 +1950,73 @@ export function createDatabase(dbPath, options = {}) {
     });
   }
 
+  function runMaterializeDailyEarningsHistory({ earningsDate = null } = {}) {
+    return runMaintenanceAction("materialize_daily_earnings", () => {
+      const completedAt = new Date().toISOString();
+      const tx = db.transaction(() => materializeDailyEarningsHistory(statements, {
+        earningsDate,
+        completedAt
+      }));
+      const materialized = tx();
+
+      return {
+        completed_at: completedAt,
+        materialized
+      };
+    });
+  }
+
+  function runPatchDailyEarnings({ earningsDate, totalDailyEarnings, source = "manual", note = null, action = "set" }) {
+    return runMaintenanceAction("patch_daily_earnings", () => {
+      const normalizedDate = normalizeUtcDateString(earningsDate);
+      if (!normalizedDate) {
+        throw new Error("earnings_date must be YYYY-MM-DD");
+      }
+
+      const normalizedAction = action === "clear" ? "clear" : "set";
+      const completedAt = new Date().toISOString();
+
+      if (normalizedAction === "clear") {
+        const deleted = statements.deleteDailyEarningsOverride.run(normalizedDate).changes;
+        return {
+          completed_at: completedAt,
+          patched: {
+            earnings_date: normalizedDate,
+            action: "clear",
+            deleted
+          }
+        };
+      }
+
+      const total = Number(totalDailyEarnings);
+      if (!Number.isFinite(total)) {
+        throw new Error("total_daily_earnings must be a finite number");
+      }
+
+      const storedTotal = Number(total.toFixed(4));
+      const storedSource = String(source || "manual").trim() || "manual";
+      const storedNote = cleanText(note);
+
+      statements.upsertDailyEarningsOverride.run({
+        earnings_date: normalizedDate,
+        total_daily_earnings: storedTotal,
+        source: storedSource,
+        note: storedNote,
+        updated_at: completedAt
+      });
+
+      return {
+        completed_at: completedAt,
+        patched: {
+          earnings_date: normalizedDate,
+          total_daily_earnings: storedTotal,
+          source: storedSource,
+          note: storedNote
+        }
+      };
+    });
+  }
+
   function runRebuildDerivedState() {
     return runMaintenanceAction("rebuild_derived", () => {
       const tx = db.transaction(() => {
@@ -1908,6 +2098,7 @@ export function createDatabase(dbPath, options = {}) {
         }
 
         const completedAt = new Date().toISOString();
+        const materialized = materializeDailyEarningsHistory(statements, { completedAt });
         statements.upsertMeta.run({
           key: "derived_rebuild_last_run_at",
           value: completedAt,
@@ -1931,7 +2122,8 @@ export function createDatabase(dbPath, options = {}) {
             gpu_type_utilization_hourly_rollups: gpuRollups.utilization_upserted,
             gpu_type_price_hourly_rollups: gpuRollups.price_upserted,
             platform_gpu_metric_hourly_rollups: platformRollups.upserted
-          }
+          },
+          materialized
         };
       });
 
@@ -1943,6 +2135,8 @@ export function createDatabase(dbPath, options = {}) {
     db,
     getDatabaseHealth,
     getRetentionPreview,
+    runPatchDailyEarnings,
+    runMaterializeDailyEarningsHistory,
     runRebuildDerivedState,
     runVacuum,
     runAnalyze,
@@ -2319,6 +2513,96 @@ function buildRetentionPreview(statements, options) {
   };
 }
 
+function materializeDailyEarningsHistory(statements, { earningsDate = null, completedAt = null } = {}) {
+  const completedAtIso = completedAt || new Date().toISOString();
+  const normalizedDate = earningsDate ? normalizeUtcDateString(earningsDate) : null;
+  const overrides = normalizedDate
+    ? [statements.selectDailyEarningsOverrideByDate.get(normalizedDate)].filter(Boolean)
+    : statements.selectAllDailyEarningsOverrides.all();
+
+  if (earningsDate && !normalizedDate) {
+    throw new Error("earnings_date must be YYYY-MM-DD");
+  }
+
+  if (earningsDate && !overrides.length) {
+    throw new Error(`No daily earnings override found for ${normalizedDate}`);
+  }
+
+  const earningsDates = [];
+  let fleetSnapshotsUpdated = 0;
+  let fleetSnapshotHourlyRollupsUpdated = 0;
+
+  for (const override of overrides) {
+    const overrideDate = normalizeUtcDateString(override?.earnings_date);
+    if (!overrideDate) {
+      continue;
+    }
+
+    const dateRange = getUtcDateRange(overrideDate);
+    if (!dateRange) {
+      continue;
+    }
+
+    const totalDailyEarnings = Number(override.total_daily_earnings);
+    if (!Number.isFinite(totalDailyEarnings)) {
+      continue;
+    }
+
+    const storedTotal = Number(totalDailyEarnings.toFixed(4));
+    fleetSnapshotsUpdated += statements.updateFleetSnapshotsDailyEarningsByDate.run({
+      day_start: dateRange.dayStart,
+      next_day: dateRange.nextDay,
+      total_daily_earnings: storedTotal
+    }).changes;
+
+    const dayFleetRows = statements.selectFleetSnapshotsSince
+      .all(dateRange.dayStart)
+      .filter((row) => row.polled_at < dateRange.nextDay);
+
+    if (dayFleetRows.length) {
+      const groupedRows = groupFleetSnapshotRollupRows(dayFleetRows);
+      for (const [bucketStart, group] of groupedRows.entries()) {
+        statements.upsertFleetSnapshotHourlyRollup.run({
+          bucket_start: bucketStart,
+          sample_count: group.length,
+          total_machines: averageFinite(group.map((row) => row.total_machines)) ?? 0,
+          datacenter_machines: averageFinite(group.map((row) => row.datacenter_machines)) ?? 0,
+          unlisted_machines: averageFinite(group.map((row) => row.unlisted_machines)) ?? 0,
+          listed_gpus: averageFinite(group.map((row) => row.listed_gpus)) ?? 0,
+          unlisted_gpus: averageFinite(group.map((row) => row.unlisted_gpus)) ?? 0,
+          occupied_gpus: averageFinite(group.map((row) => row.occupied_gpus)) ?? 0,
+          utilisation_pct: averageFinite(group.map((row) => row.utilisation_pct)) ?? 0,
+          total_daily_earnings: storedTotal
+        });
+      }
+      fleetSnapshotHourlyRollupsUpdated += groupedRows.size;
+    } else {
+      fleetSnapshotHourlyRollupsUpdated += statements.updateFleetSnapshotHourlyRollupsDailyEarningsByDate.run({
+        day_start: dateRange.dayStart,
+        next_day: dateRange.nextDay,
+        total_daily_earnings: storedTotal
+      }).changes;
+    }
+    earningsDates.push(overrideDate);
+  }
+
+  if (earningsDates.length) {
+    statements.upsertMeta.run({
+      key: "daily_earnings_materialized_last_run_at",
+      value: completedAtIso,
+      updated_at: completedAtIso
+    });
+  }
+
+  return {
+    completed_at: completedAtIso,
+    earnings_dates: earningsDates,
+    overrides_applied: earningsDates.length,
+    fleet_snapshots_updated: fleetSnapshotsUpdated,
+    fleet_snapshot_hourly_rollups_updated: fleetSnapshotHourlyRollupsUpdated
+  };
+}
+
 function rollupMachineSnapshotsBefore(statements, cutoff) {
   const rows = statements.selectMachineSnapshotsBefore.all(cutoff);
   const groupedRows = groupMachineSnapshotRollupRows(rows);
@@ -2540,6 +2824,34 @@ function buildRetentionCutoffIso(days) {
 function normalizeRetentionDays(days) {
   const value = Number(days);
   return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function normalizeUtcDateString(value) {
+  if (value == null) {
+    return null;
+  }
+
+  const text = String(value).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+function getUtcDateRange(value) {
+  const normalizedDate = normalizeUtcDateString(value);
+  if (!normalizedDate) {
+    return null;
+  }
+
+  const dayStart = `${normalizedDate}T00:00:00.000Z`;
+  const nextDay = new Date(Date.parse(dayStart) + 24 * 60 * 60 * 1000).toISOString();
+  return {
+    dayStart,
+    nextDay
+  };
+}
+
+function cleanText(value) {
+  const text = String(value ?? "").trim();
+  return text.length > 0 ? text : null;
 }
 
 function getDatabaseFileSize(dbPath) {

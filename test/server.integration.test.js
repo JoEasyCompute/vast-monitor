@@ -174,6 +174,27 @@ test("server integration returns expected API payloads and dependency failures",
         authorization: "Bearer secret-admin-token"
       }
     });
+    const earningsPatch = await invokeRoute(app, "/api/admin/daily-earnings", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer secret-admin-token"
+      },
+      body: {
+        earnings_date: "2026-04-27",
+        total_daily_earnings: 2332.79,
+        source: "manual"
+      }
+    });
+    const earningsMaterialize = await invokeRoute(app, "/api/admin/daily-earnings", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer secret-admin-token"
+      },
+      body: {
+        earnings_date: "2026-04-27",
+        action: "materialize"
+      }
+    });
     const fleet = await invokeRoute(app, "/api/fleet/history", { query: { hours: "24" } });
     const history = await invokeRoute(app, "/api/history", { query: { machine_id: "1", hours: "24" } });
     const reports = await invokeRoute(app, "/api/reports", { query: { machine_id: "1" } });
@@ -256,13 +277,21 @@ test("server integration returns expected API payloads and dependency failures",
     assert.ok(Number.isFinite(rebuild.body.rebuild.duration_ms));
     assert.ok(typeof rebuild.body.rebuild.completed_at === "string");
     assert.ok(Number.isFinite(rebuild.body.rebuild.rebuilt.fleet_snapshots));
+    assert.ok(Number.isFinite(rebuild.body.rebuild.materialized.overrides_applied));
+    assert.equal(earningsPatch.statusCode, 200);
+    assert.equal(earningsPatch.body.ok, true);
+    assert.equal(earningsMaterialize.statusCode, 200);
+    assert.equal(earningsMaterialize.body.ok, true);
+    assert.equal(earningsMaterialize.body.materialize.overrides_applied, 1);
     const dbHealthAfterMaintenance = await invokeRoute(app, "/api/admin/db-health", {
       headers: {
         authorization: "Bearer secret-admin-token"
       }
     });
-    assert.equal(dbHealthAfterMaintenance.body.database.row_counts.maintenance_runs, 3);
-    assert.equal(dbHealthAfterMaintenance.body.database.maintenance.recent_runs[0].action, "rebuild_derived");
+    assert.equal(dbHealthAfterMaintenance.body.database.row_counts.maintenance_runs, 5);
+    assert.equal(dbHealthAfterMaintenance.body.database.maintenance.recent_runs[0].action, "materialize_daily_earnings");
+    assert.equal(dbHealthAfterMaintenance.body.database.maintenance.recent_runs[1].action, "patch_daily_earnings");
+    assert.equal(dbHealthAfterMaintenance.body.database.maintenance.recent_runs[2].action, "rebuild_derived");
 
     assert.equal(fleet.statusCode, 200);
     assert.ok(Array.isArray(fleet.body.history));
@@ -522,6 +551,15 @@ test("admin db-health route requires configured auth token", async () => {
       method: "POST",
       headers: { authorization: "Bearer top-secret" }
     });
+    const patch = await invokeRoute(app, "/api/admin/daily-earnings", {
+      method: "POST",
+      headers: { authorization: "Bearer top-secret" },
+      body: {
+        earnings_date: "2026-04-27",
+        total_daily_earnings: 2180.2,
+        source: "manual"
+      }
+    });
 
     assert.equal(missing.statusCode, 401);
     assert.equal(missing.body.error, "admin authorization required");
@@ -532,6 +570,7 @@ test("admin db-health route requires configured auth token", async () => {
     assert.equal(analyze.statusCode, 200);
     assert.equal(vacuum.statusCode, 200);
     assert.equal(rebuild.statusCode, 200);
+    assert.equal(patch.statusCode, 200);
   } finally {
     db.db.close();
   }
@@ -605,7 +644,7 @@ test("admin db-health route is disabled when no admin token is configured", asyn
   }
 });
 
-async function invokeRoute(app, routePath, { query = {}, headers = {}, method = "GET" } = {}) {
+async function invokeRoute(app, routePath, { query = {}, headers = {}, method = "GET", body = null } = {}) {
   const layer = app.router.stack.find((entry) => entry.route?.path === routePath);
   assert.ok(layer, `Route ${routePath} not found`);
 
@@ -613,7 +652,8 @@ async function invokeRoute(app, routePath, { query = {}, headers = {}, method = 
     query,
     headers,
     method,
-    url: routePath
+    url: routePath,
+    body
   };
 
   const result = {

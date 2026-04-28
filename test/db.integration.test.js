@@ -14,6 +14,8 @@ test("database integration returns fleet history, gpu utilization, price history
   const firstDate = firstPollAt.toISOString();
   const secondDate = secondPollAt.toISOString();
   const earningsDate = firstDate.slice(0, 10);
+  const dayStart = `${earningsDate}T00:00:00.000Z`;
+  const nextDay = new Date(Date.parse(dayStart) + (24 * 60 * 60 * 1000)).toISOString();
   const firstHour = firstPollAt.getUTCHours();
 
   try {
@@ -112,8 +114,51 @@ test("database integration returns fleet history, gpu utilization, price history
     assert.equal(fleetHistory.market_weighted_utilization_history[1].coverage_pct, 40);
     assert.equal(priceHistory.series.length, 6);
     assert.equal(priceHistory.series[0].gpu_type, "A100");
-    assert.equal(hourly.total, 7.9);
-    assert.equal(hourly.hours[firstHour].earnings, 7.9);
+    const latestDailyTotal = store.db.prepare(`
+      SELECT total_daily_earnings
+      FROM fleet_snapshots
+      WHERE polled_at >= ? AND polled_at < ?
+      ORDER BY polled_at DESC
+      LIMIT 1
+    `).get(dayStart, nextDay)?.total_daily_earnings ?? 0;
+    assert.equal(hourly.total, Number(latestDailyTotal.toFixed(4)));
+    assert.equal(hourly.hours[firstHour].earnings, Number(latestDailyTotal.toFixed(4)));
+
+    const patchResult = store.runPatchDailyEarnings({
+      earningsDate,
+      totalDailyEarnings: 2332.79,
+      source: "manual"
+    });
+    const materializeResult = store.runMaterializeDailyEarningsHistory({
+      earningsDate
+    });
+    const patchedHourly = store.getHourlyEarnings(earningsDate);
+    const healthAfterPatch = store.getDatabaseHealth();
+    const patchedFleetTotals = store.db.prepare(`
+      SELECT total_daily_earnings
+      FROM fleet_snapshots
+      WHERE polled_at >= ? AND polled_at < ?
+      ORDER BY polled_at ASC
+    `).all(dayStart, nextDay).map((row) => Number(row.total_daily_earnings));
+    const patchedRollupTotals = store.db.prepare(`
+      SELECT total_daily_earnings
+      FROM fleet_snapshot_hourly_rollups
+      WHERE bucket_start >= ? AND bucket_start < ?
+      ORDER BY bucket_start ASC
+    `).all(dayStart, nextDay).map((row) => Number(row.total_daily_earnings));
+
+    assert.equal(patchResult.patched.earnings_date, earningsDate);
+    assert.equal(materializeResult.materialized.overrides_applied, 1);
+    assert.ok(materializeResult.materialized.fleet_snapshots_updated >= 0);
+    assert.ok(materializeResult.materialized.fleet_snapshot_hourly_rollups_updated >= 0);
+    assert.ok(patchedFleetTotals.length > 0);
+    assert.ok(patchedRollupTotals.length > 0);
+    assert.ok(patchedFleetTotals.every((value) => value === 2332.79));
+    assert.ok(patchedRollupTotals.every((value) => value === 2332.79));
+    assert.equal(patchedHourly.total, 2332.79);
+    assert.equal(patchedHourly.source, "override");
+    assert.equal(patchedHourly.override.total_daily_earnings, 2332.79);
+    assert.equal(healthAfterPatch.row_counts.daily_earnings_overrides, 1);
     assert.ok(alerts.some((alert) => alert.alert_type === "hostname_collision"));
   } finally {
     store.db.close();
@@ -291,17 +336,22 @@ test("database startup records applied schema migrations on fresh databases", ()
       {
         id: "006_machine_verification_metadata",
         description: "Persist machine verification metadata"
+      },
+      {
+        id: "007_daily_earnings_overrides",
+        description: "Persist operator-adjusted daily earnings overrides"
       }
     ]);
 
     const dbHealth = store.getDatabaseHealth();
-    assert.equal(dbHealth.row_counts.schema_migrations, 6);
+    assert.equal(dbHealth.row_counts.schema_migrations, 7);
     assert.equal(dbHealth.schema_migrations[0].id, "001_managed_schema_baseline");
     assert.equal(dbHealth.schema_migrations[1].id, "002_maintenance_runs");
     assert.equal(dbHealth.schema_migrations[2].id, "003_maintenance_locks");
     assert.equal(dbHealth.schema_migrations[3].id, "004_platform_gpu_metric_snapshots");
     assert.equal(dbHealth.schema_migrations[4].id, "005_platform_gpu_metric_hourly_rollups");
     assert.equal(dbHealth.schema_migrations[5].id, "006_machine_verification_metadata");
+    assert.equal(dbHealth.schema_migrations[6].id, "007_daily_earnings_overrides");
   } finally {
     store.db.close();
   }
@@ -397,7 +447,8 @@ test("database startup upgrades legacy schema through managed migrations", () =>
       { id: "003_maintenance_locks" },
       { id: "004_platform_gpu_metric_snapshots" },
       { id: "005_platform_gpu_metric_hourly_rollups" },
-      { id: "006_machine_verification_metadata" }
+      { id: "006_machine_verification_metadata" },
+      { id: "007_daily_earnings_overrides" }
     ]);
   } finally {
     store.db.close();

@@ -3,6 +3,15 @@ import { escapeHtml, formatChartTimestamp } from "./formatters.js";
 export function buildDbAdminPanelMarkup({
   dbHealth,
   hasAdminToken,
+  selectedEarningsDate = "",
+  dailyEarningsPatchDate = "",
+  dailyEarningsPatchTotal = "",
+  dailyEarningsPatchLoading = false,
+  dailyEarningsPatchError = "",
+  dailyEarningsPatchResult = null,
+  dailyEarningsMaterializeLoading = false,
+  dailyEarningsMaterializeError = "",
+  dailyEarningsMaterializeResult = null,
   retentionPreview = null,
   retentionPreviewLoading = false,
   retentionPreviewError = "",
@@ -53,6 +62,7 @@ export function buildDbAdminPanelMarkup({
     ["DB Size", formatDbSize(database.file_size_bytes)],
     ["Fleet Ver", database.derived_state?.fleet_snapshot_state_version || "-"],
     ["Polls", rowCounts.polls ?? 0],
+    ["Daily Overrides", rowCounts.daily_earnings_overrides ?? 0],
     ["Fleet Raw/Roll", `${rowCounts.fleet_snapshots ?? 0} / ${rowCounts.fleet_snapshot_hourly_rollups ?? 0}`],
     ["Machine Raw/Roll", `${rowCounts.machine_snapshots ?? 0} / ${rowCounts.machine_snapshot_hourly_rollups ?? 0}`],
     ["GPU Util Roll", rowCounts.gpu_type_utilization_hourly_rollups ?? 0],
@@ -79,6 +89,9 @@ export function buildDbAdminPanelMarkup({
 
   const isConfirmingVacuum = confirmAction === "vacuum";
   const isConfirmingRebuild = confirmAction === "rebuild-derived";
+  const isConfirmingDailyEarnings = confirmAction === "daily-earnings-patch"
+    || confirmAction === "daily-earnings-clear"
+    || confirmAction === "daily-earnings-materialize";
 
   return {
     meta: `Version updated ${database.derived_state?.fleet_snapshot_state_updated_at ? formatChartTimestamp(database.derived_state.fleet_snapshot_state_updated_at) : "unknown"}`,
@@ -99,8 +112,22 @@ export function buildDbAdminPanelMarkup({
         <button class="settings-inline-button" type="button" data-db-admin-action="copy-diagnostics">Copy JSON</button>
         <button class="settings-inline-button" type="button" data-db-admin-action="download-diagnostics">Download JSON</button>
         ${retentionPreview ? '<button class="settings-inline-button" type="button" data-db-admin-action="clear-retention-preview">Clear Preview</button>' : ""}
-        ${(isConfirmingVacuum || isConfirmingRebuild) ? '<button class="settings-inline-button" type="button" data-db-admin-action="cancel-confirm">Cancel</button>' : ""}
+        ${(isConfirmingVacuum || isConfirmingRebuild || isConfirmingDailyEarnings) ? '<button class="settings-inline-button" type="button" data-db-admin-action="cancel-confirm">Cancel</button>' : ""}
       </div>
+      ${buildDailyEarningsPatchMarkup({
+        selectedEarningsDate,
+        dailyEarningsPatchDate,
+        dailyEarningsPatchTotal,
+        dailyEarningsPatchLoading,
+        dailyEarningsPatchError,
+        dailyEarningsPatchResult,
+        dailyEarningsMaterializeLoading,
+        dailyEarningsMaterializeError,
+        dailyEarningsMaterializeResult,
+        isConfirmingPatch: confirmAction === "daily-earnings-patch",
+        isConfirmingClear: confirmAction === "daily-earnings-clear",
+        isConfirmingMaterialize: confirmAction === "daily-earnings-materialize"
+      })}
       <div class="db-admin-badges">${statusBadges}</div>
       ${warningMarkup}
       ${buildConfirmationMarkup(confirmAction)}
@@ -117,6 +144,7 @@ export function buildDbAdminPanelMarkup({
         <div class="db-admin-path">Last Analyze: ${escapeHtml(formatMaintenanceTimestamp(metadata.analyze_last_run_at?.value))}</div>
         <div class="db-admin-path">Last Vacuum: ${escapeHtml(formatMaintenanceTimestamp(metadata.vacuum_last_run_at?.value))}</div>
         <div class="db-admin-path">Last Derived Rebuild: ${escapeHtml(formatMaintenanceTimestamp(metadata.derived_rebuild_last_run_at?.value))}</div>
+        <div class="db-admin-path">Last Daily Earnings Materialize: ${escapeHtml(formatMaintenanceTimestamp(metadata.daily_earnings_materialized_last_run_at?.value))}</div>
         <div class="db-admin-path">Maintenance Active: ${escapeHtml(maintenance.in_progress?.action || "No")}</div>
         <div class="db-admin-path">Benchmark Status: ${escapeHtml(platformBenchmark.ok ? (platformBenchmark.stale ? "Cached" : "Live") : "Unavailable")}</div>
         <div class="db-admin-path">Benchmark Source: ${escapeHtml(platformBenchmark.source || "-")}</div>
@@ -274,7 +302,13 @@ function buildConfirmationMarkup(confirmAction) {
 
   const label = confirmAction === "vacuum"
     ? "VACUUM rewrites the database file and may temporarily block DB work."
-    : "Rebuild Derived recreates fleet snapshots and rollup tables from retained raw history.";
+    : confirmAction === "rebuild-derived"
+      ? "Rebuild Derived recreates fleet snapshots and rollup tables from retained raw history."
+      : confirmAction === "daily-earnings-patch"
+        ? "Patch Daily Earnings overrides the stored daily total used by the hourly earnings overview."
+        : confirmAction === "daily-earnings-materialize"
+          ? "Apply to History copies the selected override into fleet snapshots and hourly rollups."
+          : "Clear Daily Earnings Patch removes the stored override for the selected UTC day.";
 
   return `
     <div class="db-admin-preview db-admin-confirm">
@@ -285,6 +319,117 @@ function buildConfirmationMarkup(confirmAction) {
       </div>
     </div>
   `;
+}
+
+function buildDailyEarningsPatchMarkup({
+  selectedEarningsDate,
+  dailyEarningsPatchDate,
+  dailyEarningsPatchTotal,
+  dailyEarningsPatchLoading,
+  dailyEarningsPatchError,
+  dailyEarningsPatchResult,
+  dailyEarningsMaterializeLoading,
+  dailyEarningsMaterializeError,
+  dailyEarningsMaterializeResult,
+  isConfirmingPatch,
+  isConfirmingClear,
+  isConfirmingMaterialize
+}) {
+  const patchDate = dailyEarningsPatchDate || selectedEarningsDate || "";
+  const currentPatchTotal = Number(dailyEarningsPatchTotal);
+  const currentPatchValue = Number.isFinite(currentPatchTotal) ? dailyEarningsPatchTotal : "";
+
+  return `
+    <div class="db-admin-preview">
+      <div class="settings-section-title">Daily Earnings Patch</div>
+      <div class="db-admin-detail">
+        <div class="settings-inline-controls">
+          <input
+            class="filter-input settings-input"
+            type="date"
+            data-db-admin-field="daily-earnings-date"
+            value="${escapeHtml(patchDate)}"
+          />
+          <input
+            class="filter-input settings-input"
+            type="number"
+            min="0"
+            step="0.01"
+            inputmode="decimal"
+            placeholder="Corrected daily total"
+            data-db-admin-field="daily-earnings-total"
+            value="${escapeHtml(currentPatchValue)}"
+          />
+        </div>
+        <div class="settings-inline-controls">
+          <button
+            class="settings-inline-button settings-inline-button-warn${isConfirmingPatch ? " settings-inline-button-danger" : ""}"
+            type="button"
+            data-db-admin-action="daily-earnings-patch"
+            ${dailyEarningsPatchLoading ? "disabled" : ""}
+          >
+            ${dailyEarningsPatchLoading ? "Patching..." : isConfirmingPatch ? "Confirm Patch" : "Apply Patch"}
+          </button>
+          <button
+            class="settings-inline-button settings-inline-button-warn${isConfirmingClear ? " settings-inline-button-danger" : ""}"
+            type="button"
+            data-db-admin-action="daily-earnings-clear"
+            ${dailyEarningsPatchLoading ? "disabled" : ""}
+          >
+            ${dailyEarningsPatchLoading ? "Clearing..." : isConfirmingClear ? "Confirm Clear" : "Clear Patch"}
+          </button>
+          <button
+            class="settings-inline-button settings-inline-button-warn${isConfirmingMaterialize ? " settings-inline-button-danger" : ""}"
+            type="button"
+            data-db-admin-action="daily-earnings-materialize"
+            ${dailyEarningsMaterializeLoading ? "disabled" : ""}
+          >
+            ${dailyEarningsMaterializeLoading ? "Applying..." : isConfirmingMaterialize ? "Confirm Apply" : "Apply to History"}
+          </button>
+        </div>
+        <div class="db-admin-path">Override the stored UTC day total used by the hourly earnings overview. Apply to History copies the selected override into fleet snapshots and hourly rollups so older charts stay aligned. Use Rebuild Derived only if you also need to reconstruct derived tables from raw history. The existing date-range indexes already cover these paths, so add new indexes only if profiling shows a real bottleneck.</div>
+        ${dailyEarningsPatchError ? `<div class="db-admin-path">Patch Error: ${escapeHtml(dailyEarningsPatchError)}</div>` : ""}
+        ${dailyEarningsPatchResult ? `
+          <div class="db-admin-path">Patch Result: ${escapeHtml(renderDailyEarningsPatchResult(dailyEarningsPatchResult))}</div>
+        ` : ""}
+        ${dailyEarningsMaterializeError ? `<div class="db-admin-path">History Error: ${escapeHtml(dailyEarningsMaterializeError)}</div>` : ""}
+        ${dailyEarningsMaterializeResult ? `
+          <div class="db-admin-path">History Result: ${escapeHtml(renderDailyEarningsMaterializeResult(dailyEarningsMaterializeResult))}</div>
+        ` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function renderDailyEarningsPatchResult(result) {
+  if (!result) {
+    return "-";
+  }
+
+  if (result.action === "clear") {
+    return `Cleared patch for ${result.earnings_date}${Number.isFinite(result.deleted) ? ` (${result.deleted} row(s))` : ""}`;
+  }
+
+  return `Patched ${result.earnings_date} to ${formatCurrencyAmount(result.total_daily_earnings)}${result.source ? ` · ${result.source}` : ""}`;
+}
+
+function renderDailyEarningsMaterializeResult(result) {
+  if (!result) {
+    return "-";
+  }
+
+  const dates = Array.isArray(result.earnings_dates) ? result.earnings_dates.filter(Boolean) : [];
+  const dateLabel = dates.length ? dates.join(", ") : result.earnings_date || "-";
+  const overrideCount = Number.isFinite(result.overrides_applied) ? result.overrides_applied : 0;
+  const fleetSnapshotCount = Number.isFinite(result.fleet_snapshots_updated) ? result.fleet_snapshots_updated : 0;
+  const rollupCount = Number.isFinite(result.fleet_snapshot_hourly_rollups_updated) ? result.fleet_snapshot_hourly_rollups_updated : 0;
+
+  return `Applied ${overrideCount} override(s) for ${dateLabel}${fleetSnapshotCount || rollupCount ? ` (${fleetSnapshotCount} fleet row(s), ${rollupCount} rollup row(s))` : ""}`;
+}
+
+function formatCurrencyAmount(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? `$${num.toFixed(2)}` : "-";
 }
 
 function buildAnalyzeMarkup(result, error) {
@@ -425,8 +570,8 @@ function buildRebuildMarkup(result, error) {
     return `
       <div class="db-admin-preview">
         <div class="settings-section-title">Rebuild Derived</div>
-        <div class="db-admin-detail">
-          <div class="db-admin-path">Rebuilds derived fleet snapshots and rollup tables from currently retained raw snapshot history.</div>
+      <div class="db-admin-detail">
+          <div class="db-admin-path">Rebuilds derived fleet snapshots and rollup tables from currently retained raw snapshot history, then reapplies any stored daily earnings overrides.</div>
         </div>
       </div>
     `;
@@ -443,6 +588,7 @@ function buildRebuildMarkup(result, error) {
         <div class="db-admin-path">Machine rollups rebuilt: ${escapeHtml(String(result.rebuilt?.machine_snapshot_hourly_rollups ?? 0))}</div>
         <div class="db-admin-path">GPU util/price rollups rebuilt: ${escapeHtml(`${result.rebuilt?.gpu_type_utilization_hourly_rollups ?? 0} / ${result.rebuilt?.gpu_type_price_hourly_rollups ?? 0}`)}</div>
         <div class="db-admin-path">Benchmark rollups rebuilt: ${escapeHtml(`${result.rebuilt?.platform_gpu_metric_hourly_rollups ?? 0}`)}</div>
+        <div class="db-admin-path">Daily earnings overrides applied: ${escapeHtml(String(result.materialized?.overrides_applied ?? 0))}</div>
       </div>
     </div>
   `;

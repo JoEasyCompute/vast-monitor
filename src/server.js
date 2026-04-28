@@ -18,6 +18,7 @@ export function createServer({ config, db, monitor, plugins = [], adminActionSch
     schedule: adminActionScheduler
   });
 
+  app.use(express.json());
   app.use(express.static(path.join(config.projectRoot, "public")));
   registerPluginStaticDirs(app, config, plugins);
 
@@ -143,6 +144,53 @@ export function createServer({ config, db, monitor, plugins = [], adminActionSch
       res.json({
         ok: true,
         rebuild: typeof db?.runRebuildDerivedState === "function" ? db.runRebuildDerivedState() : null
+      });
+    } catch (error) {
+      handleAdminActionError(res, error);
+    }
+  }));
+
+  app.post("/api/admin/daily-earnings", routeMetrics.wrap("admin_daily_earnings", (req, res) => {
+    if (!requireAdminAccess(req, res, config)) {
+      return;
+    }
+
+    try {
+      const earningsDate = String(req.body?.earnings_date || req.body?.date || "").trim();
+      const action = String(req.body?.action || "set").trim().toLowerCase();
+      const source = String(req.body?.source || "manual").trim() || "manual";
+      const note = req.body?.note == null ? null : String(req.body.note);
+      const totalDailyEarnings = req.body?.total_daily_earnings ?? req.body?.total ?? null;
+
+      if (action === "materialize") {
+        const result = typeof db?.runMaterializeDailyEarningsHistory === "function"
+          ? db.runMaterializeDailyEarningsHistory({
+              earningsDate
+            })
+          : null;
+
+        res.json({
+          ok: true,
+          materialize: result?.materialized || null,
+          completed_at: result?.completed_at || null
+        });
+        return;
+      }
+
+      const result = typeof db?.runPatchDailyEarnings === "function"
+        ? db.runPatchDailyEarnings({
+            earningsDate,
+            totalDailyEarnings,
+            source,
+            note,
+            action
+          })
+        : null;
+
+      res.json({
+        ok: true,
+        patch: result?.patched || null,
+        completed_at: result?.completed_at || null
       });
     } catch (error) {
       handleAdminActionError(res, error);

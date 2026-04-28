@@ -194,6 +194,14 @@ let vacuumLoading = false;
 let latestRebuildResult = null;
 let rebuildError = "";
 let rebuildLoading = false;
+let dailyEarningsPatchDate = selectedEarningsDate;
+let dailyEarningsPatchTotal = "";
+let dailyEarningsPatchLoading = false;
+let dailyEarningsPatchError = "";
+let latestDailyEarningsPatchResult = null;
+let dailyEarningsMaterializeLoading = false;
+let dailyEarningsMaterializeError = "";
+let latestDailyEarningsMaterializeResult = null;
 let pendingAdminConfirmation = "";
 let adminMaintenanceWatcherId = null;
 let latestPollMonitorAt = null;
@@ -224,6 +232,7 @@ const loadedExtensionAssets = {
   styles: new Set()
 };
 initializeStateFromUrl();
+dailyEarningsPatchDate = selectedEarningsDate;
 
 function handleSort(col) {
   if (sortCol === col) {
@@ -882,7 +891,12 @@ function renderHourlyEarnings(data) {
       `;
     })
     .join("");
-  earningsMeta.textContent = buildSectionMeta(`Stored hourly estimate for ${data.date}`, data.generated_at || null);
+  const earningsSourceLabel = data.source === "override"
+    ? `Patched hourly earnings override for ${data.date}`
+    : data.source === "fleet_snapshot"
+      ? `Stored hourly earnings anchored to the latest daily total for ${data.date}`
+      : `Stored hourly estimate for ${data.date}`;
+  earningsMeta.textContent = buildSectionMeta(earningsSourceLabel, data.generated_at || null);
 
   if (isCarouselMode()) {
     syncCarouselGroupHeights();
@@ -1144,6 +1158,15 @@ function renderDbAdminPanel(dbHealth = null) {
   const { markup, meta } = buildDbAdminPanelMarkup({
     dbHealth,
     hasAdminToken: Boolean(uiSettings.adminApiToken.trim()),
+    selectedEarningsDate,
+    dailyEarningsPatchDate,
+    dailyEarningsPatchTotal,
+    dailyEarningsPatchLoading,
+    dailyEarningsPatchError,
+    dailyEarningsPatchResult: latestDailyEarningsPatchResult,
+    dailyEarningsMaterializeLoading,
+    dailyEarningsMaterializeError,
+    dailyEarningsMaterializeResult: latestDailyEarningsMaterializeResult,
     retentionPreview: latestRetentionPreview,
     retentionPreviewLoading,
     retentionPreviewError,
@@ -1185,7 +1208,9 @@ function buildDiagnosticsPayload() {
     retention_preview: latestRetentionPreview,
     analyze_result: latestAnalyzeResult,
     vacuum_result: latestVacuumResult,
-    rebuild_result: latestRebuildResult
+    rebuild_result: latestRebuildResult,
+    daily_earnings_patch_result: latestDailyEarningsPatchResult,
+    daily_earnings_materialize_result: latestDailyEarningsMaterializeResult
   };
 }
 
@@ -2014,6 +2039,12 @@ bindDashboardControls({
     latestRebuildResult = null;
     rebuildError = "";
     rebuildLoading = false;
+    latestDailyEarningsPatchResult = null;
+    dailyEarningsPatchError = "";
+    dailyEarningsPatchLoading = false;
+    latestDailyEarningsMaterializeResult = null;
+    dailyEarningsMaterializeError = "";
+    dailyEarningsMaterializeLoading = false;
     pendingAdminConfirmation = "";
     renderPollMonitor(latestObservability, latestPollMonitorAt, latestDbHealthPayload);
     renderDbAdminPanel(latestDbHealthPayload);
@@ -2040,6 +2071,12 @@ bindDashboardControls({
     latestRebuildResult = null;
     rebuildError = "";
     rebuildLoading = false;
+    latestDailyEarningsPatchResult = null;
+    dailyEarningsPatchError = "";
+    dailyEarningsPatchLoading = false;
+    latestDailyEarningsMaterializeResult = null;
+    dailyEarningsMaterializeError = "";
+    dailyEarningsMaterializeLoading = false;
     pendingAdminConfirmation = "";
     renderPollMonitor(latestObservability, latestPollMonitorAt, latestDbHealthPayload);
     renderDbAdminPanel(latestDbHealthPayload);
@@ -2062,6 +2099,12 @@ bindDashboardControls({
     latestRebuildResult = null;
     rebuildError = "";
     rebuildLoading = false;
+    latestDailyEarningsPatchResult = null;
+    dailyEarningsPatchError = "";
+    dailyEarningsPatchLoading = false;
+    latestDailyEarningsMaterializeResult = null;
+    dailyEarningsMaterializeError = "";
+    dailyEarningsMaterializeLoading = false;
     pendingAdminConfirmation = "";
     isAdminTokenVisible = false;
     persistUiSettings(UI_SETTINGS_KEY, uiSettings);
@@ -2163,6 +2206,7 @@ bindDashboardControls({
   },
   onEarningsPrev: () => {
     selectedEarningsDate = shiftUtcDate(selectedEarningsDate, -1);
+    dailyEarningsPatchDate = selectedEarningsDate;
     persistStateToUrl();
     refreshDashboard().catch((error) => console.error(error));
   },
@@ -2173,8 +2217,28 @@ bindDashboardControls({
     }
 
     selectedEarningsDate = nextDate;
+    dailyEarningsPatchDate = selectedEarningsDate;
     persistStateToUrl();
     refreshDashboard().catch((error) => console.error(error));
+  }
+});
+
+dbAdminPanel?.addEventListener("input", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return;
+  }
+
+  const field = target.closest("[data-db-admin-field]");
+  if (!field) {
+    return;
+  }
+
+  const fieldName = field.getAttribute("data-db-admin-field") || "";
+  if (fieldName === "daily-earnings-date") {
+    dailyEarningsPatchDate = String(field.value || "").trim();
+  } else if (fieldName === "daily-earnings-total") {
+    dailyEarningsPatchTotal = String(field.value || "").trim();
   }
 });
 
@@ -2304,6 +2368,152 @@ dbAdminPanel?.addEventListener("click", (event) => {
       .finally(() => {
         pendingAdminConfirmation = "";
         rebuildLoading = false;
+        renderDbAdminPanel(latestDbHealthPayload);
+        refreshDashboard().catch((refreshError) => console.error(refreshError));
+      });
+    return;
+  }
+
+  if (action === "daily-earnings-patch") {
+    const patchDate = String(dailyEarningsPatchDate || selectedEarningsDate || "").trim();
+    const patchTotal = Number(dailyEarningsPatchTotal);
+    if (pendingAdminConfirmation !== "daily-earnings-patch") {
+      pendingAdminConfirmation = "daily-earnings-patch";
+      dailyEarningsPatchError = "";
+      renderDbAdminPanel(latestDbHealthPayload);
+      return;
+    }
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(patchDate) || !Number.isFinite(patchTotal) || patchTotal < 0) {
+      pendingAdminConfirmation = "";
+      dailyEarningsPatchError = "Enter a valid UTC date and a non-negative daily total.";
+      renderDbAdminPanel(latestDbHealthPayload);
+      return;
+    }
+
+    pendingAdminConfirmation = "";
+    dailyEarningsPatchLoading = true;
+    dailyEarningsPatchError = "";
+    renderDbAdminPanel(latestDbHealthPayload);
+
+    fetchAdminJson("/api/admin/daily-earnings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        earnings_date: patchDate,
+        total_daily_earnings: patchTotal,
+        source: "manual",
+        action: "set"
+      })
+    })
+      .then((payload) => {
+        latestDailyEarningsPatchResult = payload.patch || null;
+        dailyEarningsPatchError = "";
+        dailyEarningsPatchDate = patchDate;
+        dailyEarningsPatchTotal = String(Number(patchTotal.toFixed(4)));
+      })
+      .catch((error) => {
+        latestDailyEarningsPatchResult = null;
+        dailyEarningsPatchError = error instanceof Error ? error.message : String(error);
+      })
+      .finally(() => {
+        dailyEarningsPatchLoading = false;
+        renderDbAdminPanel(latestDbHealthPayload);
+        refreshDashboard().catch((refreshError) => console.error(refreshError));
+      });
+    return;
+  }
+
+  if (action === "daily-earnings-clear") {
+    const patchDate = String(dailyEarningsPatchDate || selectedEarningsDate || "").trim();
+    if (pendingAdminConfirmation !== "daily-earnings-clear") {
+      pendingAdminConfirmation = "daily-earnings-clear";
+      dailyEarningsPatchError = "";
+      renderDbAdminPanel(latestDbHealthPayload);
+      return;
+    }
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(patchDate)) {
+      pendingAdminConfirmation = "";
+      dailyEarningsPatchError = "Enter a valid UTC date before clearing a patch.";
+      renderDbAdminPanel(latestDbHealthPayload);
+      return;
+    }
+
+    pendingAdminConfirmation = "";
+    dailyEarningsPatchLoading = true;
+    dailyEarningsPatchError = "";
+    renderDbAdminPanel(latestDbHealthPayload);
+
+    fetchAdminJson("/api/admin/daily-earnings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        earnings_date: patchDate,
+        action: "clear"
+      })
+    })
+      .then((payload) => {
+        latestDailyEarningsPatchResult = payload.patch || null;
+        dailyEarningsPatchError = "";
+      })
+      .catch((error) => {
+        latestDailyEarningsPatchResult = null;
+        dailyEarningsPatchError = error instanceof Error ? error.message : String(error);
+      })
+      .finally(() => {
+        dailyEarningsPatchLoading = false;
+        renderDbAdminPanel(latestDbHealthPayload);
+        refreshDashboard().catch((refreshError) => console.error(refreshError));
+      });
+    return;
+  }
+
+  if (action === "daily-earnings-materialize") {
+    const patchDate = String(dailyEarningsPatchDate || selectedEarningsDate || "").trim();
+    if (pendingAdminConfirmation !== "daily-earnings-materialize") {
+      pendingAdminConfirmation = "daily-earnings-materialize";
+      dailyEarningsMaterializeError = "";
+      renderDbAdminPanel(latestDbHealthPayload);
+      return;
+    }
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(patchDate)) {
+      pendingAdminConfirmation = "";
+      dailyEarningsMaterializeError = "Enter a valid UTC date before applying it to history.";
+      renderDbAdminPanel(latestDbHealthPayload);
+      return;
+    }
+
+    pendingAdminConfirmation = "";
+    dailyEarningsMaterializeLoading = true;
+    dailyEarningsMaterializeError = "";
+    renderDbAdminPanel(latestDbHealthPayload);
+
+    fetchAdminJson("/api/admin/daily-earnings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        earnings_date: patchDate,
+        action: "materialize"
+      })
+    })
+      .then((payload) => {
+        latestDailyEarningsMaterializeResult = payload.materialize || null;
+        dailyEarningsMaterializeError = "";
+      })
+      .catch((error) => {
+        latestDailyEarningsMaterializeResult = null;
+        dailyEarningsMaterializeError = error instanceof Error ? error.message : String(error);
+      })
+      .finally(() => {
+        dailyEarningsMaterializeLoading = false;
         renderDbAdminPanel(latestDbHealthPayload);
         refreshDashboard().catch((refreshError) => console.error(refreshError));
       });

@@ -336,6 +336,47 @@ test("db admin panel renders confirmation state for destructive actions", () => 
   assert.match(rebuildConfirm.markup, /Confirm Rebuild/);
 });
 
+test("db admin panel renders daily earnings patch controls and result", () => {
+  const result = buildDbAdminPanelMarkup({
+    hasAdminToken: true,
+    selectedEarningsDate: "2026-04-27",
+    dailyEarningsPatchDate: "2026-04-27",
+    dailyEarningsPatchTotal: "2332.79",
+    dailyEarningsPatchResult: {
+      earnings_date: "2026-04-27",
+      total_daily_earnings: 2332.79,
+      source: "manual"
+    },
+    dailyEarningsMaterializeResult: {
+      earnings_dates: ["2026-04-27"],
+      overrides_applied: 1,
+      fleet_snapshots_updated: 3,
+      fleet_snapshot_hourly_rollups_updated: 3
+    },
+    dbHealth: {
+      database: {
+        path: "/tmp/vast-monitor.db",
+        file_size_bytes: 2048,
+        row_counts: {
+          daily_earnings_overrides: 1
+        },
+        retention: { snapshot_days: 30, alert_days: 7, event_days: 7 },
+        derived_state: { fleet_snapshot_state_version: "1", fleet_snapshot_state_updated_at: null }
+      }
+    }
+  });
+
+  assert.match(result.markup, /Daily Earnings Patch/);
+  assert.match(result.markup, /daily-earnings-date/);
+  assert.match(result.markup, /daily-earnings-total/);
+  assert.match(result.markup, /Apply Patch/);
+  assert.match(result.markup, /Clear Patch/);
+  assert.match(result.markup, /Apply to History/);
+  assert.match(result.markup, /Patch Result/);
+  assert.match(result.markup, /History Result/);
+  assert.match(result.markup, /2332\.79/);
+});
+
 test("db admin panel renders rebuild action and rebuild result", () => {
   const warning = buildDbAdminPanelMarkup({
     hasAdminToken: true,
@@ -361,22 +402,28 @@ test("db admin panel renders rebuild action and rebuild result", () => {
         derived_state: { fleet_snapshot_state_version: "1", fleet_snapshot_state_updated_at: null }
       }
     },
-    rebuildResult: {
-      completed_at: "2026-04-01T14:00:00.000Z",
-      duration_ms: 250,
-      rebuilt: {
-        fleet_snapshots: 12,
-        fleet_snapshot_hourly_rollups: 4,
-        machine_snapshot_hourly_rollups: 7,
-        gpu_type_utilization_hourly_rollups: 5,
-        gpu_type_price_hourly_rollups: 5
+      rebuildResult: {
+        completed_at: "2026-04-01T14:00:00.000Z",
+        duration_ms: 250,
+        rebuilt: {
+          fleet_snapshots: 12,
+          fleet_snapshot_hourly_rollups: 4,
+          machine_snapshot_hourly_rollups: 7,
+          gpu_type_utilization_hourly_rollups: 5,
+          gpu_type_price_hourly_rollups: 5
+        },
+        materialized: {
+          overrides_applied: 1,
+          fleet_snapshots_updated: 3,
+          fleet_snapshot_hourly_rollups_updated: 3
+        }
       }
-    }
-  });
+    });
 
   assert.match(warning.markup, /Rebuild Derived/);
   assert.match(warning.markup, /currently retained raw snapshot history/i);
   assert.match(result.markup, /Rebuild Result/);
   assert.match(result.markup, /12/);
   assert.match(result.markup, /5 \/ 5/);
+  assert.match(result.markup, /Daily earnings overrides applied/);
 });

@@ -197,7 +197,7 @@ The dashboard includes:
 - When historical Vast benchmark data starts later than the visible fleet-history window, the chart backfills the leading gap with the first available benchmark value so the comparison line starts at the beginning of the visible range
 - When no historical Vast benchmark data exists for the selected series, the chart falls back to a dashed synthetic benchmark line derived from the current benchmark value across the visible range
 - GPU-type pricing trends using listed-only weighted averages
-- `Hourly Earnings Overview` with previous/next day navigation, rolling total, and average hourly earnings
+- `Hourly Earnings Overview` with previous/next day navigation, rolling total anchored to the latest stored daily total, and average hourly earnings
 - Per-section source/freshness labels for summary, breakdown, hourly earnings, fleet trends, alerts, and poll monitor
 - Sortable machine table
 - Machine table split into `Main View` and `Archived` tabs, where archived machines are offline for more than 24 hours
@@ -215,7 +215,8 @@ The dashboard includes:
 - Compact poll monitor panel with latest poll timings and counts
 - Dedicated `DB Admin` dashboard panel that uses the optional admin token from Settings to show database size, row counts, retention state, derived-state version info, recent maintenance history, per-route timing metrics, and a retention dry-run preview
 - `DB Admin` also surfaces external benchmark snapshot counts plus current benchmark health/freshness so operators can see whether Vast comparison data is live, cached, or unavailable
-- `DB Admin` also supports safe operator actions such as `Analyze`, `Vacuum`, retention dry-run preview, and on-demand derived-state rebuilds, with explicit confirmation for destructive actions, diagnostics copy/download, and background execution for heavier maintenance
+- `DB Admin` also supports safe operator actions such as `Analyze`, `Vacuum`, retention dry-run preview, daily earnings patches, daily earnings history materialization, and on-demand derived-state rebuilds, with explicit confirmation for destructive actions, diagnostics copy/download, and background execution for heavier maintenance
+- daily earnings history materialization replays the selected UTC-day override into fleet snapshots and hourly rollups so historical charts can be recalculated when needed
 - recent maintenance history in `DB Admin` now includes expandable result/error details for troubleshooting
 - `DB Admin` also shows inline warnings for disabled retention, large DB size, and active maintenance
 - Per-machine history modal with tabbed `Charts` and `Recent Events` views
@@ -417,7 +418,7 @@ Validation:
 
 ### `GET /api/earnings/hourly?date=YYYY-MM-DD`
 
-Returns hourly earnings buckets for a UTC date.
+Returns hourly earnings buckets for a UTC date, scaled to the latest stored daily total for that date so the overview matches the daily earnings snapshot. If a DB Admin daily-earnings override exists for that UTC day, the override takes precedence.
 
 ### `GET /api/earnings/machine?machine_id=49697&hours=168`
 
