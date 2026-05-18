@@ -156,6 +156,7 @@ export class FleetMonitor {
           hostname: previous?.hostname || registryMachine.hostname,
           gpu_type: previous?.gpu_type || registryMachine.gpu_type || null,
           num_gpus: previous?.num_gpus || registryMachine.num_gpus || 0,
+          listed_min_gpu_count: previous?.listed_min_gpu_count ?? registryMachine.listed_min_gpu_count ?? null,
           occupancy: "",
           occupied_gpus: 0,
           current_rentals_running: 0,

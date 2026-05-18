@@ -65,6 +65,7 @@ export function buildModalSummaryMarkup(machine, machineHistory = []) {
   }
   const commercialItems = [
     ["Price", machine.listed_gpu_cost == null ? "-" : renderSummaryPrice(machine)],
+    ["Min GPUs", renderSummaryMinGpuCount(machine)],
     ["Earn/day", escapeHtml(machine.earn_day == null ? "-" : formatPriceShort(machine.earn_day))]
   ];
 
@@ -292,6 +293,15 @@ function renderSummaryPrice(machine) {
   }
 
   return `${currentPrice} ${machine.price_change_direction === "up" ? "↑" : "↓"} ${formatSignedCurrency(machine.listed_gpu_cost - machine.previous_listed_gpu_cost)}`;
+}
+
+function renderSummaryMinGpuCount(machine) {
+  const minGpuCount = Number(machine?.listed_min_gpu_count);
+  if (!Number.isFinite(minGpuCount) || minGpuCount <= 0) {
+    return "-";
+  }
+
+  return `${minGpuCount} GPU${minGpuCount === 1 ? "" : "s"}`;
 }
 
 function renderModalSummarySection(title, items) {

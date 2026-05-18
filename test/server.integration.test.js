@@ -14,7 +14,7 @@ test("server integration returns expected API payloads and dependency failures",
   db.recordPoll({
     timestamp: new Date().toISOString(),
     machines: [
-      makeMachine({ machine_id: 1, hostname: "alpha", gpu_type: "A100", num_gpus: 4, occupied_gpus: 3, listed_gpu_cost: 1.25, earn_day: 25 }),
+      makeMachine({ machine_id: 1, hostname: "alpha", gpu_type: "A100", num_gpus: 4, listed_min_gpu_count: 2, occupied_gpus: 3, listed_gpu_cost: 1.25, earn_day: 25 }),
       makeMachine({ machine_id: 2, hostname: "beta", gpu_type: "H100", num_gpus: 2, occupied_gpus: 1, listed_gpu_cost: 2.5, earn_day: 30, hosting_type: 0, is_datacenter: 0, datacenter_id: null })
     ],
     offlineMachines: [],
@@ -222,6 +222,7 @@ test("server integration returns expected API payloads and dependency failures",
     assert.equal(status.body.observability.lastPollDurationMs, 3200);
     assert.equal(status.body.machines.find((machine) => machine.machine_id === 1)?.owner_name, "Alice");
     assert.equal(status.body.machines.find((machine) => machine.machine_id === 1)?.team_name, "Inference");
+    assert.equal(status.body.machines.find((machine) => machine.machine_id === 1)?.listed_min_gpu_count, 2);
     assert.equal(status.body.machines.find((machine) => machine.machine_id === 1)?.has_new_report_72h, true);
     assert.equal(status.body.machines.find((machine) => machine.machine_id === 2)?.has_new_report_72h, false);
     assert.equal(decoratedDbRefs.length, 2);
@@ -473,6 +474,7 @@ test("status excludes machines offline for more than 24 hours from fleet summary
         hostname: "beta",
         gpu_type: "H100",
         num_gpus: 2,
+        listed_min_gpu_count: 3,
         listed: 0,
         occupied_gpus: 0,
         current_rentals_running: 0,
@@ -507,6 +509,7 @@ test("status excludes machines offline for more than 24 hours from fleet summary
     assert.equal(status.body.summary.unlistedGpus, 0);
     assert.equal(status.body.machines.length, 2);
     assert.equal(status.body.machines.find((machine) => machine.machine_id === 2)?.status, "offline");
+    assert.equal(status.body.machines.find((machine) => machine.machine_id === 2)?.listed_min_gpu_count, 3);
   } finally {
     db.db.close();
   }

@@ -23,6 +23,7 @@ test("normalizeMachine derives occupancy, status, maintenance, and idle state", 
     hostname: "host-12",
     gpu_name: "RTX 4090",
     num_gpus: "4",
+    listed_min_gpu_count: "2",
     gpu_occupancy: "D D -",
     current_rentals_running: "0",
     listed: false,
@@ -40,6 +41,7 @@ test("normalizeMachine derives occupancy, status, maintenance, and idle state", 
 
   assert.equal(normalized.machine_id, 12);
   assert.equal(normalized.occupied_gpus, 2);
+  assert.equal(normalized.listed_min_gpu_count, 2);
   assert.equal(normalized.status, "offline");
   assert.equal(normalized.listed, 0);
   assert.equal(normalized.host_id, null);

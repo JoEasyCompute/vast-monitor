@@ -196,6 +196,7 @@ export function normalizeMachine(machine, now = new Date().toISOString()) {
     hostname: machine.hostname || `machine-${machine.machine_id ?? machine.id}`,
     gpu_type: machine.gpu_name || "Unknown",
     num_gpus: Number(machine.num_gpus || 0),
+    listed_min_gpu_count: intOrNull(machine.listed_min_gpu_count),
     occupancy,
     occupied_gpus: occupiedGpus,
     current_rentals_running: Number(machine.current_rentals_running || 0),

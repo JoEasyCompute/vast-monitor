@@ -179,7 +179,7 @@ export function buildMachineRowsMarkup(rows, uiSettings) {
         <td class="listed-cell">${renderListed(row)}</td>
         <td class="maint-cell">${renderMaintenanceCheckbox(row)}</td>
         <td class="machine-col-hostname">${renderHostnameCell(row)}</td>
-        <td class="machine-col-gpu">${escapeHtml(row.gpu_type)}</td>
+        <td class="machine-col-gpu">${renderGpuTypeCell(row)}</td>
         <td>${row.num_gpus}</td>
         <td class="machine-col-occupancy">${renderOccupancy(row)}</td>
         <td class="machine-col-price">${renderPriceCell(row)}</td>
@@ -271,6 +271,20 @@ function renderHostnameCell(row) {
     <div class="machine-hostname-cell">
       <div>${escapeHtml(row.hostname)}</div>
       <div class="machine-submeta">${escapeHtml(assignment)}</div>
+    </div>
+  `;
+}
+
+function renderGpuTypeCell(row) {
+  const minGpuCount = Number(row.listed_min_gpu_count);
+  const minGpuLabel = Number.isFinite(minGpuCount) && minGpuCount > 1
+    ? `<div class="machine-submeta" title="Minimum GPUs that must be rented together">Min ${minGpuCount} GPU${minGpuCount === 1 ? "" : "s"}</div>`
+    : "";
+
+  return `
+    <div class="machine-gpu-cell">
+      <div>${escapeHtml(row.gpu_type)}</div>
+      ${minGpuLabel}
     </div>
   `;
 }

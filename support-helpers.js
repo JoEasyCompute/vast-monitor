@@ -13,6 +13,7 @@ export function makeMachine(overrides = {}) {
     hostname: "host-1",
     gpu_type: "RTX 4090",
     num_gpus: 2,
+    listed_min_gpu_count: 1,
     occupancy: "D -",
     occupied_gpus: 1,
     current_rentals_running: 1,

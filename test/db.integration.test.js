@@ -340,11 +340,15 @@ test("database startup records applied schema migrations on fresh databases", ()
       {
         id: "007_daily_earnings_overrides",
         description: "Persist operator-adjusted daily earnings overrides"
+      },
+      {
+        id: "008_machine_min_gpu_count",
+        description: "Persist Vast minimum rentable GPU grouping on machines"
       }
     ]);
 
     const dbHealth = store.getDatabaseHealth();
-    assert.equal(dbHealth.row_counts.schema_migrations, 7);
+    assert.equal(dbHealth.row_counts.schema_migrations, 8);
     assert.equal(dbHealth.schema_migrations[0].id, "001_managed_schema_baseline");
     assert.equal(dbHealth.schema_migrations[1].id, "002_maintenance_runs");
     assert.equal(dbHealth.schema_migrations[2].id, "003_maintenance_locks");
@@ -352,6 +356,7 @@ test("database startup records applied schema migrations on fresh databases", ()
     assert.equal(dbHealth.schema_migrations[4].id, "005_platform_gpu_metric_hourly_rollups");
     assert.equal(dbHealth.schema_migrations[5].id, "006_machine_verification_metadata");
     assert.equal(dbHealth.schema_migrations[6].id, "007_daily_earnings_overrides");
+    assert.equal(dbHealth.schema_migrations[7].id, "008_machine_min_gpu_count");
   } finally {
     store.db.close();
   }
@@ -428,15 +433,19 @@ test("database startup upgrades legacy schema through managed migrations", () =>
 
   try {
     const machineStateColumns = store.db.prepare("PRAGMA table_info(machine_state)").all().map((row) => row.name);
+    const machineRegistryColumns = store.db.prepare("PRAGMA table_info(machine_registry)").all().map((row) => row.name);
     const machineSnapshotColumns = store.db.prepare("PRAGMA table_info(machine_snapshots)").all().map((row) => row.name);
     const migrations = store.db.prepare("SELECT id FROM schema_migrations ORDER BY id ASC").all();
 
+    assert.ok(machineRegistryColumns.includes("listed_min_gpu_count"));
     assert.ok(machineStateColumns.includes("public_ipaddr"));
     assert.ok(machineStateColumns.includes("listed"));
+    assert.ok(machineStateColumns.includes("listed_min_gpu_count"));
     assert.ok(machineStateColumns.includes("is_datacenter"));
     assert.ok(machineStateColumns.includes("verified"));
     assert.ok(machineStateColumns.includes("verification"));
     assert.ok(machineSnapshotColumns.includes("listed"));
+    assert.ok(machineSnapshotColumns.includes("listed_min_gpu_count"));
     assert.ok(machineSnapshotColumns.includes("last_seen_at"));
     assert.ok(machineSnapshotColumns.includes("is_datacenter"));
     assert.ok(machineSnapshotColumns.includes("verified"));
@@ -448,7 +457,8 @@ test("database startup upgrades legacy schema through managed migrations", () =>
       { id: "004_platform_gpu_metric_snapshots" },
       { id: "005_platform_gpu_metric_hourly_rollups" },
       { id: "006_machine_verification_metadata" },
-      { id: "007_daily_earnings_overrides" }
+      { id: "007_daily_earnings_overrides" },
+      { id: "008_machine_min_gpu_count" }
     ]);
   } finally {
     store.db.close();

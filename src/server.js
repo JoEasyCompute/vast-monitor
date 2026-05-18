@@ -536,6 +536,7 @@ async function buildFleetResponse(fleet, config, db, monitor, plugins = [], plat
     hostname: machine.hostname,
     gpu_type: machine.gpu_type,
     num_gpus: machine.num_gpus,
+    listed_min_gpu_count: machine.listed_min_gpu_count,
     occupancy: machine.occupancy || "",
     occupied_gpus: machine.occupied_gpus || 0,
     current_rentals_running: machine.current_rentals_running || 0,

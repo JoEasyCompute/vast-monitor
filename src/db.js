@@ -30,6 +30,7 @@ const SCHEMA_MIGRATIONS = [
           hostname TEXT NOT NULL,
           gpu_type TEXT,
           num_gpus INTEGER,
+          listed_min_gpu_count INTEGER,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
         );
@@ -39,6 +40,7 @@ const SCHEMA_MIGRATIONS = [
           hostname TEXT NOT NULL,
           gpu_type TEXT,
           num_gpus INTEGER,
+          listed_min_gpu_count INTEGER,
           status TEXT NOT NULL,
           occupancy TEXT,
           occupied_gpus INTEGER,
@@ -126,6 +128,7 @@ const SCHEMA_MIGRATIONS = [
           hostname TEXT NOT NULL,
           gpu_type TEXT,
           num_gpus INTEGER,
+          listed_min_gpu_count INTEGER,
           occupancy TEXT,
           occupied_gpus INTEGER,
           current_rentals_running INTEGER,
@@ -253,6 +256,7 @@ const SCHEMA_MIGRATIONS = [
         ["idle_since", "TEXT"],
         ["public_ipaddr", "TEXT"],
         ["listed", "INTEGER NOT NULL DEFAULT 1"],
+        ["listed_min_gpu_count", "INTEGER"],
         ["host_id", "INTEGER"],
         ["error_message", "TEXT"],
         ["machine_maintenance", "TEXT"],
@@ -268,6 +272,7 @@ const SCHEMA_MIGRATIONS = [
       ensureColumns(db, "machine_snapshots", [
         ["host_id", "INTEGER"],
         ["listed", "INTEGER NOT NULL DEFAULT 1"],
+        ["listed_min_gpu_count", "INTEGER"],
         ["error_message", "TEXT"],
         ["machine_maintenance", "TEXT"],
         ["last_seen_at", "TEXT"],
@@ -277,6 +282,10 @@ const SCHEMA_MIGRATIONS = [
         ["datacenter_id", "INTEGER"],
         ["verified", "INTEGER"],
         ["verification", "TEXT"]
+      ]);
+
+      ensureColumns(db, "machine_registry", [
+        ["listed_min_gpu_count", "INTEGER"]
       ]);
 
       return {
@@ -425,6 +434,25 @@ const SCHEMA_MIGRATIONS = [
 
       return {};
     }
+  },
+  {
+    id: "008_machine_min_gpu_count",
+    description: "Persist Vast minimum rentable GPU grouping on machines",
+    up(db) {
+      ensureColumns(db, "machine_registry", [
+        ["listed_min_gpu_count", "INTEGER"]
+      ]);
+
+      ensureColumns(db, "machine_state", [
+        ["listed_min_gpu_count", "INTEGER"]
+      ]);
+
+      ensureColumns(db, "machine_snapshots", [
+        ["listed_min_gpu_count", "INTEGER"]
+      ]);
+
+      return {};
+    }
   }
 ];
 
@@ -565,24 +593,25 @@ export function createDatabase(dbPath, options = {}) {
         total_daily_earnings = excluded.total_daily_earnings
     `),
     upsertRegistry: db.prepare(`
-      INSERT INTO machine_registry (machine_id, hostname, gpu_type, num_gpus, created_at, updated_at)
-      VALUES (@machine_id, @hostname, @gpu_type, @num_gpus, @timestamp, @timestamp)
+      INSERT INTO machine_registry (machine_id, hostname, gpu_type, num_gpus, listed_min_gpu_count, created_at, updated_at)
+      VALUES (@machine_id, @hostname, @gpu_type, @num_gpus, @listed_min_gpu_count, @timestamp, @timestamp)
       ON CONFLICT(machine_id) DO UPDATE SET
         hostname = excluded.hostname,
         gpu_type = excluded.gpu_type,
         num_gpus = excluded.num_gpus,
+        listed_min_gpu_count = excluded.listed_min_gpu_count,
         updated_at = excluded.updated_at
     `),
     upsertState: db.prepare(`
       INSERT INTO machine_state (
         machine_id, hostname, gpu_type, num_gpus, status, occupancy, occupied_gpus,
-        current_rentals_running, listed, listed_gpu_cost, reliability, gpu_max_cur_temp, earn_day,
+        current_rentals_running, listed, listed_min_gpu_count, listed_gpu_cost, reliability, gpu_max_cur_temp, earn_day,
         num_reports, num_recent_reports, prev_day_reports, reports_changed, error_message, machine_maintenance,
         last_seen_at, last_online_at, idle_since, host_id, hosting_type, is_datacenter, datacenter_id, verified, verification,
         temp_alert_active, idle_alert_active, updated_at, public_ipaddr
       ) VALUES (
         @machine_id, @hostname, @gpu_type, @num_gpus, @status, @occupancy, @occupied_gpus,
-        @current_rentals_running, @listed, @listed_gpu_cost, @reliability, @gpu_max_cur_temp, @earn_day,
+        @current_rentals_running, @listed, @listed_min_gpu_count, @listed_gpu_cost, @reliability, @gpu_max_cur_temp, @earn_day,
         @num_reports, @num_recent_reports, @prev_day_reports, @reports_changed, @error_message, @machine_maintenance,
         @last_seen_at, @last_online_at, @idle_since, @host_id, @hosting_type, @is_datacenter, @datacenter_id, @verified, @verification,
         @temp_alert_active, @idle_alert_active, @updated_at, @public_ipaddr
@@ -591,6 +620,7 @@ export function createDatabase(dbPath, options = {}) {
         hostname = excluded.hostname,
         gpu_type = excluded.gpu_type,
         num_gpus = excluded.num_gpus,
+        listed_min_gpu_count = excluded.listed_min_gpu_count,
         status = excluded.status,
         occupancy = excluded.occupancy,
         occupied_gpus = excluded.occupied_gpus,
@@ -622,12 +652,12 @@ export function createDatabase(dbPath, options = {}) {
     `),
     insertSnapshot: db.prepare(`
       INSERT INTO machine_snapshots (
-        poll_id, polled_at, machine_id, hostname, gpu_type, num_gpus, occupancy,
+        poll_id, polled_at, machine_id, hostname, gpu_type, num_gpus, listed_min_gpu_count, occupancy,
         occupied_gpus, current_rentals_running, listed, listed_gpu_cost, reliability,
         gpu_max_cur_temp, earn_day, num_reports, num_recent_reports, error_message, machine_maintenance, last_seen_at, last_online_at, host_id, hosting_type,
         is_datacenter, datacenter_id, verified, verification, status
       ) VALUES (
-        @poll_id, @polled_at, @machine_id, @hostname, @gpu_type, @num_gpus, @occupancy,
+        @poll_id, @polled_at, @machine_id, @hostname, @gpu_type, @num_gpus, @listed_min_gpu_count, @occupancy,
         @occupied_gpus, @current_rentals_running, @listed, @listed_gpu_cost, @reliability,
         @gpu_max_cur_temp, @earn_day, @num_reports, @num_recent_reports, @error_message, @machine_maintenance, @last_seen_at, @last_online_at, @host_id, @hosting_type,
         @is_datacenter, @datacenter_id, @verified, @verification, @status
@@ -648,10 +678,10 @@ export function createDatabase(dbPath, options = {}) {
       SELECT * FROM machine_state WHERE machine_id = ?
     `),
     selectKnownMachines: db.prepare(`
-      SELECT machine_id, hostname, gpu_type, num_gpus FROM machine_registry
+      SELECT machine_id, hostname, gpu_type, num_gpus, listed_min_gpu_count FROM machine_registry
     `),
     selectSnapshotsSince: db.prepare(`
-      SELECT polled_at, status, occupancy, num_gpus, occupied_gpus, current_rentals_running, reliability, gpu_max_cur_temp, listed_gpu_cost, earn_day
+      SELECT polled_at, status, occupancy, num_gpus, listed_min_gpu_count, occupied_gpus, current_rentals_running, reliability, gpu_max_cur_temp, listed_gpu_cost, earn_day
       FROM machine_snapshots
       WHERE machine_id = ? AND polled_at >= ?
       ORDER BY polled_at ASC
@@ -818,12 +848,12 @@ export function createDatabase(dbPath, options = {}) {
       ORDER BY bucket_start ASC
     `),
     selectMachineSnapshotsByPollId: db.prepare(`
-      SELECT listed, num_gpus, listed_gpu_cost
+      SELECT listed, num_gpus, listed_min_gpu_count, listed_gpu_cost
       FROM machine_snapshots
       WHERE poll_id = ?
     `),
     selectFleetSnapshotBackfillMachinesByPollId: db.prepare(`
-      SELECT machine_id, hostname, num_gpus, status, occupied_gpus,
+      SELECT machine_id, hostname, num_gpus, listed_min_gpu_count, status, occupied_gpus,
              listed, earn_day, is_datacenter, last_seen_at, last_online_at
       FROM machine_snapshots
       WHERE poll_id = ?
@@ -874,7 +904,7 @@ export function createDatabase(dbPath, options = {}) {
       ORDER BY polled_at ASC, canonical_gpu_type ASC
     `),
     selectMachineSnapshotsBefore: db.prepare(`
-      SELECT polled_at, machine_id, hostname, gpu_type, status, occupancy, num_gpus, occupied_gpus,
+      SELECT polled_at, machine_id, hostname, gpu_type, status, occupancy, num_gpus, listed_min_gpu_count, occupied_gpus,
              current_rentals_running, reliability, gpu_max_cur_temp, listed_gpu_cost, earn_day,
              listed, last_seen_at, last_online_at
       FROM machine_snapshots
@@ -882,7 +912,7 @@ export function createDatabase(dbPath, options = {}) {
       ORDER BY machine_id ASC, polled_at ASC
     `),
     selectAllMachineSnapshotsForRollups: db.prepare(`
-      SELECT polled_at, machine_id, hostname, gpu_type, status, occupancy, num_gpus, occupied_gpus,
+      SELECT polled_at, machine_id, hostname, gpu_type, status, occupancy, num_gpus, listed_min_gpu_count, occupied_gpus,
              current_rentals_running, reliability, gpu_max_cur_temp, listed_gpu_cost, earn_day,
              listed, last_seen_at, last_online_at
       FROM machine_snapshots

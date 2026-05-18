@@ -149,6 +149,18 @@ test("machine-table supports exact multi-select GPU-type filters", () => {
   assert.deepEqual(getAvailableGpuTypes(machines), ["A100", "H100", "RTX 4090"]);
 });
 
+test("machine-table shows minimum GPUs in the GPU cell when the listing requires more than one", () => {
+  const markup = buildMachineRowsMarkup([
+    makeMachineRow({ machine_id: 12, gpu_type: "H100", listed_min_gpu_count: 2 })
+  ], {
+    lowReliabilityPct: 90,
+    highTemperatureC: 85
+  });
+
+  assert.match(markup, /machine-gpu-cell/);
+  assert.match(markup, /Min 2 GPUs/);
+});
+
 test("machine-table empty states distinguish filtered and archived views", () => {
   assert.equal(
     buildMachineEmptyStateMessage(0, defaultFilters({ search: "missing" }), "active"),
@@ -187,6 +199,7 @@ test("machine modal renter total uses initial renters plus positive increases on
 test("machine modal summary markup includes renter total", () => {
   const markup = buildModalSummaryMarkup(makeMachineRow({
     current_rentals_running: 4,
+    listed_min_gpu_count: 2,
     reliability: 0.99,
     verified: null,
     verification: "verified"
@@ -197,6 +210,8 @@ test("machine modal summary markup includes renter total", () => {
   ]);
 
   assert.match(markup, /Renter Total \/ Rentals/);
+  assert.match(markup, /Min GPUs/);
+  assert.match(markup, /2 GPUs/);
   assert.doesNotMatch(markup, /Verification/);
   assert.match(markup, /<span>5<\/span>/);
   assert.match(markup, /<span>4<\/span>/);
@@ -398,6 +413,7 @@ function makeMachineRow(overrides = {}) {
     hostname: "alpha",
     gpu_type: "A100",
     num_gpus: 4,
+    listed_min_gpu_count: 1,
     listed: true,
     is_datacenter: false,
     verified: null,
