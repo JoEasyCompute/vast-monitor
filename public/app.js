@@ -132,6 +132,7 @@ const filterTeam = document.getElementById("filter-team") || createOptionalEleme
 const filterErrors = document.getElementById("filter-errors");
 const filterReports = document.getElementById("filter-reports");
 const filterMaint = document.getElementById("filter-maint");
+const filterMinRental = document.getElementById("filter-min-rental");
 const filterReset = document.getElementById("filter-reset");
 const activeGpuFilterRow = document.getElementById("machine-active-filter-row");
 const activeGpuFilterSummary = document.getElementById("machine-active-filter-summary");
@@ -277,7 +278,8 @@ function getMachineFilterState() {
     team: filterTeam.value,
     errors: filterErrors.checked,
     reports: filterReports.checked,
-    maint: filterMaint.checked
+    maint: filterMaint.checked,
+    minRental: filterMinRental.checked
   };
 }
 
@@ -700,6 +702,7 @@ function getActiveFilterCount() {
   if (filterErrors.checked) count += 1;
   if (filterReports.checked) count += 1;
   if (filterMaint.checked) count += 1;
+  if (filterMinRental.checked) count += 1;
   count += activeGpuFilters.length;
   return count;
 }
@@ -1485,6 +1488,7 @@ function initializeStateFromUrl() {
   filterErrors.checked = initialState.filterErrors;
   filterReports.checked = initialState.filterReports;
   filterMaint.checked = initialState.filterMaint;
+  filterMinRental.checked = initialState.filterMinRental;
   activeMachineView = initialState.activeMachineView;
 
   trendRange.querySelectorAll("[data-hours]").forEach((button) => {
@@ -1513,6 +1517,7 @@ function persistStateToUrl() {
     filterErrors: filterErrors.checked,
     filterReports: filterReports.checked,
     filterMaint: filterMaint.checked,
+    filterMinRental: filterMinRental.checked,
     activeMachineView
   });
   saveMachineFilters();
@@ -1530,6 +1535,7 @@ function saveMachineFilters() {
     errors: filterErrors.checked,
     reports: filterReports.checked,
     maint: filterMaint.checked,
+    minRental: filterMinRental.checked,
     machineTab: activeMachineView
   });
 }
@@ -1985,7 +1991,8 @@ bindDashboardControls({
     filterTeam,
     filterErrors,
     filterReports,
-    filterMaint
+    filterMaint,
+    filterMinRental
   ],
   filterReset,
   earningsPrevButton,
@@ -2200,6 +2207,7 @@ bindDashboardControls({
     filterErrors.checked = false;
     filterReports.checked = false;
     filterMaint.checked = false;
+    filterMinRental.checked = false;
     persistStateToUrl();
     renderBreakdown(currentGpuTypeBreakdown);
     renderMachinesSorted();

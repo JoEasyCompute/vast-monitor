@@ -120,6 +120,10 @@ export function getFilteredMachines(machines, filters, activeMachineView, nowMs 
       return false;
     }
 
+    if (filters.minRental && !matchesMinRentalFilter(row)) {
+      return false;
+    }
+
     return true;
   });
 }
@@ -211,6 +215,7 @@ export function buildMachineEmptyStateMessage(count, filters, activeMachineView)
     || filters.errors
     || filters.reports
     || filters.maint
+    || filters.minRental
   );
 
   if (!hasFilters) {
@@ -231,6 +236,9 @@ export function buildMachineEmptyStateMessage(count, filters, activeMachineView)
   }
   if (filters.errors || filters.reports || filters.maint) {
     hints.push("untoggle filter chips");
+  }
+  if (filters.minRental) {
+    hints.push("turn off Min rental");
   }
 
   const hintText = hints.length > 0
@@ -287,6 +295,18 @@ function renderGpuTypeCell(row) {
       ${minGpuLabel}
     </div>
   `;
+}
+
+function matchesMinRentalFilter(row, threshold = 8) {
+  const totalGpuCount = Number(row.num_gpus);
+  const minGpuCount = Number(row.listed_min_gpu_count);
+  if (!Number.isFinite(totalGpuCount) || totalGpuCount < threshold) {
+    return false;
+  }
+  if (!Number.isFinite(minGpuCount)) {
+    return false;
+  }
+  return minGpuCount < threshold;
 }
 
 function renderRentalsCell(row) {

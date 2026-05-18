@@ -149,6 +149,19 @@ test("machine-table supports exact multi-select GPU-type filters", () => {
   assert.deepEqual(getAvailableGpuTypes(machines), ["A100", "H100", "RTX 4090"]);
 });
 
+test("machine-table min rental filter keeps only 8+ GPU machines with sub-8 minimum rental size", () => {
+  const machines = [
+    makeMachineRow({ machine_id: 11, num_gpus: 8, listed_min_gpu_count: 4 }),
+    makeMachineRow({ machine_id: 22, num_gpus: 8, listed_min_gpu_count: 8 }),
+    makeMachineRow({ machine_id: 33, num_gpus: 4, listed_min_gpu_count: 1 }),
+    makeMachineRow({ machine_id: 44, num_gpus: 16, listed_min_gpu_count: 2 })
+  ];
+
+  const filtered = getFilteredMachines(machines, defaultFilters({ minRental: true }), "active", NOW_MS);
+
+  assert.deepEqual(filtered.map((row) => row.machine_id), [11, 44]);
+});
+
 test("machine-table shows minimum GPUs in the GPU cell when the listing requires more than one", () => {
   const markup = buildMachineRowsMarkup([
     makeMachineRow({ machine_id: 12, gpu_type: "H100", listed_min_gpu_count: 2 })
@@ -259,6 +272,7 @@ test("ui-state loaders sanitize persisted values", () => {
         gpuTypes: ["A100", "H100"],
         errors: true,
         reports: true,
+        minRental: true,
         maint: false,
         machineTab: "archived"
       })
@@ -296,6 +310,7 @@ test("ui-state loaders sanitize persisted values", () => {
       gpuTypes: ["A100", "H100"],
       errors: true,
       reports: true,
+      minRental: true,
       maint: false,
       machineTab: "archived"
     });
@@ -326,10 +341,11 @@ test("ui-state reads initial values from URL and persists trimmed state back to 
         gpuTypes: ["RTX 4090"],
         errors: false,
         reports: false,
+        minRental: true,
         maint: false,
         machineTab: "active"
       },
-      searchParams: new URLSearchParams("sort=machine_id&desc=1&trend_hours=24&earnings_date=2026-03-20&search= beta &status=offline&gpu_types=A100,H100&reports=1&machine_tab=archived")
+      searchParams: new URLSearchParams("sort=machine_id&desc=1&trend_hours=24&earnings_date=2026-03-20&search= beta &status=offline&gpu_types=A100,H100&reports=1&min_rental=1&machine_tab=archived")
     });
 
     assert.deepEqual(initial, {
@@ -346,6 +362,7 @@ test("ui-state reads initial values from URL and persists trimmed state back to 
       filterGpuTypes: ["A100", "H100"],
       filterErrors: false,
       filterReports: true,
+      filterMinRental: true,
       filterMaint: false,
       activeMachineView: "archived"
     });
@@ -365,6 +382,7 @@ test("ui-state reads initial values from URL and persists trimmed state back to 
       filterGpuTypes: ["A100", "H100"],
       filterErrors: false,
       filterReports: true,
+      filterMinRental: true,
       filterMaint: false,
       activeMachineView: "archived"
     });
@@ -373,7 +391,7 @@ test("ui-state reads initial values from URL and persists trimmed state back to 
       {
         state: {},
         title: "",
-        url: "/dashboard?sort=machine_id&desc=1&trend_hours=24&earnings_date=2026-03-20&search=beta&status=offline&owner=ops&team=platform&gpu_types=A100%2CH100&reports=1&machine_tab=archived"
+        url: "/dashboard?sort=machine_id&desc=1&trend_hours=24&earnings_date=2026-03-20&search=beta&status=offline&owner=ops&team=platform&gpu_types=A100%2CH100&reports=1&min_rental=1&machine_tab=archived"
       }
     ]);
   } finally {
@@ -448,6 +466,7 @@ function defaultFilters(overrides = {}) {
     gpuTypes: [],
     errors: false,
     reports: false,
+    minRental: false,
     maint: false,
     ...overrides
   };

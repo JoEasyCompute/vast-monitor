@@ -45,6 +45,7 @@ export function loadMachineFilters(storageKey) {
       errors: parsed.errors === true,
       reports: parsed.reports === true,
       maint: parsed.maint === true,
+      minRental: parsed.minRental === true,
       machineTab: parsed.machineTab === "archived" ? "archived" : "active"
     };
   } catch {
@@ -59,6 +60,7 @@ export function loadMachineFilters(storageKey) {
       errors: false,
       reports: false,
       maint: false,
+      minRental: false,
       machineTab: "active"
     };
   }
@@ -94,6 +96,7 @@ export function readInitialViewState({
     filterErrors: searchParams.has("errors") ? searchParams.get("errors") === "1" : savedMachineFilters.errors,
     filterReports: searchParams.has("reports") ? searchParams.get("reports") === "1" : savedMachineFilters.reports,
     filterMaint: searchParams.has("maint") ? searchParams.get("maint") === "1" : savedMachineFilters.maint,
+    filterMinRental: searchParams.has("min_rental") ? searchParams.get("min_rental") === "1" : savedMachineFilters.minRental,
     activeMachineView: searchParams.has("machine_tab")
       ? (searchParams.get("machine_tab") === "archived" ? "archived" : "active")
       : savedMachineFilters.machineTab
@@ -116,6 +119,7 @@ export function persistViewStateToUrl({
   filterErrors,
   filterReports,
   filterMaint,
+  filterMinRental,
   activeMachineView
 }) {
   const params = new URLSearchParams();
@@ -133,6 +137,7 @@ export function persistViewStateToUrl({
   if (filterErrors) params.set("errors", "1");
   if (filterReports) params.set("reports", "1");
   if (filterMaint) params.set("maint", "1");
+  if (filterMinRental) params.set("min_rental", "1");
   if (activeMachineView !== "active") params.set("machine_tab", activeMachineView);
 
   const nextUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
