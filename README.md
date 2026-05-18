@@ -11,7 +11,7 @@ It polls your hosted machines from Vast, enriches them with datacenter metadata,
 - Tracks listed vs unlisted machines and maintenance windows
 - Excludes machines that have been offline for more than 24 hours from fleet totals and trend charts while keeping them visible in the machine list
 - Captures machine-level error messages from Vast machine state
-- Tracks current machine state, machine snapshots including `listed_gpu_cost` history, fleet snapshots, alerts, and events in SQLite
+- Tracks current machine state, machine snapshots including `listed_gpu_cost` and `listed_min_gpu_count` history, fleet snapshots, alerts, and events in SQLite
 - Detects host up/down transitions and rental activity changes
 - Emits warning alerts when the same hostname appears multiple times in a single poll
 - Computes rolling uptime for `24h`, `7d`, and `30d`
@@ -202,6 +202,7 @@ The dashboard includes:
 - Sortable machine table
 - Machine table split into `Main View` and `Archived` tabs, where archived machines are offline for more than 24 hours
 - Compact single-row machine filter bar for search, status, listing, datacenter, dedicated GPU-type filters, errors, reports, and maintenance
+- Min rental machine filter for 8+ GPU machines whose minimum rentable group is below 8 GPUs
 - Inline machine filter summary showing visible machines plus the currently active filter terms
 - Active GPU-type filter chips with one-click removal and a result count summary
 - Machine filter reset button shows the number of active filters
@@ -223,6 +224,7 @@ The dashboard includes:
 - Clicking a machine row opens the machine history modal
 - Report badges support `Ctrl`/`Cmd`-click on desktop and long-press on touch devices to open the reports modal
 - Machine modal header shows the machine ID plus compact context badges/labels such as `DC`, GPU label, and clickable IP address
+- Machine modal commercial summary includes a `Min GPUs` card derived from the machine's `listed_min_gpu_count`
 - Machine modal machine ID and IP address support click-to-copy
 - Copy actions now show a small transient copied confirmation
 - Machine modal charts for historical earnings, renter activity, reliability, GPU rental price, and GPU count
@@ -300,6 +302,7 @@ Returns:
 - summary metrics
 - GPU type breakdown
 - current machine list
+- per-machine listing fields such as `listed_gpu_cost` and `listed_min_gpu_count`
 
 ### `GET /api/health`
 
