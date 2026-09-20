@@ -335,6 +335,24 @@ test("platform metrics client deduplicates concurrent refreshes behind one in-fl
   assert.deepEqual(firstResult.rows, secondResult.rows);
 });
 
+test("platform metrics client releases callers when an upstream fetch never settles", async () => {
+  const client = createPlatformMetricsClient({
+    timeoutMs: 20,
+    segmentUrl: null,
+    fetchImpl: () => new Promise(() => {})
+  });
+
+  const result = await Promise.race([
+    client.getSnapshot(),
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("platform metrics client remained stuck")), 250);
+    })
+  ]);
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /timed out/i);
+});
+
 test("platform metrics client obeys 429 retry-after cooldown and serves stale cache during backoff", async () => {
   let nowMs = Date.parse("2026-04-08T10:50:00.000Z");
   let shouldRateLimit = false;

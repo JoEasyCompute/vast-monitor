@@ -64,12 +64,16 @@ export function createPlatformMetricsClient({
 
       inFlightRefresh = (async () => {
         try {
-          const snapshot = await fetchPlatformGpuMetrics({
-            fetchImpl,
-            url,
-            segmentUrl,
-            timeoutMs
-          });
+          const snapshot = await withTimeout(
+            fetchPlatformGpuMetrics({
+              fetchImpl,
+              url,
+              segmentUrl,
+              timeoutMs
+            }),
+            timeoutMs,
+            `Timed out fetching platform GPU metrics after ${Math.round(timeoutMs / 1000)}s`
+          );
 
           cache = {
             rows: snapshot.rows,
@@ -128,6 +132,21 @@ export function createPlatformMetricsClient({
       return inFlightRefresh;
     }
   };
+}
+
+async function withTimeout(promise, timeoutMs, message) {
+  let timeoutHandle;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeoutHandle = setTimeout(() => reject(new Error(message)), timeoutMs);
+      })
+    ]);
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
 }
 
 export async function fetchPlatformGpuMetrics({
